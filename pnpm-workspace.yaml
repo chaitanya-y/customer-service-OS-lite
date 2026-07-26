@@ -1,0 +1,6 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "!apps/commerce-sandbox"
+allowBuilds:
+  esbuild: true
