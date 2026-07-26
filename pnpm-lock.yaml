@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  apps/integration-gateway:
+  deployables/integration-gateway:
     dependencies:
       fastify:
         specifier: ^5.10.0

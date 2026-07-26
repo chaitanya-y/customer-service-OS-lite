@@ -1,6 +1,6 @@
 packages:
-  - "apps/*"
+  - "deployables/*"
+  - "surfaces/*"
   - "packages/*"
-  - "!apps/commerce-sandbox"
 allowBuilds:
   esbuild: true
