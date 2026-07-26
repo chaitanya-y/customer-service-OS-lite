@@ -4,5 +4,15 @@
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=24 <25"
+  },
+  "scripts": {
+    "lint:proto": "buf lint contracts/internal-api/proto",
+    "test:contracts": "node --test tests/contract/*.test.mjs",
+    "check:contracts": "pnpm lint:proto && pnpm test:contracts"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.72.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
   }
 }

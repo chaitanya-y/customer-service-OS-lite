@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/ai-io/execution-evidence/v1",
+  "title": "ExecutionEvidenceV1",
+  "description": "Immutable version and evidence metadata for one agent turn or consequential action. It contains references, not raw customer content or hidden reasoning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "executionId",
+    "scope",
+    "recordedAt",
+    "traceId",
+    "dependencies",
+    "evidenceRefs"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "executionId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "scope": {
+      "enum": [
+        "TURN",
+        "ACTION"
+      ]
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "traceId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/dependencyVersions"
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceReference"
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "sha256Digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "dependencyVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentReleaseId",
+        "promptBundleVersion",
+        "modelRouteId",
+        "knowledgeReleaseId",
+        "guardrailVersion",
+        "evaluationVersion",
+        "toolContracts"
+      ],
+      "properties": {
+        "agentReleaseId": {
+          "$ref": "#/$defs/version"
+        },
+        "workflowBuildId": {
+          "$ref": "#/$defs/version"
+        },
+        "promptBundleVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "modelRouteId": {
+          "$ref": "#/$defs/version"
+        },
+        "knowledgeReleaseId": {
+          "$ref": "#/$defs/version"
+        },
+        "businessPolicy": {
+          "$ref": "#/$defs/policyDecisionRef"
+        },
+        "authorizationPolicy": {
+          "$ref": "#/$defs/policyDecisionRef"
+        },
+        "guardrailVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "evaluationVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "toolContracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolContractVersion"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "policyDecisionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "version"
+      ],
+      "properties": {
+        "decisionId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "toolContractVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolId",
+        "version"
+      ],
+      "properties": {
+        "toolId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "evidenceType",
+        "sourceVersion"
+      ],
+      "properties": {
+        "evidenceId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "evidenceType": {
+          "enum": [
+            "BUSINESS_FACT",
+            "KNOWLEDGE_CITATION",
+            "POLICY_DECISION",
+            "TOOL_OBSERVATION",
+            "HUMAN_DECISION"
+          ]
+        },
+        "sourceVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "contentDigest": {
+          "$ref": "#/$defs/sha256Digest"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1",
+  "resultType": "JOURNEY_PROPOSAL",
+  "proposalId": "refund-proposal-001",
+  "journeyType": "REFUND",
+  "turnId": "turn-001",
+  "intent": {
+    "orderId": "3",
+    "reasonCode": "CUSTOMER_REQUEST",
+    "scope": "FULL_ORDER",
+    "itemIds": []
+  },
+  "missingFields": [],
+  "evidenceIds": [
+    "order-observation-001"
+  ],
+  "executionEvidence": {
+    "schemaVersion": "1",
+    "executionId": "turn-execution-001",
+    "scope": "TURN",
+    "recordedAt": "2026-07-26T15:30:00Z",
+    "traceId": "trace-001",
+    "dependencies": {
+      "agentReleaseId": "refund-agent-v1",
+      "promptBundleVersion": "refund-prompts-v1",
+      "modelRouteId": "approved-primary-v1",
+      "knowledgeReleaseId": "refund-knowledge-v1",
+      "guardrailVersion": "guardrails-v1",
+      "evaluationVersion": "refund-eval-v1",
+      "toolContracts": [
+        {
+          "toolId": "lookup-order",
+          "version": "v1"
+        }
+      ]
+    },
+    "evidenceRefs": [
+      {
+        "evidenceId": "order-observation-001",
+        "evidenceType": "TOOL_OBSERVATION",
+        "sourceVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  }
+}

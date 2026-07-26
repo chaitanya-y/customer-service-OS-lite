@@ -99,7 +99,7 @@ Refund provider
 
 ## Version and release rules
 
-- Agent, prompt, knowledge, model-route, policy, tool-contract, workflow, and evaluation versions are recorded in the evidence vector for each applicable turn or action.
+- Agent, prompt, knowledge, model-route, policy, tool-contract, workflow, and evaluation versions are recorded in an `ExecutionEvidence` record for each applicable turn or action.
 - Knowledge release selection is stable within a turn and may advance between turns. Revocation takes effect immediately.
 - Business policy is deterministic, versioned, selected using current authoritative facts, and reevaluated before a consequential effect.
 - The policy version is bound to the action preview and customer confirmation. A material change invalidates confirmation and requires a new preview.

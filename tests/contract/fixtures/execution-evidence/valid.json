@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1",
+  "executionId": "turn-execution-001",
+  "scope": "TURN",
+  "recordedAt": "2026-07-26T15:30:00Z",
+  "traceId": "trace-001",
+  "dependencies": {
+    "agentReleaseId": "refund-agent-v1",
+    "promptBundleVersion": "refund-prompts-v1",
+    "modelRouteId": "approved-primary-v1",
+    "knowledgeReleaseId": "refund-knowledge-v1",
+    "guardrailVersion": "guardrails-v1",
+    "evaluationVersion": "refund-eval-v1",
+    "toolContracts": [
+      {
+        "toolId": "lookup-order",
+        "version": "v1"
+      }
+    ]
+  },
+  "evidenceRefs": [
+    {
+      "evidenceId": "order-observation-001",
+      "evidenceType": "TOOL_OBSERVATION",
+      "sourceVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "contentDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/tools/order-context/v1",
+  "title": "OrderContextV1",
+  "description": "Provider-neutral, authorization-filtered order observation returned by the Integration Gateway.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "observationId",
+    "observedAt",
+    "source",
+    "reference",
+    "status",
+    "active",
+    "placedAt",
+    "customerRef",
+    "total",
+    "items",
+    "payments",
+    "fulfillments"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "observationId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "placedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "customerRef": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/customerRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "total": {
+      "$ref": "#/$defs/money"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/orderItem"
+      }
+    },
+    "payments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/payment"
+      }
+    },
+    "fulfillments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fulfillment"
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "orderId",
+        "factsVersion"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "orderId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "factsVersion": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "customerRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "customerId"
+      ],
+      "properties": {
+        "customerId": {
+          "$ref": "#/$defs/opaqueId"
+        }
+      }
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amountMinor",
+        "currency"
+      ],
+      "properties": {
+        "amountMinor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "orderItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "itemId",
+        "sku",
+        "name",
+        "quantity",
+        "unitPrice",
+        "lineTotal"
+      ],
+      "properties": {
+        "itemId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sku": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unitPrice": {
+          "$ref": "#/$defs/money"
+        },
+        "lineTotal": {
+          "$ref": "#/$defs/money"
+        }
+      }
+    },
+    "payment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paymentId",
+        "status",
+        "amount",
+        "method"
+      ],
+      "properties": {
+        "paymentId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "fulfillment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fulfillmentId",
+        "status",
+        "method",
+        "trackingCode"
+      ],
+      "properties": {
+        "fulfillmentId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "trackingCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        }
+      }
+    }
+  }
+}

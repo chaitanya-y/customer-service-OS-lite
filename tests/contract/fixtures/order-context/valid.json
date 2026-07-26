@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1",
+  "observationId": "order-observation-001",
+  "observedAt": "2026-07-26T15:29:30Z",
+  "source": {
+    "provider": "vendure",
+    "orderId": "3",
+    "factsVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "reference": "AVV8JSZH8G6ZZDMX",
+  "status": "Delivered",
+  "active": false,
+  "placedAt": "2026-07-25T23:59:40.265Z",
+  "customerRef": {
+    "customerId": "2"
+  },
+  "total": {
+    "amountMinor": 168880,
+    "currency": "USD"
+  },
+  "items": [
+    {
+      "itemId": "3",
+      "sku": "LAPTOP-15",
+      "name": "Laptop 15 inch",
+      "quantity": 1,
+      "unitPrice": {
+        "amountMinor": 167880,
+        "currency": "USD"
+      },
+      "lineTotal": {
+        "amountMinor": 167880,
+        "currency": "USD"
+      }
+    }
+  ],
+  "payments": [
+    {
+      "paymentId": "2",
+      "status": "Settled",
+      "amount": {
+        "amountMinor": 168880,
+        "currency": "USD"
+      },
+      "method": "standard-payment"
+    }
+  ],
+  "fulfillments": [
+    {
+      "fulfillmentId": "2",
+      "status": "Delivered",
+      "method": "Test Courier",
+      "trackingCode": "TRACK-123"
+    }
+  ]
+}

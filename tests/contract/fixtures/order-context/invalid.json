@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1",
+  "observationId": "order-observation-001",
+  "observedAt": "2026-07-26T15:29:30Z",
+  "source": {
+    "provider": "vendure",
+    "orderId": "3",
+    "factsVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "reference": "AVV8JSZH8G6ZZDMX",
+  "status": "Delivered",
+  "active": false,
+  "placedAt": "2026-07-25T23:59:40.265Z",
+  "customerRef": {
+    "customerId": "2",
+    "email": "customer@example.com"
+  },
+  "total": {
+    "amountMinor": 168880,
+    "currency": "USD"
+  },
+  "items": [],
+  "payments": [],
+  "fulfillments": []
+}

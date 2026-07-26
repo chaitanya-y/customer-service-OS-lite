@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package customer_service_os.context.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// TrustedTenantContext is the verified, decoded representation of the
+// short-lived Internal Context Assertion. Public clients and models never
+// construct this message.
+message TrustedTenantContext {
+  string context_version = 1;
+  string context_id = 2;
+  TenantScope tenant = 3;
+  ActorRef actor = 4;
+  optional CustomerSubjectRef subject = 5;
+  DelegationRef delegation = 6;
+  VerificationContext verification = 7;
+  optional MembershipContext membership = 8;
+  Purpose purpose = 9;
+  RouteContext route = 10;
+  ContextProvenance provenance = 11;
+  RequestCorrelation request = 12;
+}
+
+message TenantScope {
+  string tenant_id = 1;
+  string environment_id = 2;
+  EnvironmentClass environment_class = 3;
+}
+
+enum EnvironmentClass {
+  ENVIRONMENT_CLASS_UNSPECIFIED = 0;
+  ENVIRONMENT_CLASS_DEV = 1;
+  ENVIRONMENT_CLASS_STAGING = 2;
+  ENVIRONMENT_CLASS_PRODUCTION = 3;
+}
+
+message ActorRef {
+  PrincipalKind kind = 1;
+  string principal_id = 2;
+  optional string membership_id = 3;
+  optional string session_id = 4;
+}
+
+enum PrincipalKind {
+  PRINCIPAL_KIND_UNSPECIFIED = 0;
+  PRINCIPAL_KIND_END_CUSTOMER = 1;
+  PRINCIPAL_KIND_TENANT_WORKFORCE = 2;
+  PRINCIPAL_KIND_PLATFORM_WORKFORCE = 3;
+  PRINCIPAL_KIND_WORKLOAD = 4;
+  PRINCIPAL_KIND_SYSTEM_CONTINUATION = 5;
+}
+
+message CustomerSubjectRef {
+  string customer_id = 1;
+  optional string account_id = 2;
+}
+
+message DelegationRef {
+  DelegationMode mode = 1;
+  optional string case_id = 2;
+  optional string delegation_id = 3;
+  optional string reason_code = 4;
+}
+
+enum DelegationMode {
+  DELEGATION_MODE_UNSPECIFIED = 0;
+  DELEGATION_MODE_SELF = 1;
+  DELEGATION_MODE_CASE_BOUND = 2;
+  DELEGATION_MODE_SYSTEM_CONTINUATION = 3;
+}
+
+message VerificationContext {
+  VerificationLevel level = 1;
+  optional string subject_customer_id = 2;
+  repeated string methods = 3;
+  optional google.protobuf.Timestamp verified_at = 4;
+  optional google.protobuf.Timestamp valid_until = 5;
+  Purpose purpose = 6;
+  repeated string resource_bindings = 7;
+  repeated string evidence_refs = 8;
+  string verification_version = 9;
+}
+
+enum VerificationLevel {
+  VERIFICATION_LEVEL_UNSPECIFIED = 0;
+  VERIFICATION_LEVEL_V0 = 1;
+  VERIFICATION_LEVEL_V1 = 2;
+  VERIFICATION_LEVEL_V2 = 3;
+  VERIFICATION_LEVEL_V3 = 4;
+  VERIFICATION_LEVEL_V4 = 5;
+}
+
+message MembershipContext {
+  string membership_id = 1;
+  repeated string role_ids = 2;
+  repeated string queue_ids = 3;
+  uint64 membership_epoch = 4;
+  uint64 tenant_access_epoch = 5;
+}
+
+enum Purpose {
+  PURPOSE_UNSPECIFIED = 0;
+  PURPOSE_CUSTOMER_SUPPORT = 1;
+  PURPOSE_TENANT_ADMIN = 2;
+  PURPOSE_KNOWLEDGE_ADMIN = 3;
+  PURPOSE_EVALUATION = 4;
+  PURPOSE_INCIDENT_BREAK_GLASS = 5;
+}
+
+message RouteContext {
+  string home_region = 1;
+  string home_cell = 2;
+  uint64 routing_epoch = 3;
+}
+
+message ContextProvenance {
+  string issuer = 1;
+  string audience = 2;
+  string authentication_event_id = 3;
+  google.protobuf.Timestamp issued_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  optional string parent_context_id = 6;
+}
+
+message RequestCorrelation {
+  string request_id = 1;
+  string trace_id = 2;
+  string channel_id = 3;
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1",
+  "decisionId": "policy-decision-001",
+  "journeyType": "REFUND",
+  "effect": "NEEDS_FACTS",
+  "policyVersion": "refund-policy-v1",
+  "inputFactsHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "factRefs": [
+    {
+      "factId": "order-observation-001",
+      "factType": "ORDER_CONTEXT",
+      "sourceVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "observedAt": "2026-07-26T15:29:30Z"
+    }
+  ],
+  "reasonCodes": [
+    "MISSING_REQUIRED_FACTS"
+  ],
+  "obligations": [],
+  "missingFacts": [],
+  "decidedAt": "2026-07-26T15:30:05Z"
+}

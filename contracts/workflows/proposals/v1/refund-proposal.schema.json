@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/workflows/proposals/v1/refund-proposal",
+  "title": "RefundProposalV1",
+  "description": "Untrusted but validated Agent Runtime proposal for the Temporal refund workflow. This contract never authorizes or executes a refund.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "resultType",
+    "proposalId",
+    "journeyType",
+    "turnId",
+    "intent",
+    "missingFields",
+    "evidenceIds",
+    "executionEvidence"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "resultType": {
+      "const": "JOURNEY_PROPOSAL"
+    },
+    "proposalId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "journeyType": {
+      "const": "REFUND"
+    },
+    "turnId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "workflowRef": {
+      "$ref": "#/$defs/workflowRef"
+    },
+    "intent": {
+      "$ref": "#/$defs/refundIntent"
+    },
+    "missingFields": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "ORDER_REFERENCE",
+          "REFUND_REASON",
+          "REFUND_SCOPE",
+          "ITEM_SELECTION"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "evidenceIds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/opaqueId"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "executionEvidence": {
+      "$ref": "https://customer-service-os.example/contracts/ai-io/execution-evidence/v1"
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "workflowRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflowId",
+        "expectedState",
+        "expectedStateVersion"
+      ],
+      "properties": {
+        "workflowId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "expectedState": {
+          "enum": [
+            "REQUESTED",
+            "COLLECTING_INFORMATION",
+            "CHECKING_ELIGIBILITY"
+          ]
+        },
+        "expectedStateVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "refundIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "orderId",
+        "reasonCode",
+        "scope",
+        "itemIds"
+      ],
+      "properties": {
+        "orderId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "scope": {
+          "enum": [
+            "FULL_ORDER",
+            "SELECTED_ITEMS",
+            "UNSPECIFIED"
+          ]
+        },
+        "itemIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/opaqueId"
+          },
+          "uniqueItems": true
+        },
+        "requestedAmount": {
+          "$ref": "#/$defs/money"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "SELECTED_ITEMS"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "properties": {
+              "itemIds": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "FULL_ORDER"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "properties": {
+              "itemIds": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amountMinor",
+        "currency"
+      ],
+      "properties": {
+        "amountMinor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    }
+  }
+}
