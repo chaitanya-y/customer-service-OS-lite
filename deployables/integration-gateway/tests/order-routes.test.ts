@@ -16,17 +16,34 @@ const order: CommerceOrder = {
   status: 'Delivered',
   active: false,
   placedAt: '2026-07-25T23:59:40.265Z',
-  customer: null,
+  customer: {
+    id: 'customer-42',
+    name: 'Private Customer',
+    email: 'private@example.com',
+  },
   total: {
     amountMinor: 10_000,
     currency: 'USD',
   },
   items: [],
-  payments: [],
+  payments: [
+    {
+      id: 'payment-1',
+      status: 'Settled',
+      amount: {
+        amountMinor: 10_000,
+        currency: 'USD',
+      },
+      method: 'standard-payment',
+      transactionReference: 'secret-transaction-reference',
+    },
+  ],
   fulfillments: [],
 };
 
-test('GET /v1/orders/:reference returns a canonical order', async (context) => {
+test('GET /v1/orders/:reference returns a safe order context', async (
+  context,
+) => {
   const commerceProvider: CommerceProvider = {
     async getOrderByReference() {
       return order;
@@ -41,7 +58,19 @@ test('GET /v1/orders/:reference returns a canonical order', async (context) => {
   });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), order);
+  const body = response.json();
+  assert.equal(body.schemaVersion, '1');
+  assert.equal(typeof body.observationId, 'string');
+  assert.equal(typeof body.observedAt, 'string');
+  assert.deepEqual(body.customerRef, {
+    customerId: 'customer-42',
+  });
+  assert.match(body.source.factsVersion, /^sha256:[a-f0-9]{64}$/);
+
+  const serializedBody = JSON.stringify(body);
+  assert.doesNotMatch(serializedBody, /Private Customer/);
+  assert.doesNotMatch(serializedBody, /private@example\.com/);
+  assert.doesNotMatch(serializedBody, /secret-transaction-reference/);
 });
 
 test('GET /v1/orders/:reference returns 404 for an unknown order', async (

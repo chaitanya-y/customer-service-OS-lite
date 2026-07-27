@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import type { CommerceProvider } from './commerce.js';
+import type { GetOrderContext } from './get-order-context.js';
 
 const orderReferenceSchema = z.string().trim().min(1).max(100);
 
@@ -11,7 +11,7 @@ type OrderRouteParams = {
 
 export function registerOrderRoutes(
   app: FastifyInstance,
-  commerceProvider: CommerceProvider,
+  getOrderContext: GetOrderContext,
 ): void {
   app.get<{ Params: OrderRouteParams }>(
     '/v1/orders/:orderReference',
@@ -30,11 +30,9 @@ export function registerOrderRoutes(
       }
 
       try {
-        const order = await commerceProvider.getOrderByReference(
-          parsedReference.data,
-        );
+        const orderContext = await getOrderContext(parsedReference.data);
 
-        if (!order) {
+        if (!orderContext) {
           return reply.code(404).send({
             error: {
               code: 'order_not_found',
@@ -43,7 +41,7 @@ export function registerOrderRoutes(
           });
         }
 
-        return order;
+        return orderContext;
       } catch (error) {
         request.log.error(
           {

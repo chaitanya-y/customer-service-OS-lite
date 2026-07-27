@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { CommerceProvider } from './commerce.js';
+import { createGetOrderContext } from './get-order-context.js';
+import { registerMcpRoutes } from './mcp-routes.js';
 import { registerOrderRoutes } from './order-routes.js';
 
 type BuildAppOptions = {
@@ -20,7 +22,12 @@ export function buildApp(
     status: 'ok',
   }));
 
-  registerOrderRoutes(app, options.commerceProvider);
+  const getOrderContext = createGetOrderContext({
+    commerceProvider: options.commerceProvider,
+  });
+
+  registerOrderRoutes(app, getOrderContext);
+  registerMcpRoutes(app, getOrderContext);
 
   return app;
 }
