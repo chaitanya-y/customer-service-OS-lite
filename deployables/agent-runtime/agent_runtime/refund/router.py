@@ -9,7 +9,11 @@ from agent_runtime.refund.schemas import (
 router = APIRouter(prefix="/refunds", tags=["refunds"])
 
 
-@router.post("/intake", response_model=RefundIntakeResponse)
+@router.post(
+    "/intake",
+    response_model=RefundIntakeResponse,
+    response_model_exclude_none=True,
+)
 async def intake_refund(
     request: RefundIntakeRequest,
 ) -> RefundIntakeResponse:
