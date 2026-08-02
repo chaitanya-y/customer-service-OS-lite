@@ -1,0 +1,29 @@
+{
+  "contextVersion": "1",
+  "contextId": "context-1",
+  "tenant": {
+    "tenantId": "tenant-local",
+    "environmentId": "local"
+  },
+  "actor": {
+    "kind": "end_customer",
+    "principalId": "customer-42"
+  },
+  "subject": {
+    "customerId": "customer-42",
+    "email": "private@example.com"
+  },
+  "delegation": {
+    "mode": "self"
+  },
+  "purpose": "customer_support",
+  "iss": "customer-service-os-edge",
+  "aud": "integration-gateway",
+  "iat": 1785067200,
+  "exp": 1785067500,
+  "request": {
+    "requestId": "request-1",
+    "traceId": "trace-1",
+    "channelId": "web"
+  }
+}

@@ -3,9 +3,9 @@ from typing import Literal
 from langgraph.graph import END, START, StateGraph
 
 from agent_runtime.integrations.order_lookup import (
-    McpOrderLookupClient,
     OrderLookup,
     OrderLookupError,
+    OrderLookupUnauthorizedError,
     OrderNotFoundError,
 )
 from agent_runtime.refund.state import RefundState
@@ -63,6 +63,8 @@ def create_lookup_order_node(order_lookup: OrderLookup):
 
         try:
             order_context = await order_lookup.lookup_order(order_reference)
+        except OrderLookupUnauthorizedError:
+            raise
         except OrderNotFoundError as error:
             return {
                 "order_context": None,
@@ -112,6 +114,3 @@ def build_refund_graph(order_lookup: OrderLookup):
     builder.add_edge("request_order_reference", END)
 
     return builder.compile()
-
-
-refund_graph = build_refund_graph(McpOrderLookupClient())

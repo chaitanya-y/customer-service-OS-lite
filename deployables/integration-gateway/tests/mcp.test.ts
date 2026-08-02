@@ -10,6 +10,12 @@ import type {
   CommerceOrder,
   CommerceProvider,
 } from '../src/commerce.js';
+import { CONTEXT_ASSERTION_HEADER } from '../src/trusted-context.js';
+import {
+  createTestContextAssertion,
+  TEST_CONTEXT_ASSERTION,
+  verifyTestContextAssertion,
+} from './trusted-context-fixture.js';
 
 const commerceOrder: CommerceOrder = {
   source: {
@@ -48,8 +54,12 @@ const commerceOrder: CommerceOrder = {
 async function connectMcpClient(
   context: TestContext,
   commerceProvider: CommerceProvider,
+  contextAssertion: string | null = TEST_CONTEXT_ASSERTION,
 ): Promise<Client> {
-  const app = buildApp({ commerceProvider });
+  const app = buildApp({
+    commerceProvider,
+    verifyContextAssertion: verifyTestContextAssertion,
+  });
   await app.listen({
     host: '127.0.0.1',
     port: 0,
@@ -59,6 +69,15 @@ async function connectMcpClient(
   const address = app.server.address() as AddressInfo;
   const transport = new StreamableHTTPClientTransport(
     new URL(`http://127.0.0.1:${address.port}/mcp`),
+    contextAssertion
+      ? {
+          requestInit: {
+            headers: {
+              [CONTEXT_ASSERTION_HEADER]: contextAssertion,
+            },
+          },
+        }
+      : undefined,
   );
   const client = new Client({
     name: 'integration-gateway-test-client',
@@ -154,4 +173,65 @@ test('lookup_order rejects an empty order reference', async (context) => {
 
   assert.equal(result.isError, true);
   assert.match(JSON.stringify(result), /Invalid arguments/);
+});
+
+test('lookup_order rejects a missing trusted context', async (context) => {
+  let providerCalled = false;
+  const commerceProvider: CommerceProvider = {
+    async getOrderByReference() {
+      providerCalled = true;
+      return commerceOrder;
+    },
+  };
+  const client = await connectMcpClient(
+    context,
+    commerceProvider,
+    null,
+  );
+
+  const result = await client.callTool({
+    name: 'lookup_order',
+    arguments: {
+      orderReference: 'ORDER-123',
+    },
+  });
+
+  assert.equal(providerCalled, false);
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, {
+    error: {
+      code: 'context_unauthorized',
+      message: 'Trusted context is required',
+    },
+  });
+});
+
+test('lookup_order hides an order owned by another customer', async (
+  context,
+) => {
+  const commerceProvider: CommerceProvider = {
+    async getOrderByReference() {
+      return commerceOrder;
+    },
+  };
+  const client = await connectMcpClient(
+    context,
+    commerceProvider,
+    createTestContextAssertion({ customerId: 'customer-other' }),
+  );
+
+  const result = await client.callTool({
+    name: 'lookup_order',
+    arguments: {
+      orderReference: 'ORDER-123',
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, {
+    error: {
+      code: 'order_not_found',
+      message: 'Order was not found',
+    },
+  });
 });

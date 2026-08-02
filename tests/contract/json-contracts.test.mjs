@@ -11,6 +11,8 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, "../..");
 
 const contracts = {
+  contextAssertion:
+    "contracts/internal-api/trusted-context-assertion/v1/context-assertion-claims.schema.json",
   executionEvidence:
     "contracts/ai-io/execution-evidence/v1/execution-evidence.schema.json",
   orderContext:
@@ -22,6 +24,7 @@ const contracts = {
 };
 
 const fixtures = {
+  contextAssertion: "context-assertion",
   executionEvidence: "execution-evidence",
   orderContext: "order-context",
   refundProposal: "refund-proposal",
@@ -80,6 +83,8 @@ for (const [contractName, schemaPath] of Object.entries(contracts)) {
 
 function pathToSchemaId(schemaPath) {
   const ids = {
+    [contracts.contextAssertion]:
+      "https://customer-service-os.example/contracts/internal-api/trusted-context-assertion/v1/claims",
     [contracts.executionEvidence]:
       "https://customer-service-os.example/contracts/ai-io/execution-evidence/v1",
     [contracts.orderContext]:

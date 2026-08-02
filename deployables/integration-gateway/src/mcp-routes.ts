@@ -4,6 +4,11 @@ import type { FastifyInstance } from 'fastify';
 
 import type { GetOrderContext } from './get-order-context.js';
 import { createIntegrationMcpServer } from './mcp-server.js';
+import {
+  CONTEXT_ASSERTION_HEADER,
+  type OrderAccessContext,
+  type VerifyContextAssertion,
+} from './trusted-context.js';
 
 const methodNotAllowedResponse = {
   jsonrpc: '2.0',
@@ -17,9 +22,24 @@ const methodNotAllowedResponse = {
 export function registerMcpRoutes(
   app: FastifyInstance,
   getOrderContext: GetOrderContext,
+  verifyContextAssertion: VerifyContextAssertion,
 ): void {
   app.post('/mcp', async (request, reply) => {
-    const server = createIntegrationMcpServer({ getOrderContext });
+    let accessContext: OrderAccessContext | null = null;
+    const assertion = request.headers[CONTEXT_ASSERTION_HEADER];
+
+    try {
+      accessContext = await verifyContextAssertion(
+        typeof assertion === 'string' ? assertion : undefined,
+      );
+    } catch {
+      accessContext = null;
+    }
+
+    const server = createIntegrationMcpServer({
+      getOrderContext,
+      accessContext,
+    });
     const transport = new StreamableHTTPServerTransport({
       enableJsonResponse: true,
     });

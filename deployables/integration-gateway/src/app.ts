@@ -4,9 +4,11 @@ import type { CommerceProvider } from './commerce.js';
 import { createGetOrderContext } from './get-order-context.js';
 import { registerMcpRoutes } from './mcp-routes.js';
 import { registerOrderRoutes } from './order-routes.js';
+import type { VerifyContextAssertion } from './trusted-context.js';
 
 type BuildAppOptions = {
   commerceProvider: CommerceProvider;
+  verifyContextAssertion: VerifyContextAssertion;
   logger?: boolean;
 };
 
@@ -26,8 +28,16 @@ export function buildApp(
     commerceProvider: options.commerceProvider,
   });
 
-  registerOrderRoutes(app, getOrderContext);
-  registerMcpRoutes(app, getOrderContext);
+  registerOrderRoutes(
+    app,
+    getOrderContext,
+    options.verifyContextAssertion,
+  );
+  registerMcpRoutes(
+    app,
+    getOrderContext,
+    options.verifyContextAssertion,
+  );
 
   return app;
 }

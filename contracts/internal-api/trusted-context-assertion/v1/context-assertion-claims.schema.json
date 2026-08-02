@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/internal-api/trusted-context-assertion/v1/claims",
+  "title": "Trusted Context Assertion Claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contextVersion",
+    "contextId",
+    "tenant",
+    "actor",
+    "subject",
+    "delegation",
+    "purpose",
+    "iss",
+    "aud",
+    "iat",
+    "exp",
+    "request"
+  ],
+  "properties": {
+    "contextVersion": {
+      "const": "1"
+    },
+    "contextId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "tenant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId", "environmentId"],
+      "properties": {
+        "tenantId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "environmentId": {
+          "$ref": "#/$defs/opaqueId"
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "principalId"],
+      "properties": {
+        "kind": {
+          "const": "end_customer"
+        },
+        "principalId": {
+          "$ref": "#/$defs/opaqueId"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customerId"],
+      "properties": {
+        "customerId": {
+          "$ref": "#/$defs/opaqueId"
+        }
+      }
+    },
+    "delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "const": "self"
+        }
+      }
+    },
+    "purpose": {
+      "const": "customer_support"
+    },
+    "iss": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "aud": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "iat": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "traceId", "channelId"],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "traceId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "channelId": {
+          "$ref": "#/$defs/opaqueId"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    }
+  }
+}

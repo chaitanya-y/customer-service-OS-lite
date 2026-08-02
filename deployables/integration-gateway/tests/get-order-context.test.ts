@@ -6,6 +6,9 @@ import type {
   CommerceProvider,
 } from '../src/commerce.js';
 import { createGetOrderContext } from '../src/get-order-context.js';
+import {
+  TEST_ACCESS_CONTEXT,
+} from './trusted-context-fixture.js';
 
 const commerceOrder: CommerceOrder = {
   source: {
@@ -44,7 +47,10 @@ test('getOrderContext reads an order and returns a safe observation', async () =
     now: () => new Date('2026-07-26T12:00:00.000Z'),
   });
 
-  const orderContext = await getOrderContext('ORDER-123');
+  const orderContext = await getOrderContext(
+    'ORDER-123',
+    TEST_ACCESS_CONTEXT,
+  );
 
   assert.equal(receivedReference, 'ORDER-123');
   assert.equal(orderContext?.observationId, 'observation-1');
@@ -70,7 +76,30 @@ test('getOrderContext returns null when the order does not exist', async () => {
     now: () => new Date('2026-07-26T12:00:00.000Z'),
   });
 
-  const orderContext = await getOrderContext('MISSING');
+  const orderContext = await getOrderContext(
+    'MISSING',
+    TEST_ACCESS_CONTEXT,
+  );
+
+  assert.equal(orderContext, null);
+});
+
+test('getOrderContext hides an order owned by another customer', async () => {
+  const commerceProvider: CommerceProvider = {
+    async getOrderByReference() {
+      return commerceOrder;
+    },
+  };
+  const getOrderContext = createGetOrderContext({
+    commerceProvider,
+    createObservationId: () => 'unused-observation-id',
+    now: () => new Date('2026-07-26T12:00:00.000Z'),
+  });
+
+  const orderContext = await getOrderContext('ORDER-123', {
+    ...TEST_ACCESS_CONTEXT,
+    subjectCustomerId: 'customer-other',
+  });
 
   assert.equal(orderContext, null);
 });

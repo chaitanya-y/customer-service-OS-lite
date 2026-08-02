@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import { buildApp } from '../src/app.js';
 import type { CommerceProvider } from '../src/commerce.js';
+import { verifyTestContextAssertion } from './trusted-context-fixture.js';
 
 const commerceProvider: CommerceProvider = {
   async getOrderByReference() {
@@ -11,7 +12,10 @@ const commerceProvider: CommerceProvider = {
 };
 
 test('GET /health reports that the gateway is healthy', async (context) => {
-  const app = buildApp({ commerceProvider });
+  const app = buildApp({
+    commerceProvider,
+    verifyContextAssertion: verifyTestContextAssertion,
+  });
   context.after(() => app.close());
 
   const response = await app.inject({

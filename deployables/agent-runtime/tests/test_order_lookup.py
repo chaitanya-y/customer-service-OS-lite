@@ -7,11 +7,15 @@ from mcp.types import CallToolResult, TextContent
 
 import agent_runtime.integrations.order_lookup as order_lookup_module
 from agent_runtime.integrations.order_lookup import (
+    CONTEXT_ASSERTION_HEADER,
     InvalidOrderContextError,
     McpOrderLookupClient,
+    OrderLookupUnauthorizedError,
     OrderNotFoundError,
     OrderSource,
 )
+
+TEST_CONTEXT_ASSERTION = "header.claims.signature"
 
 SAFE_ORDER_CONTEXT = {
     "schemaVersion": "1",
@@ -53,7 +57,14 @@ def stub_mcp(
         *,
         http_client: Any,
     ) -> AsyncIterator[tuple[object, object, object]]:
-        events.append(("connect", url, http_client.timeout.connect))
+        events.append(
+            (
+                "connect",
+                url,
+                http_client.timeout.connect,
+                http_client.headers[CONTEXT_ASSERTION_HEADER],
+            )
+        )
 
         if transport_error:
             raise transport_error
@@ -115,7 +126,10 @@ async def test_lookup_order_returns_a_typed_order_context(
         structuredContent=SAFE_ORDER_CONTEXT,
     )
     events = stub_mcp(monkeypatch, result=result)
-    client = McpOrderLookupClient(timeout_seconds=5)
+    client = McpOrderLookupClient(
+        context_assertion=TEST_CONTEXT_ASSERTION,
+        timeout_seconds=5,
+    )
 
     order = await client.lookup_order("  ORDER-123  ")
 
@@ -128,7 +142,12 @@ async def test_lookup_order_returns_a_typed_order_context(
     assert order.customer_ref is not None
     assert order.customer_ref.customer_id == "customer-42"
     assert events == [
-        ("connect", "http://127.0.0.1:3002/mcp", 5),
+        (
+            "connect",
+            "http://127.0.0.1:3002/mcp",
+            5,
+            TEST_CONTEXT_ASSERTION,
+        ),
         "session_created",
         "initialized",
         (
@@ -159,7 +178,9 @@ async def test_lookup_order_raises_a_stable_not_found_error(
         isError=True,
     )
     stub_mcp(monkeypatch, result=result)
-    client = McpOrderLookupClient()
+    client = McpOrderLookupClient(
+        context_assertion=TEST_CONTEXT_ASSERTION,
+    )
 
     with pytest.raises(OrderNotFoundError) as captured:
         await client.lookup_order("MISSING")
@@ -188,7 +209,9 @@ async def test_lookup_order_rejects_malformed_structured_content(
         structuredContent=malformed_context,
     )
     stub_mcp(monkeypatch, result=result)
-    client = McpOrderLookupClient()
+    client = McpOrderLookupClient(
+        context_assertion=TEST_CONTEXT_ASSERTION,
+    )
 
     with pytest.raises(InvalidOrderContextError) as captured:
         await client.lookup_order("ORDER-123")
@@ -204,7 +227,9 @@ async def test_lookup_order_hides_transport_failures(
         monkeypatch,
         transport_error=OSError("private connection details"),
     )
-    client = McpOrderLookupClient()
+    client = McpOrderLookupClient(
+        context_assertion=TEST_CONTEXT_ASSERTION,
+    )
 
     with pytest.raises(
         order_lookup_module.OrderLookupUnavailableError,
@@ -214,3 +239,38 @@ async def test_lookup_order_hides_transport_failures(
 
     assert captured.value.code == "order_lookup_unavailable"
     assert "private connection details" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_lookup_order_maps_context_authorization_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="Trusted context is required",
+            )
+        ],
+        structuredContent={
+            "error": {
+                "code": "context_unauthorized",
+                "message": "Trusted context is required",
+            }
+        },
+        isError=True,
+    )
+    stub_mcp(monkeypatch, result=result)
+    client = McpOrderLookupClient(
+        context_assertion=TEST_CONTEXT_ASSERTION,
+    )
+
+    with pytest.raises(OrderLookupUnauthorizedError) as captured:
+        await client.lookup_order("ORDER-123")
+
+    assert captured.value.code == "context_unauthorized"
+
+
+def test_order_lookup_client_rejects_a_missing_context_assertion() -> None:
+    with pytest.raises(ValueError, match="context_assertion is invalid"):
+        McpOrderLookupClient(context_assertion="   ")

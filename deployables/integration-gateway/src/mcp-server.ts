@@ -3,9 +3,11 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import type { GetOrderContext } from './get-order-context.js';
+import type { OrderAccessContext } from './trusted-context.js';
 
 type McpServerDependencies = {
   getOrderContext: GetOrderContext;
+  accessContext: OrderAccessContext | null;
 };
 
 function toolResult(
@@ -26,6 +28,7 @@ function toolResult(
 
 export function createIntegrationMcpServer({
   getOrderContext,
+  accessContext,
 }: McpServerDependencies): McpServer {
   const server = new McpServer({
     name: 'customer-service-os-integration-gateway',
@@ -54,8 +57,23 @@ export function createIntegrationMcpServer({
       },
     },
     async ({ orderReference }) => {
+      if (!accessContext) {
+        return toolResult(
+          {
+            error: {
+              code: 'context_unauthorized',
+              message: 'Trusted context is required',
+            },
+          },
+          true,
+        );
+      }
+
       try {
-        const orderContext = await getOrderContext(orderReference);
+        const orderContext = await getOrderContext(
+          orderReference,
+          accessContext,
+        );
 
         if (!orderContext) {
           return toolResult(

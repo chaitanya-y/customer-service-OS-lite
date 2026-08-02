@@ -2,6 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type { GetOrderContext } from './get-order-context.js';
+import {
+  CONTEXT_ASSERTION_HEADER,
+  type VerifyContextAssertion,
+} from './trusted-context.js';
 
 const orderReferenceSchema = z.string().trim().min(1).max(100);
 
@@ -12,6 +16,7 @@ type OrderRouteParams = {
 export function registerOrderRoutes(
   app: FastifyInstance,
   getOrderContext: GetOrderContext,
+  verifyContextAssertion: VerifyContextAssertion,
 ): void {
   app.get<{ Params: OrderRouteParams }>(
     '/v1/orders/:orderReference',
@@ -29,8 +34,27 @@ export function registerOrderRoutes(
         });
       }
 
+      const assertion = request.headers[CONTEXT_ASSERTION_HEADER];
+      let accessContext;
+
       try {
-        const orderContext = await getOrderContext(parsedReference.data);
+        accessContext = await verifyContextAssertion(
+          typeof assertion === 'string' ? assertion : undefined,
+        );
+      } catch {
+        return reply.code(401).send({
+          error: {
+            code: 'context_unauthorized',
+            message: 'Trusted context is required',
+          },
+        });
+      }
+
+      try {
+        const orderContext = await getOrderContext(
+          parsedReference.data,
+          accessContext,
+        );
 
         if (!orderContext) {
           return reply.code(404).send({

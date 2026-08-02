@@ -1,12 +1,15 @@
 from fastapi.testclient import TestClient
 
 from agent_runtime.integrations.order_lookup import (
+    CONTEXT_ASSERTION_HEADER,
     McpOrderLookupClient,
     OrderContext,
+    OrderLookupUnauthorizedError,
 )
 from agent_runtime.main import app
 
 client = TestClient(app)
+TEST_CONTEXT_ASSERTION = "header.claims.signature"
 
 
 def test_refund_intake(
@@ -28,6 +31,9 @@ def test_refund_intake(
 
     response = client.post(
         "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+        },
         json={
             "customer_message": "  I want a refund.  ",
             "order_reference": "  ORDER-123  ",
@@ -47,7 +53,60 @@ def test_refund_intake(
 def test_refund_intake_rejects_empty_message() -> None:
     response = client.post(
         "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+        },
         json={"customer_message": "   "},
     )
 
     assert response.status_code == 422
+
+
+def test_refund_intake_requires_trusted_context() -> None:
+    response = client.post(
+        "/refunds/intake",
+        json={"customer_message": "I want a refund."},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": {
+            "code": "context_unauthorized",
+            "message": "Trusted context is required",
+        }
+    }
+
+
+def test_refund_intake_rejects_context_denied_by_gateway(
+    monkeypatch,
+) -> None:
+    async def reject_context(
+        _client: McpOrderLookupClient,
+        _order_reference: str,
+    ) -> OrderContext:
+        raise OrderLookupUnauthorizedError()
+
+    monkeypatch.setattr(
+        McpOrderLookupClient,
+        "lookup_order",
+        reject_context,
+    )
+
+    response = client.post(
+        "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+        },
+        json={
+            "customer_message": "I want a refund.",
+            "order_reference": "ORDER-123",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": {
+            "code": "context_unauthorized",
+            "message": "Trusted context is required",
+        }
+    }

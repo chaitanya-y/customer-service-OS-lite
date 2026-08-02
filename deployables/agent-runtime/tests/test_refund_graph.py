@@ -2,6 +2,7 @@ import pytest
 
 from agent_runtime.integrations.order_lookup import (
     OrderContext,
+    OrderLookupUnauthorizedError,
     OrderLookupUnavailableError,
     OrderNotFoundError,
 )
@@ -102,3 +103,16 @@ async def test_refund_graph_records_order_lookup_unavailable() -> None:
     assert result["status"] == "order_lookup_unavailable"
     assert result["error_code"] == "order_lookup_unavailable"
     assert result["order_context"] is None
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_does_not_convert_authorization_into_agent_state() -> None:
+    graph = build_refund_graph(FakeOrderLookup(error=OrderLookupUnauthorizedError()))
+
+    with pytest.raises(OrderLookupUnauthorizedError):
+        await graph.ainvoke(
+            {
+                "customer_message": "I want a refund.",
+                "order_reference": "ORDER-123",
+            }
+        )

@@ -18,6 +18,28 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.20.0)
 
+  deployables/edge-api:
+    dependencies:
+      fastify:
+        specifier: ^5.10.0
+        version: 5.10.0
+      jose:
+        specifier: ^6.2.4
+        version: 6.2.4
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   deployables/integration-gateway:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -26,6 +48,9 @@ importers:
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
+      jose:
+        specifier: ^6.2.4
+        version: 6.2.4
       zod:
         specifier: ^4.4.3
         version: 4.4.3

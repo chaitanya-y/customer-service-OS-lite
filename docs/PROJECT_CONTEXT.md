@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-07-27
+Last updated: 2026-08-02
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Working branch: `dev`
 
@@ -129,8 +129,16 @@ an allowed projection, but it cannot create or modify the authoritative context.
 Canonical contract:
 
 - `contracts/internal-api/proto/customer_service_os/context/v1/trusted_tenant_context.proto`
+- `contracts/internal-api/trusted-context-assertion/v1/context-assertion-claims.schema.json`
 
-Tenant-context propagation and enforcement are designed but not implemented yet.
+The current guardrail slice forwards an opaque, short-lived assertion from the
+Agent Runtime to the Integration Gateway. The Gateway verifies its HMAC signature,
+issuer, audience, tenant, lifetime, purpose, and self-service customer binding
+before an order lookup. The assertion never enters LangGraph state or model input.
+The Edge API authenticates a local customer token, derives the trusted customer
+identity from that token, and issues a separate 60-second internal assertion. The
+customer cannot supply or override the trusted tenant or customer identity in the
+refund request body.
 
 ### Order context
 
@@ -174,7 +182,7 @@ deployables/
   agent-runtime/         Python FastAPI + LangGraph
   control-knowledge/     planned control plane, RAG, and evaluation workloads
   conversation-runtime/ planned conversation service
-  edge-api/              planned edge API
+  edge-api/              Node/Fastify customer auth, context signing, routing
   human-operations/      planned human operations service
   integration-gateway/  Node/Fastify Vendure adapter, REST projection, MCP server
   workflow-workers/      planned Temporal workflow and policy service
@@ -199,6 +207,7 @@ services.
 The repository contains schemas for:
 
 - trusted tenant context;
+- trusted context assertion claims;
 - execution evidence;
 - provider-neutral order context;
 - refund proposal;
@@ -223,9 +232,9 @@ The Node.js/TypeScript Integration Gateway contains:
 The MCP tool accepts only `orderReference`. Its annotations declare that it is
 read-only, non-destructive, idempotent, and open-world.
 
-### Agent Runtime: implemented locally, not yet committed
+### Agent Runtime: committed and pushed
 
-The current owner working tree also contains:
+The Python Agent Runtime contains:
 
 - strict Pydantic models for `OrderContext`;
 - an `OrderLookup` protocol;
@@ -241,7 +250,27 @@ The current owner working tree also contains:
 - fake-client tests for graph behavior;
 - an API test fixture and MCP client tests.
 
-This local work is not visible to a fresh clone until it is committed and pushed.
+The current uncommitted guardrail slice adds request-scoped assertion forwarding
+without placing the assertion in LangGraph state.
+
+### Edge API: uncommitted local implementation
+
+The Node.js/TypeScript Edge API contains:
+
+- `POST /v1/refunds/intake` on port `3000`;
+- strict customer-supplied refund input validation;
+- signed local customer tokens for development only;
+- server-derived tenant, environment, and customer identity;
+- a separate, short-lived trusted context assertion for internal calls;
+- forwarding to the Agent Runtime without exposing the customer token;
+- stable authentication and downstream-failure responses;
+- startup guards that reject local authentication in production and reject key
+  reuse between customer tokens and internal assertions;
+- unit, route, client, and Edge-to-Gateway compatibility tests.
+
+The production AWS authentication adapter is not implemented yet. It will replace
+the local token verifier with Cognito while preserving the route, identity,
+assertion, and downstream client interfaces.
 
 ## 8. Current Git state
 
@@ -250,33 +279,12 @@ At the time of this handoff:
 - branch: `dev`
 - remote: `origin`
 - remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
-- latest pushed commit: `0542166 feat: add read-only order lookup MCP tool`
-- `origin/dev` contains the contracts and Node MCP/order lookup slice.
+- latest pushed commit: `531c151 feat: connect refund agent to order lookup MCP`
+- `origin/main` and `origin/dev` contain the order-lookup vertical slice.
 
-Local tracked modifications:
-
-```text
-deployables/agent-runtime/agent_runtime/refund/graph.py
-deployables/agent-runtime/agent_runtime/refund/router.py
-deployables/agent-runtime/agent_runtime/refund/schemas.py
-deployables/agent-runtime/agent_runtime/refund/state.py
-deployables/agent-runtime/pyproject.toml
-deployables/agent-runtime/tests/test_refund_api.py
-deployables/agent-runtime/tests/test_refund_graph.py
-deployables/agent-runtime/uv.lock
-```
-
-Local untracked additions:
-
-```text
-deployables/agent-runtime/agent_runtime/integrations/__init__.py
-deployables/agent-runtime/agent_runtime/integrations/order_lookup.py
-deployables/agent-runtime/tests/conftest.py
-deployables/agent-runtime/tests/test_order_lookup.py
-```
-
-Do not overwrite or discard these changes. Review, test, commit, and push them
-before asking collaborators to depend on the Python MCP integration.
+The current `dev` working tree contains the uncommitted Trusted Tenant Context
+guardrail, Edge API implementation, and their tests. Do not overwrite or discard
+them.
 
 ## 9. Prerequisites
 
@@ -350,9 +358,32 @@ SUPERADMIN_PASSWORD=<local-admin-password>
 PORT=3002
 VENDURE_ADMIN_API_URL=http://127.0.0.1:3001/admin-api
 VENDURE_API_KEY=<api-key-created-in-vendure>
+TENANT_ID=tenant-local
+ENVIRONMENT_ID=local
+CONTEXT_ASSERTION_HMAC_SECRET=<generate-at-least-32-random-bytes>
+CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
 ```
 
-Never commit either file.
+`deployables/edge-api/.env` needs:
+
+```dotenv
+NODE_ENV=development
+AUTH_MODE=local
+HOST=127.0.0.1
+PORT=3000
+AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8000
+TENANT_ID=tenant-local
+ENVIRONMENT_ID=local
+LOCAL_AUTH_HMAC_SECRET=<a-separate-at-least-32-byte-random-secret>
+LOCAL_AUTH_ISSUER=customer-service-os-local-auth
+LOCAL_AUTH_AUDIENCE=customer-service-os-edge
+LOCAL_CUSTOMER_ID=<vendure-customer-id-for-the-test-order>
+CONTEXT_ASSERTION_HMAC_SECRET=<same-secret-as-integration-gateway>
+CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
+CONTEXT_ASSERTION_AUDIENCE=integration-gateway
+```
+
+Never commit these environment files.
 
 ### Fresh-clone Vendure limitation
 
@@ -420,10 +451,33 @@ Expected URLs:
 - health: `http://127.0.0.1:8000/health`
 - refund intake: `POST http://127.0.0.1:8000/refunds/intake`
 
-Example:
+The refund intake endpoint is an internal endpoint and requires the trusted
+context assertion created by the Edge API. Do not call it directly from a browser
+or customer client.
+
+### Terminal 4: Edge API
 
 ```bash
-curl -sS http://127.0.0.1:8000/refunds/intake \
+cd deployables/edge-api
+pnpm dev
+```
+
+Expected URLs:
+
+- health: `http://127.0.0.1:3000/health`
+- customer refund intake: `POST http://127.0.0.1:3000/v1/refunds/intake`
+
+Generate a one-hour local customer access token:
+
+```bash
+pnpm local:token
+```
+
+Copy the printed token, then call the customer-facing endpoint:
+
+```bash
+curl -sS http://127.0.0.1:3000/v1/refunds/intake \
+  -H 'authorization: Bearer <PASTE_LOCAL_TOKEN>' \
   -H 'content-type: application/json' \
   -d '{
     "customer_message": "I want a refund for my order",
@@ -441,7 +495,7 @@ Run contract tests from the repository root:
 pnpm check:contracts
 ```
 
-Last verified result: 12 contract tests passed and Buf lint passed.
+Last verified result: 15 contract tests passed and Buf lint passed.
 
 Run the Integration Gateway checks:
 
@@ -451,7 +505,17 @@ pnpm typecheck
 pnpm test
 ```
 
-Last verified result: TypeScript passed and 14 tests passed.
+Last verified result: TypeScript passed and 31 tests passed.
+
+Run the Edge API checks:
+
+```bash
+cd deployables/edge-api
+pnpm typecheck
+pnpm test
+```
+
+Last verified result: TypeScript passed and 18 tests passed.
 
 Run the Agent Runtime checks:
 
@@ -462,7 +526,7 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-Last verified result with the local MCP integration: Ruff passed and 11 tests
+Last verified result with the trusted-context guardrail: Ruff passed and 16 tests
 passed. There was one existing FastAPI/httpx deprecation warning, not a test
 failure.
 
@@ -514,9 +578,10 @@ projection did not expose customer name, email, or payment transaction reference
 Do not mistake directory names or schemas for completed functionality. These major
 parts remain:
 
-- trusted tenant-context creation, propagation, verification, and authorization;
+- production customer authentication through Cognito;
+- workforce delegation and case-bound order authorization;
 - Conversation Service and persistent conversation model;
-- Edge API, authentication, streaming, and rate limiting;
+- Edge streaming and rate limiting;
 - customer chat UI;
 - RAG ingestion, versioned knowledge releases, hybrid retrieval, reranking, and
   citations;
@@ -539,23 +604,19 @@ parts remain:
 
 The shortest safe path to the first vertical slice is:
 
-1. Review, run, commit, and push the current Python MCP/LangGraph order lookup
-   changes.
+1. Review, run, commit, and push the Trusted Tenant Context and Edge API slice.
 2. Add reproducible Vendure initialization and seed data so another clone can run
    the same end-to-end lookup.
-3. Implement trusted tenant context at the Edge/API boundary and propagate it
-   through Agent Runtime to Integration Gateway. Enforce tenant-scoped order
-   access.
+3. Make the Agent Runtime produce a schema-validated `RefundProposal`.
 4. Add the first versioned refund policy and policy decision contract execution.
-5. Make the Agent Runtime produce a schema-validated `RefundProposal`.
-6. Implement the minimal Temporal workflow:
+5. Implement the minimal Temporal workflow:
    facts refresh -> policy -> preview -> confirmation -> optional approval ->
    authorized action -> provider confirmation.
-7. Add human handoff for policy-required approval and ambiguous provider outcomes.
-8. Add Kafka event publication through an outbox for journey/audit projections.
-9. Add the first small versioned refund-policy knowledge corpus and RAG citations.
-10. Add traces and a compact evaluation dataset before deploying the single-region
-    AWS slice.
+6. Add human handoff for policy-required approval and ambiguous provider outcomes.
+7. Add Kafka event publication through an outbox for journey/audit projections.
+8. Add the first small versioned refund-policy knowledge corpus and RAG citations.
+9. Add traces and a compact evaluation dataset before deploying the single-region
+   AWS slice.
 
 Do not start by building every empty service. Extend the walking refund slice and
 add a boundary only when the journey reaches it.
@@ -593,7 +654,7 @@ Before handing off:
 
 ## 18. Immediate handoff warning
 
-This context document itself and the Python MCP/LangGraph integration must be
+This context document, the trusted-context guardrail, and the Edge API must be
 committed and pushed to `dev` before a normal `git clone` can retrieve them.
 Until that happens, share this file directly and tell collaborators that
-`origin/dev` currently ends at commit `0542166`.
+`origin/dev` currently ends at commit `531c151`.

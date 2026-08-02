@@ -16,6 +16,7 @@ OpaqueId = Annotated[
     ),
 ]
 Currency = Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
+CONTEXT_ASSERTION_HEADER = "x-cso-context-assertion"
 
 
 class ContractModel(BaseModel):
@@ -100,6 +101,11 @@ class OrderLookupUnavailableError(OrderLookupError):
         super().__init__("order_lookup_unavailable", message)
 
 
+class OrderLookupUnauthorizedError(OrderLookupError):
+    def __init__(self, message: str = "Trusted context is required") -> None:
+        super().__init__("context_unauthorized", message)
+
+
 class InvalidOrderContextError(OrderLookupError):
     def __init__(self) -> None:
         super().__init__(
@@ -129,15 +135,26 @@ def _error_from_result(result: CallToolResult) -> OrderLookupError:
     if safe_code == "commerce_provider_unavailable":
         return OrderLookupUnavailableError()
 
+    if safe_code == "context_unauthorized":
+        return OrderLookupUnauthorizedError()
+
     return OrderLookupError(safe_code, safe_message)
 
 
 class McpOrderLookupClient:
     def __init__(
         self,
+        *,
+        context_assertion: str,
         endpoint: str = "http://127.0.0.1:3002/mcp",
         timeout_seconds: float = 10.0,
     ) -> None:
+        assertion = context_assertion.strip()
+
+        if not assertion or len(assertion) > 8_192:
+            raise ValueError("context_assertion is invalid")
+
+        self._context_assertion = assertion
         self._endpoint = endpoint
         self._timeout_seconds = timeout_seconds
 
@@ -151,6 +168,9 @@ class McpOrderLookupClient:
             async with (
                 httpx.AsyncClient(
                     timeout=self._timeout_seconds,
+                    headers={
+                        CONTEXT_ASSERTION_HEADER: self._context_assertion,
+                    },
                 ) as http_client,
                 streamable_http_client(
                     self._endpoint,
