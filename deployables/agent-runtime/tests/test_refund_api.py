@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from agent_runtime.integrations.order_lookup import (
@@ -7,9 +8,53 @@ from agent_runtime.integrations.order_lookup import (
     OrderLookupUnauthorizedError,
 )
 from agent_runtime.main import app
+from agent_runtime.refund.intent import RefundIntentExtraction
+from agent_runtime.refund.proposal import RefundProposalBuilder, RefundProposalVersions
+from agent_runtime.refund.router import (
+    get_refund_intent_extractor,
+    get_refund_proposal_builder,
+)
 
 client = TestClient(app)
 TEST_CONTEXT_ASSERTION = "header.claims.signature"
+
+
+class FakeRefundIntentExtractor:
+    async def extract(
+        self,
+        *,
+        customer_message: str,
+        order_context: OrderContext,
+    ) -> RefundIntentExtraction:
+        return RefundIntentExtraction(
+            reason_code="DAMAGED",
+            scope="FULL_ORDER",
+            selected_item_ids=[],
+        )
+
+
+@pytest.fixture(autouse=True)
+def refund_dependencies():
+    app.dependency_overrides[get_refund_intent_extractor] = lambda: (
+        FakeRefundIntentExtractor()
+    )
+    app.dependency_overrides[get_refund_proposal_builder] = lambda: (
+        RefundProposalBuilder(
+            versions=RefundProposalVersions(
+                agent_release_id="agent-runtime-test",
+                prompt_bundle_version="refund-intent-v1",
+                model_route_id="refund-intent-test-model",
+                knowledge_release_id="knowledge-not-used",
+                guardrail_version="refund-proposal-guardrails-v1",
+                evaluation_version="refund-proposal-eval-v1",
+                order_lookup_tool_version="lookup-order-v1",
+            )
+        )
+    )
+
+    yield
+
+    app.dependency_overrides.clear()
 
 
 def test_refund_intake(
@@ -45,9 +90,12 @@ def test_refund_intake(
     assert body["customer_message"] == "I want a refund."
     assert body["order_reference"] == "ORDER-123"
     assert body["journey"] == "refund"
-    assert body["status"] == "order_context_loaded"
+    assert body["status"] == "refund_proposal_ready"
     assert body["order_context"]["reference"] == "ORDER-123"
     assert body["order_context"]["customerRef"] == {"customerId": "customer-42"}
+    assert body["refund_proposal"]["resultType"] == "JOURNEY_PROPOSAL"
+    assert body["refund_proposal"]["intent"]["orderId"] == "3"
+    assert body["refund_proposal"]["missingFields"] == []
 
 
 def test_refund_intake_rejects_empty_message() -> None:

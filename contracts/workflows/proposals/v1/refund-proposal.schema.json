@@ -3,6 +3,57 @@
   "$id": "https://customer-service-os.example/contracts/workflows/proposals/v1/refund-proposal",
   "title": "RefundProposalV1",
   "description": "Untrusted but validated Agent Runtime proposal for the Temporal refund workflow. This contract never authorizes or executes a refund.",
+  "$comment": "Reference output captured from a live gpt-5-nano intent-extraction test on 2026-08-02. This example is documentation only and never authorizes or executes a refund.",
+  "examples": [
+    {
+      "schemaVersion": "1",
+      "resultType": "JOURNEY_PROPOSAL",
+      "proposalId": "a2314758-7916-46c8-9080-2682957667fb",
+      "journeyType": "REFUND",
+      "turnId": "turn-live-demo-1",
+      "intent": {
+        "orderId": "3",
+        "reasonCode": "DAMAGED",
+        "scope": "SELECTED_ITEMS",
+        "itemIds": [
+          "item-1"
+        ]
+      },
+      "missingFields": [],
+      "evidenceIds": [
+        "observation-live-demo-1"
+      ],
+      "executionEvidence": {
+        "schemaVersion": "1",
+        "executionId": "2db22c81-1269-45cb-bcd8-cd7ec1148d0b",
+        "scope": "TURN",
+        "recordedAt": "2026-08-03T00:53:06.662846Z",
+        "traceId": "trace-live-demo-1",
+        "dependencies": {
+          "agentReleaseId": "agent-runtime-0.1.0",
+          "promptBundleVersion": "refund-intent-v1",
+          "modelRouteId": "refund-intent-openai-v1",
+          "knowledgeReleaseId": "knowledge-not-used",
+          "guardrailVersion": "refund-proposal-guardrails-v1",
+          "evaluationVersion": "evaluation-not-released",
+          "toolContracts": [
+            {
+              "toolId": "lookup_order",
+              "version": "lookup-order-v1"
+            }
+          ]
+        },
+        "evidenceRefs": [
+          {
+            "evidenceId": "observation-live-demo-1",
+            "evidenceType": "TOOL_OBSERVATION",
+            "sourceVersion": "1",
+            "contentDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    }
+  ],
   "type": "object",
   "additionalProperties": false,
   "required": [

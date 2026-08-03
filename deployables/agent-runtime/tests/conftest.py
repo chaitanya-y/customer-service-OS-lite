@@ -26,7 +26,22 @@ def order_context() -> OrderContext:
                 "amountMinor": 10_000,
                 "currency": "USD",
             },
-            "items": [],
+            "items": [
+                {
+                    "itemId": "item-1",
+                    "sku": "BLUE-SHIRT",
+                    "name": "Blue Shirt",
+                    "quantity": 1,
+                    "unitPrice": {
+                        "amountMinor": 10_000,
+                        "currency": "USD",
+                    },
+                    "lineTotal": {
+                        "amountMinor": 10_000,
+                        "currency": "USD",
+                    },
+                }
+            ],
             "payments": [],
             "fulfillments": [],
         }

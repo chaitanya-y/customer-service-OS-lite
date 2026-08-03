@@ -232,7 +232,7 @@ The Node.js/TypeScript Integration Gateway contains:
 The MCP tool accepts only `orderReference`. Its annotations declare that it is
 read-only, non-destructive, idempotent, and open-world.
 
-### Agent Runtime: committed and pushed
+### Agent Runtime: committed base plus uncommitted Refund Proposal slice
 
 The Python Agent Runtime contains:
 
@@ -240,20 +240,29 @@ The Python Agent Runtime contains:
 - an `OrderLookup` protocol;
 - an asynchronous `McpOrderLookupClient`;
 - stable mappings for not found, provider unavailable, and invalid tool output;
-- dependency injection through `build_refund_graph(order_lookup)`;
+- dependency injection through `build_refund_graph(...)`;
 - an async LangGraph `lookup_order` node;
+- a structured-output LangChain refund-intent specialist;
+- deterministic construction of the canonical `RefundProposal`;
+- authoritative validation of model-selected item IDs against `OrderContext`;
+- execution evidence containing honest prompt, model-route, knowledge, guardrail,
+  evaluation, and tool-contract versions;
 - refund graph statuses:
   - `awaiting_order_reference`
-  - `order_context_loaded`
+  - `awaiting_refund_details`
+  - `refund_proposal_ready`
+  - `intent_extraction_unavailable`
   - `order_not_found`
   - `order_lookup_unavailable`
-- fake-client tests for graph behavior;
-- an API test fixture and MCP client tests.
+- fake-client and fake-model tests for graph behavior;
+- canonical JSON Schema compatibility tests;
+- API and MCP client tests.
 
-The current uncommitted guardrail slice adds request-scoped assertion forwarding
-without placing the assertion in LangGraph state.
+The Refund Proposal implementation is currently uncommitted. Its tests do not call
+a paid model. A real OpenAI call still requires local configuration and explicit
+approval.
 
-### Edge API: uncommitted local implementation
+### Edge API: committed and pushed
 
 The Node.js/TypeScript Edge API contains:
 
@@ -279,12 +288,11 @@ At the time of this handoff:
 - branch: `dev`
 - remote: `origin`
 - remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
-- latest pushed commit: `531c151 feat: connect refund agent to order lookup MCP`
-- `origin/main` and `origin/dev` contain the order-lookup vertical slice.
+- latest pushed commit: `2d62cd8 feat: establish trusted customer context at edge`
+- `origin/dev` contains the trusted-context and Edge API vertical slice.
 
-The current `dev` working tree contains the uncommitted Trusted Tenant Context
-guardrail, Edge API implementation, and their tests. Do not overwrite or discard
-them.
+The current `dev` working tree contains the uncommitted Refund Proposal
+implementation and its tests. Do not overwrite or discard it.
 
 ## 9. Prerequisites
 
@@ -383,6 +391,20 @@ CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
 CONTEXT_ASSERTION_AUDIENCE=integration-gateway
 ```
 
+`deployables/agent-runtime/.env` needs these values before a real model-backed
+refund extraction:
+
+```dotenv
+OPENAI_API_KEY=<create-an-openai-api-key>
+REFUND_INTENT_MODEL=<approved-openai-model>
+AGENT_RELEASE_ID=agent-runtime-0.1.0
+MODEL_ROUTE_ID=refund-intent-openai-v1
+KNOWLEDGE_RELEASE_ID=knowledge-not-used
+GUARDRAIL_VERSION=refund-proposal-guardrails-v1
+EVALUATION_VERSION=evaluation-not-released
+ORDER_LOOKUP_TOOL_VERSION=lookup-order-v1
+```
+
 Never commit these environment files.
 
 ### Fresh-clone Vendure limitation
@@ -439,8 +461,6 @@ Expected URLs:
 
 ### Terminal 3: Agent Runtime
 
-This requires the local uncommitted Python MCP work described above.
-
 ```bash
 cd deployables/agent-runtime
 uv run uvicorn agent_runtime.main:app --reload --host 127.0.0.1 --port 8000
@@ -480,12 +500,13 @@ curl -sS http://127.0.0.1:3000/v1/refunds/intake \
   -H 'authorization: Bearer <PASTE_LOCAL_TOKEN>' \
   -H 'content-type: application/json' \
   -d '{
-    "customer_message": "I want a refund for my order",
+    "customer_message": "Refund my full order because the items are damaged",
     "order_reference": "<ORDER_REFERENCE>"
   }'
 ```
 
-Expected graph status for a real order is `order_context_loaded`.
+Expected graph status for a complete model extraction is `refund_proposal_ready`.
+Incomplete reason, scope, or item information produces `awaiting_refund_details`.
 
 ## 13. Test commands
 
@@ -526,7 +547,7 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-Last verified result with the trusted-context guardrail: Ruff passed and 16 tests
+Last verified result with the Refund Proposal slice: Ruff passed and 25 tests
 passed. There was one existing FastAPI/httpx deprecation warning, not a test
 failure.
 
@@ -538,6 +559,9 @@ uv run pytest tests/test_order_lookup.py -v
 
 # Python refund graph only
 uv run pytest tests/test_refund_graph.py -v
+
+# Python refund intent and proposal only
+uv run pytest tests/test_refund_intent.py tests/test_refund_proposal.py -v
 
 # Gateway MCP behavior only
 cd ../integration-gateway
@@ -585,8 +609,8 @@ parts remain:
 - customer chat UI;
 - RAG ingestion, versioned knowledge releases, hybrid retrieval, reranking, and
   citations;
-- triage and refund specialists driven by an LLM;
-- typed `RefundProposal` generation from the Agent Runtime;
+- triage specialist and RAG-grounded refund reasoning;
+- live model evaluation and release gating for the refund specialist;
 - Temporal refund workflow and replay-safe versioning;
 - deterministic versioned refund policy implementation;
 - canonical refund preview and exact customer confirmation;
@@ -604,18 +628,17 @@ parts remain:
 
 The shortest safe path to the first vertical slice is:
 
-1. Review, run, commit, and push the Trusted Tenant Context and Edge API slice.
+1. Review, run, commit, and push the Refund Proposal slice.
 2. Add reproducible Vendure initialization and seed data so another clone can run
    the same end-to-end lookup.
-3. Make the Agent Runtime produce a schema-validated `RefundProposal`.
-4. Add the first versioned refund policy and policy decision contract execution.
-5. Implement the minimal Temporal workflow:
+3. Add the first versioned refund policy and policy decision contract execution.
+4. Implement the minimal Temporal workflow:
    facts refresh -> policy -> preview -> confirmation -> optional approval ->
    authorized action -> provider confirmation.
-6. Add human handoff for policy-required approval and ambiguous provider outcomes.
-7. Add Kafka event publication through an outbox for journey/audit projections.
-8. Add the first small versioned refund-policy knowledge corpus and RAG citations.
-9. Add traces and a compact evaluation dataset before deploying the single-region
+5. Add human handoff for policy-required approval and ambiguous provider outcomes.
+6. Add Kafka event publication through an outbox for journey/audit projections.
+7. Add the first small versioned refund-policy knowledge corpus and RAG citations.
+8. Add traces and a compact evaluation dataset before deploying the single-region
    AWS slice.
 
 Do not start by building every empty service. Extend the walking refund slice and
@@ -654,7 +677,7 @@ Before handing off:
 
 ## 18. Immediate handoff warning
 
-This context document, the trusted-context guardrail, and the Edge API must be
+The Refund Proposal implementation and this updated context document must be
 committed and pushed to `dev` before a normal `git clone` can retrieve them.
 Until that happens, share this file directly and tell collaborators that
-`origin/dev` currently ends at commit `531c151`.
+`origin/dev` currently ends at commit `2d62cd8`.
