@@ -57,7 +57,7 @@ const trustedContextClaimsSchema = z
   })
   .strict();
 
-export type OrderAccessContext = {
+export type ConversationAccessContext = {
   contextId: string;
   tenantId: string;
   environmentId: string;
@@ -69,7 +69,7 @@ export type OrderAccessContext = {
 
 export type VerifyContextAssertion = (
   assertion: string | undefined,
-) => Promise<OrderAccessContext>;
+) => Promise<ConversationAccessContext>;
 
 type ContextAssertionVerifierOptions = {
   secret: string;

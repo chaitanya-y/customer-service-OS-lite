@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17.7-alpine
+    environment:
+      POSTGRES_DB: customer_service_os
+      POSTGRES_USER: cso_local
+      POSTGRES_PASSWORD: cso_local
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cso_local -d customer_service_os"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - conversation-postgres-data:/var/lib/postgresql/data
+      - ./postgres/001_roles.sql:/docker-entrypoint-initdb.d/001_roles.sql:ro
+
+volumes:
+  conversation-postgres-data:

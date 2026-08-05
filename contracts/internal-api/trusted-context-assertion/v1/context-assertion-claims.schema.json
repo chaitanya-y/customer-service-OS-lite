@@ -12,6 +12,7 @@
     "subject",
     "delegation",
     "purpose",
+    "route",
     "iss",
     "aud",
     "iat",
@@ -73,6 +74,23 @@
     },
     "purpose": {
       "const": "customer_support"
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["homeRegion", "homeCell", "routingEpoch"],
+      "properties": {
+        "homeRegion": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "homeCell": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "routingEpoch": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
     },
     "iss": {
       "type": "string",

@@ -17,6 +17,11 @@
     "mode": "self"
   },
   "purpose": "customer_support",
+  "route": {
+    "homeRegion": "local",
+    "homeCell": "local-cell-1",
+    "routingEpoch": 1
+  },
   "iss": "customer-service-os-edge",
   "aud": "integration-gateway",
   "iat": 1785067200,

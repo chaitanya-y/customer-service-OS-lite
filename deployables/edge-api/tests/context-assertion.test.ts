@@ -18,6 +18,11 @@ test('creates an assertion accepted by the Integration Gateway', async () => {
     secret: TEST_SECRET,
     issuer: 'edge-api',
     audience: 'integration-gateway',
+    route: {
+      homeRegion: 'local',
+      homeCell: 'local-cell-1',
+      routingEpoch: 1,
+    },
     now: () => TEST_NOW,
     createContextId: () => 'context-1',
   });
@@ -44,6 +49,7 @@ test('creates an assertion accepted by the Integration Gateway', async () => {
     tenantId: 'tenant-local',
     environmentId: 'local',
     subjectCustomerId: 'customer-42',
+    routingEpoch: 1,
     requestId: 'request-1',
     traceId: 'trace-1',
   });
@@ -54,6 +60,11 @@ test('refuses to create a self-service assertion for another customer', async ()
     secret: TEST_SECRET,
     issuer: 'edge-api',
     audience: 'integration-gateway',
+    route: {
+      homeRegion: 'local',
+      homeCell: 'local-cell-1',
+      routingEpoch: 1,
+    },
     now: () => TEST_NOW,
   });
 
@@ -76,6 +87,11 @@ test('rejects a context assertion lifetime above five minutes', () => {
         secret: TEST_SECRET,
         issuer: 'edge-api',
         audience: 'integration-gateway',
+        route: {
+          homeRegion: 'local',
+          homeCell: 'local-cell-1',
+          routingEpoch: 1,
+        },
         lifetimeSeconds: 301,
       }),
     /Context assertion lifetime must be between 1 and 300 seconds/,

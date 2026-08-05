@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package customer_service_os.events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message EventEnvelope {
+  string event_id = 1;
+  string event_type = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  string producer = 4;
+  string tenant_id = 5;
+  string environment_id = 6;
+  string aggregate_type = 7;
+  string aggregate_id = 8;
+  int64 aggregate_sequence = 9;
+  int64 routing_epoch = 10;
+  string trace_id = 11;
+  uint32 schema_version = 12;
+  oneof payload {
+    ConversationMessageReceived conversation_message_received = 13;
+  }
+}
+
+message ConversationMessageReceived {
+  string message_id = 1;
+}

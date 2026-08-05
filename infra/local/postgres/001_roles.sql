@@ -1,0 +1,8 @@
+CREATE ROLE cso_conversation_app
+  LOGIN
+  PASSWORD 'cso_conversation_local'
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOINHERIT
+  NOREPLICATION;
