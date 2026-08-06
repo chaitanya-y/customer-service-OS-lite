@@ -17,8 +17,12 @@ const contracts = {
     "contracts/ai-io/execution-evidence/v1/execution-evidence.schema.json",
   orderContext:
     "contracts/tools/order-context/v1/order-context.schema.json",
+  refundContext:
+    "contracts/tools/refund-context/v1/refund-context.schema.json",
   refundProposal:
     "contracts/workflows/proposals/v1/refund-proposal.schema.json",
+  refundPolicyInput:
+    "contracts/workflows/policy/v1/refund-policy-input.schema.json",
   policyDecision:
     "contracts/workflows/policy/v1/policy-decision.schema.json",
 };
@@ -27,7 +31,9 @@ const fixtures = {
   contextAssertion: "context-assertion",
   executionEvidence: "execution-evidence",
   orderContext: "order-context",
+  refundContext: "refund-context",
   refundProposal: "refund-proposal",
+  refundPolicyInput: "refund-policy-input",
   policyDecision: "policy-decision",
 };
 
@@ -89,8 +95,12 @@ function pathToSchemaId(schemaPath) {
       "https://customer-service-os.example/contracts/ai-io/execution-evidence/v1",
     [contracts.orderContext]:
       "https://customer-service-os.example/contracts/tools/order-context/v1",
+    [contracts.refundContext]:
+      "https://customer-service-os.example/contracts/tools/refund-context/v1",
     [contracts.refundProposal]:
       "https://customer-service-os.example/contracts/workflows/proposals/v1/refund-proposal",
+    [contracts.refundPolicyInput]:
+      "https://customer-service-os.example/contracts/workflows/policy/v1/refund-policy-input",
     [contracts.policyDecision]:
       "https://customer-service-os.example/contracts/workflows/policy/v1/refund-policy-decision",
   };

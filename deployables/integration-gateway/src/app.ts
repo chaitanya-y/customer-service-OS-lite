@@ -2,8 +2,10 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { CommerceProvider } from './commerce.js';
 import { createGetOrderContext } from './get-order-context.js';
+import { createGetRefundContext } from './get-refund-context.js';
 import { registerMcpRoutes } from './mcp-routes.js';
 import { registerOrderRoutes } from './order-routes.js';
+import { registerRefundContextRoutes } from './refund-context-routes.js';
 import type { VerifyContextAssertion } from './trusted-context.js';
 
 type BuildAppOptions = {
@@ -27,10 +29,18 @@ export function buildApp(
   const getOrderContext = createGetOrderContext({
     commerceProvider: options.commerceProvider,
   });
+  const getRefundContext = createGetRefundContext({
+    commerceProvider: options.commerceProvider,
+  });
 
   registerOrderRoutes(
     app,
     getOrderContext,
+    options.verifyContextAssertion,
+  );
+  registerRefundContextRoutes(
+    app,
+    getRefundContext,
     options.verifyContextAssertion,
   );
   registerMcpRoutes(

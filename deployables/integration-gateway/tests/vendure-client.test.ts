@@ -52,6 +52,18 @@ test('Vendure provider authenticates and maps an order', async () => {
                       amount: 168_880,
                       method: 'standard-payment',
                       transactionId: 'transaction-123',
+                      refunds: [
+                        {
+                          id: 'refund-1',
+                          state: 'Settled',
+                          total: 10_000,
+                          lines: [
+                            {
+                              orderLineId: '3',
+                            },
+                          ],
+                        },
+                      ],
                     },
                   ],
                   fulfillments: [
@@ -128,6 +140,17 @@ test('Vendure provider authenticates and maps an order', async () => {
         },
         method: 'standard-payment',
         transactionReference: 'transaction-123',
+        refunds: [
+          {
+            id: 'refund-1',
+            status: 'Settled',
+            amount: {
+              amountMinor: 10_000,
+              currency: 'USD',
+            },
+            lineIds: ['3'],
+          },
+        ],
       },
     ],
     fulfillments: [

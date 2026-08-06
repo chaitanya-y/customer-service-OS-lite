@@ -32,6 +32,12 @@ export type CommerceOrder = {
     amount: Money;
     method: string;
     transactionReference: string | null;
+    refunds: Array<{
+      id: string;
+      status: string;
+      amount: Money;
+      lineIds: string[];
+    }>;
   }>;
   fulfillments: Array<{
     id: string;
