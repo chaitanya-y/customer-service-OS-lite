@@ -11,6 +11,9 @@ const configSchema = z
     AGENT_RUNTIME_BASE_URL: z.url().default('http://127.0.0.1:8000'),
     TENANT_ID: z.string().min(1),
     ENVIRONMENT_ID: z.string().min(1),
+    HOME_REGION: z.string().min(1).default('local'),
+    HOME_CELL: z.string().min(1).default('local-cell-1'),
+    ROUTING_EPOCH: z.coerce.number().int().min(1).default(1),
     LOCAL_AUTH_HMAC_SECRET: z.string().min(32),
     LOCAL_AUTH_ISSUER: z
       .string()

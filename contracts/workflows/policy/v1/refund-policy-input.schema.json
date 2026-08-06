@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/workflows/policy/v1/refund-policy-input",
+  "title": "RefundPolicyInputV1",
+  "description": "Trusted, normalized facts accepted by the deterministic Refund Policy. The input requests evaluation but cannot select the policy outcome.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "journeyType",
+    "policyVersion",
+    "request",
+    "facts",
+    "factRefs"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "journeyType": {
+      "const": "REFUND"
+    },
+    "policyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "request": {
+      "$ref": "#/$defs/refundRequest"
+    },
+    "facts": {
+      "$ref": "#/$defs/refundFacts"
+    },
+    "factRefs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/factRef"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amountMinor",
+        "currency"
+      ],
+      "properties": {
+        "amountMinor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "refundRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalId",
+        "orderId",
+        "reasonCode",
+        "scope",
+        "itemIds"
+      ],
+      "properties": {
+        "proposalId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "orderId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "scope": {
+          "enum": [
+            "FULL_ORDER",
+            "SELECTED_ITEMS",
+            "UNSPECIFIED"
+          ]
+        },
+        "itemIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/opaqueId"
+          },
+          "uniqueItems": true
+        },
+        "requestedAmount": {
+          "$ref": "#/$defs/money"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "SELECTED_ITEMS"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "properties": {
+              "itemIds": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "FULL_ORDER"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "properties": {
+              "itemIds": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "refundFacts": {
+      "type": "object",
+      "description": "Authoritative facts assembled by trusted workflow activities. Optional properties allow the policy to return NEEDS_FACTS instead of guessing.",
+      "additionalProperties": false,
+      "properties": {
+        "customerVerified": {
+          "type": "boolean"
+        },
+        "transactionRefundable": {
+          "type": "boolean"
+        },
+        "itemSelectionValid": {
+          "type": "boolean"
+        },
+        "refundableAmount": {
+          "$ref": "#/$defs/money"
+        },
+        "refundDestination": {
+          "enum": [
+            "ORIGINAL_PAYMENT_METHOD",
+            "STORE_CREDIT",
+            "OTHER"
+          ]
+        },
+        "riskClass": {
+          "enum": [
+            "LOW",
+            "ELEVATED",
+            "HIGH"
+          ]
+        }
+      }
+    },
+    "factRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "factId",
+        "factType",
+        "sourceVersion",
+        "observedAt"
+      ],
+      "properties": {
+        "factId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "factType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "sourceVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

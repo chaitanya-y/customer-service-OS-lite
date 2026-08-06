@@ -83,7 +83,12 @@
           "ITEM_SELECTION",
           "JURISDICTION",
           "RISK_CLASS",
-          "PURCHASE_DATE"
+          "PURCHASE_DATE",
+          "REQUESTED_AMOUNT",
+          "REFUNDABLE_AMOUNT",
+          "REFUND_DESTINATION",
+          "CUSTOMER_VERIFICATION",
+          "TRANSACTION_REFUNDABILITY"
         ]
       },
       "uniqueItems": true

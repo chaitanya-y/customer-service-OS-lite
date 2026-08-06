@@ -16,6 +16,11 @@ const signContextAssertion = createHmacContextAssertionSigner({
   secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
   issuer: config.CONTEXT_ASSERTION_ISSUER,
   audience: config.CONTEXT_ASSERTION_AUDIENCE,
+  route: {
+    homeRegion: config.HOME_REGION,
+    homeCell: config.HOME_CELL,
+    routingEpoch: config.ROUTING_EPOCH,
+  },
 });
 const agentRuntimeClient = createAgentRuntimeClient({
   baseUrl: config.AGENT_RUNTIME_BASE_URL,

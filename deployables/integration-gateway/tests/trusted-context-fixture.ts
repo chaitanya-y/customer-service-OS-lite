@@ -56,6 +56,11 @@ export function createTestContextAssertion(
         mode: 'self',
       },
       purpose: 'customer_support',
+      route: {
+        homeRegion: 'local',
+        homeCell: 'local-cell-1',
+        routingEpoch: 1,
+      },
       iss: options.issuer ?? TEST_CONTEXT_ISSUER,
       aud: options.audience ?? TEST_CONTEXT_AUDIENCE,
       iat: options.issuedAt ?? nowSeconds,
@@ -84,6 +89,7 @@ export const TEST_ACCESS_CONTEXT: OrderAccessContext = {
   tenantId: TEST_TENANT_ID,
   environmentId: TEST_ENVIRONMENT_ID,
   subjectCustomerId: 'customer-42',
+  routingEpoch: 1,
   requestId: 'request-1',
   traceId: 'trace-1',
 };

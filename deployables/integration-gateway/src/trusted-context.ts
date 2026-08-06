@@ -36,6 +36,13 @@ const trustedContextClaimsSchema = z
       })
       .strict(),
     purpose: z.literal('customer_support'),
+    route: z
+      .object({
+        homeRegion: opaqueId,
+        homeCell: opaqueId,
+        routingEpoch: z.number().int().min(1),
+      })
+      .strict(),
     iss: z.string().min(1).max(200),
     aud: z.string().min(1).max(200),
     iat: z.number().int().nonnegative(),
@@ -55,6 +62,7 @@ export type OrderAccessContext = {
   tenantId: string;
   environmentId: string;
   subjectCustomerId: string;
+  routingEpoch: number;
   requestId: string;
   traceId: string;
 };
@@ -127,6 +135,7 @@ export function createHmacContextAssertionVerifier({
         tenantId: claims.tenant.tenantId,
         environmentId: claims.tenant.environmentId,
         subjectCustomerId: claims.subject.customerId,
+        routingEpoch: claims.route.routingEpoch,
         requestId: claims.request.requestId,
         traceId: claims.request.traceId,
       };

@@ -41,6 +41,14 @@ const orderByCodeQuery = `
           amount
           method
           transactionId
+          refunds {
+            id
+            state
+            total
+            lines {
+              orderLineId
+            }
+          }
         }
         fulfillments {
           id
@@ -90,6 +98,18 @@ const vendureOrderSchema = z.object({
         amount: z.number().int(),
         method: z.string(),
         transactionId: z.string().nullable(),
+        refunds: z.array(
+          z.object({
+            id: z.string(),
+            state: z.string(),
+            total: z.number().int(),
+            lines: z.array(
+              z.object({
+                orderLineId: z.string(),
+              }),
+            ),
+          }),
+        ).nullable(),
       }),
     )
     .nullable(),
@@ -177,6 +197,12 @@ function toCommerceOrder(
       amount: money(payment.amount, currency),
       method: payment.method,
       transactionReference: payment.transactionId,
+      refunds: (payment.refunds ?? []).map((refund) => ({
+        id: refund.id,
+        status: refund.state,
+        amount: money(refund.total, currency),
+        lineIds: refund.lines.map((line) => line.orderLineId),
+      })),
     })),
     fulfillments: (order.fulfillments ?? []).map((fulfillment) => ({
       id: fulfillment.id,

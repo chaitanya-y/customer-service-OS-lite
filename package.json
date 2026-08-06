@@ -6,7 +6,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "lint:proto": "buf lint contracts/internal-api/proto",
+    "lint:proto": "buf lint contracts/internal-api/proto && buf lint contracts/events/proto",
     "test:contracts": "node --test tests/contract/*.test.mjs",
     "check:contracts": "pnpm lint:proto && pnpm test:contracts"
   },

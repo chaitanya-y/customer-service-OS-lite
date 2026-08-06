@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/tools/refund-context/v1",
+  "title": "RefundContextV1",
+  "description": "Provider-neutral, authorization-filtered refund facts for deterministic workflow and policy evaluation. This is not an Agent Runtime tool result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "observationId", "observedAt", "source", "selection", "facts"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "observationId": { "$ref": "#/$defs/opaqueId" },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "source": { "$ref": "#/$defs/source" },
+    "selection": { "$ref": "#/$defs/selection" },
+    "facts": { "$ref": "#/$defs/facts" }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amountMinor", "currency"],
+      "properties": {
+        "amountMinor": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "orderId", "factsVersion"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "orderId": { "$ref": "#/$defs/opaqueId" },
+        "factsVersion": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "itemIds"],
+      "properties": {
+        "scope": { "enum": ["FULL_ORDER", "SELECTED_ITEMS"] },
+        "itemIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/opaqueId" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "scope": { "const": "SELECTED_ITEMS" } }, "required": ["scope"] },
+          "then": { "properties": { "itemIds": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "scope": { "const": "FULL_ORDER" } }, "required": ["scope"] },
+          "then": { "properties": { "itemIds": { "type": "array", "maxItems": 0 } } }
+        }
+      ]
+    },
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customerVerified", "transactionRefundable", "itemSelectionValid", "refundableAmount", "refundDestination"],
+      "properties": {
+        "customerVerified": { "const": true },
+        "transactionRefundable": { "type": "boolean" },
+        "itemSelectionValid": { "type": "boolean" },
+        "refundableAmount": { "$ref": "#/$defs/money" },
+        "refundDestination": { "const": "ORIGINAL_PAYMENT_METHOD" }
+      }
+    }
+  }
+}

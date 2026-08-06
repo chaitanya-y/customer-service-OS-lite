@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1",
+  "journeyType": "REFUND",
+  "policyVersion": "refund-policy-v1",
+  "request": {
+    "proposalId": "refund-proposal-001",
+    "orderId": "order-001",
+    "reasonCode": "DAMAGED",
+    "scope": "SELECTED_ITEMS",
+    "itemIds": [
+      "item-001"
+    ],
+    "requestedAmount": {
+      "amountMinor": 12000,
+      "currency": "USD"
+    }
+  },
+  "facts": {
+    "customerVerified": true,
+    "transactionRefundable": true,
+    "itemSelectionValid": true,
+    "refundableAmount": {
+      "amountMinor": 15000,
+      "currency": "USD"
+    },
+    "refundDestination": "ORIGINAL_PAYMENT_METHOD",
+    "riskClass": "LOW"
+  },
+  "factRefs": [
+    {
+      "factId": "refund-facts-001",
+      "factType": "REFUND_CONTEXT",
+      "sourceVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "observedAt": "2026-08-05T15:00:00Z"
+    }
+  ]
+}

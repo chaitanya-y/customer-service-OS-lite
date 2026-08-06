@@ -42,6 +42,7 @@ const order: CommerceOrder = {
       },
       method: 'standard-payment',
       transactionReference: 'secret-transaction-reference',
+      refunds: [],
     },
   ],
   fulfillments: [],

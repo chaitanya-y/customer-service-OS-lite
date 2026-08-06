@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1",
+  "observationId": "refund-context-001",
+  "observedAt": "2026-08-06T15:00:00Z",
+  "source": {
+    "provider": "vendure",
+    "orderId": "3",
+    "factsVersion": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "selection": { "scope": "SELECTED_ITEMS", "itemIds": ["item-1"] },
+  "facts": {
+    "customerVerified": true,
+    "transactionRefundable": true,
+    "itemSelectionValid": true,
+    "refundableAmount": { "amountMinor": 15000, "currency": "USD" },
+    "refundDestination": "ORIGINAL_PAYMENT_METHOD"
+  }
+}

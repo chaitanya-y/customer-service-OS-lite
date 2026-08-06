@@ -53,6 +53,11 @@ type ContextAssertionSignerOptions = {
   secret: string;
   issuer: string;
   audience: string;
+  route: {
+    homeRegion: string;
+    homeCell: string;
+    routingEpoch: number;
+  };
   lifetimeSeconds?: number;
   now?: () => Date;
   createContextId?: () => string;
@@ -62,6 +67,7 @@ export function createHmacContextAssertionSigner({
   secret,
   issuer,
   audience,
+  route,
   lifetimeSeconds = 60,
   now = () => new Date(),
   createContextId = randomUUID,
@@ -77,6 +83,15 @@ export function createHmacContextAssertionSigner({
   ) {
     throw new Error('Context assertion lifetime must be between 1 and 300 seconds');
   }
+
+  const parsedRoute = z
+    .object({
+      homeRegion: opaqueId,
+      homeCell: opaqueId,
+      routingEpoch: z.number().int().min(1),
+    })
+    .strict()
+    .parse(route);
 
   const signingKey = new TextEncoder().encode(secret);
 
@@ -102,6 +117,7 @@ export function createHmacContextAssertionSigner({
         mode: 'self',
       },
       purpose: 'customer_support',
+      route: parsedRoute,
       request: {
         requestId: input.requestId,
         traceId: input.traceId,

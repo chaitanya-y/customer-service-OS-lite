@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "journeyType": "REFUND",
+  "policyVersion": "refund-policy-v1",
+  "effect": "ALLOW",
+  "request": {
+    "proposalId": "refund-proposal-001",
+    "orderId": "order-001",
+    "reasonCode": "DAMAGED",
+    "scope": "FULL_ORDER",
+    "itemIds": []
+  },
+  "facts": {},
+  "factRefs": []
+}
