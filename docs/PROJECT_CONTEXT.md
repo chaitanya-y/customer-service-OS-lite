@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-08-08
+Last updated: 2026-08-09
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Working branch: `main`
 
@@ -184,7 +184,7 @@ deployables/
   control-knowledge/     planned control plane, RAG, and evaluation workloads
   conversation-runtime/ Node/Fastify conversation service and outbox
   edge-api/              Node/Fastify customer auth, context signing, routing
-  human-operations/      planned human operations service
+  human-operations/      staff authorization and Temporal decision API
   integration-gateway/  Node/Fastify Vendure adapter, REST projection, MCP server
   workflow-workers/      deterministic refund policy and Temporal workflow foundation
 surfaces/
@@ -236,6 +236,21 @@ The Node.js/TypeScript Integration Gateway contains:
 - validation and stable error responses;
 - unit/integration tests.
 
+It also contains the protected refund action boundary:
+
+- `POST /internal/v1/refunds`, available only to a Worker assertion with the
+  `refund_execute` purpose;
+- `POST /internal/v1/refund-reconciliations`, a read-only recovery lookup with
+  the separate `refund_reconcile` purpose;
+- a Vendure `refundOrder` adapter, which the Agent Runtime cannot access;
+- PostgreSQL-backed idempotency and append-only refund audit events;
+- a migration runner and the limited `cso_integration_app` database role.
+
+The unique database key is `(tenant_id, environment_id, idempotency_key)`. A
+Gateway restart or a second Gateway instance therefore returns the already stored
+result rather than issuing a second refund. Execution state and its matching audit
+event are written in the same database transaction.
+
 The MCP tool accepts only `orderReference`. Its annotations declare that it is
 read-only, non-destructive, idempotent, and open-world.
 
@@ -283,7 +298,7 @@ The database-backed persistence integration test requires
 `CONVERSATION_TEST_DATABASE_URL`; it is skipped when that local test database is
 not configured.
 
-### Workflow Workers: deterministic refund policy and Temporal foundation
+### Workflow Workers: deterministic refund policy, execution, and recovery
 
 The Node.js/TypeScript Workflow Workers package contains:
 
@@ -306,11 +321,30 @@ The Node.js/TypeScript Workflow Workers package contains:
   tenant, customer, workflow, request, and trace identifiers but no customer
   credential;
 - a Gateway client that validates returned refund facts before policy evaluation;
-- local Temporal integration tests covering confirmed and denied journeys.
+- a canonical preview bound to the policy decision, trusted facts, and exact
+  customer confirmation;
+- `refund.human-decision` signals for approve, reject, and takeover resolution;
+- a narrow authorized refund activity, which refreshes facts immediately before
+  execution;
+- durable reconciliation every five minutes after an ambiguous provider outcome;
+- `continueAsNew()` after 288 reconciliation checks, roughly one day, to bound
+  Temporal workflow history while recovery continues;
+- local Temporal integration tests covering confirmation, denial, and approval.
 
-This foundation deliberately does not issue a refund. Canonical preview creation,
-approval/takeover signals, and the narrow authorized refund activity remain separate
-next steps.
+The workflow never retries an uncertain provider write. It first asks the Gateway
+to find authoritative Vendure refund evidence. A found provider refund becomes
+`REFUND_SUCCEEDED`; otherwise the workflow remains
+`PENDING_RECONCILIATION` and retries safely.
+
+### Human Operations: committed and pushed
+
+The Node.js/TypeScript Human Operations service contains:
+
+- staff JWT verification with tenant, environment, and refund-approval roles;
+- a protected decision endpoint that derives the staff identity from the assertion,
+  never from request JSON;
+- Temporal signals for `APPROVE`, `REJECT`, and `RESOLVE_TAKEOVER` decisions;
+- tests for missing authorization, spoofed identity, and a valid decision.
 
 ### Edge API: committed and pushed
 
@@ -338,9 +372,10 @@ At the time of this handoff:
 - branch: `main`
 - remote: `origin`
 - remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
-- latest pushed commit: `2a5d8e1 merge: deterministic refund policy input flow`
-- `origin/main` contains the trusted-context, conversation runtime, governed
-  proposal, trusted refund context, and deterministic policy slices.
+- branch workflow: implement and test on `dev`, then merge verified changes to
+  `main`;
+- `main` contains the governed refund execution and reconciliation slice;
+- the next planned capability is the versioned Knowledge/RAG service.
 
 ## 9. Prerequisites
 
@@ -412,6 +447,8 @@ SUPERADMIN_PASSWORD=<local-admin-password>
 
 ```dotenv
 PORT=3002
+DATABASE_URL=postgresql://cso_integration_app:cso_integration_local@127.0.0.1:5432/customer_service_os
+MIGRATION_DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os
 VENDURE_ADMIN_API_URL=http://127.0.0.1:3001/admin-api
 VENDURE_API_KEY=<api-key-created-in-vendure>
 TENANT_ID=tenant-local
@@ -475,6 +512,19 @@ a local order through the Vendure Dashboard.
 ## 12. Start the local stack
 
 Use separate terminals and start dependencies from the bottom up.
+
+### Terminal 0: PostgreSQL
+
+```bash
+docker compose -f infra/local/compose.yaml up -d postgres
+cd deployables/integration-gateway
+pnpm migrate
+```
+
+The migration command uses `MIGRATION_DATABASE_URL`. The running Gateway uses
+the restricted `DATABASE_URL` account. For an existing local database created
+before this repository version, create the local `cso_integration_app` role from
+`infra/local/postgres/001_roles.sql` once before running the migration.
 
 ### Terminal 1: Vendure
 
@@ -564,7 +614,8 @@ Run contract tests from the repository root:
 pnpm check:contracts
 ```
 
-Last verified result: 15 contract tests passed and Buf lint passed.
+Last verified result: 21 contract tests passed. Run `pnpm lint:proto` separately
+when the Buf CLI is installed.
 
 Run the Integration Gateway checks:
 
@@ -574,7 +625,8 @@ pnpm typecheck
 pnpm test
 ```
 
-Last verified result: TypeScript passed and 31 tests passed.
+Last verified result: TypeScript passed and 42 Gateway tests passed, including the
+protected execution and reconciliation routes.
 
 Run the Edge API checks:
 
@@ -658,9 +710,7 @@ parts remain:
   citations;
 - triage specialist and RAG-grounded refund reasoning;
 - live model evaluation and release gating for the refund specialist;
-- canonical refund preview bound to the exact customer confirmation;
-- human approval, escalation queue, and takeover console;
-- authorized/idempotent refund execution;
+- human approval and takeover browser console;
 - Kafka topics, event schemas, consumers, and outbox delivery;
 - OpenTelemetry traces, metrics, logs, and audit projections;
 - evaluation datasets, trajectory/tool/policy/safety evaluations, and gates;
@@ -673,17 +723,13 @@ parts remain:
 
 The shortest safe path to the first vertical slice is:
 
-1. Add canonical preview creation and confirmation binding. A material fact or
-   policy change must invalidate the existing confirmation.
-2. Add approval and human-takeover signals before implementing the narrow,
-   idempotent authorized refund action and provider reconciliation.
-3. Add reproducible Vendure initialization and seed data so another clone can run
-   the same end-to-end lookup.
-4. Add Kafka event publication through an outbox for journey/audit projections.
-5. Add the first small versioned refund-policy knowledge corpus and RAG citations.
+1. Add the first small versioned refund-policy knowledge corpus and RAG citations.
    Control and Knowledge owns ingestion and release publication; Agent Runtime
    owns online retrieval orchestration, grounding, and citations.
-6. Add traces and a compact evaluation dataset before deploying the single-region
+2. Add reproducible Vendure initialization and seed data so another clone can run
+   the same end-to-end lookup.
+3. Add Kafka event publication through an outbox for journey/audit projections.
+4. Add traces and a compact evaluation dataset before deploying the single-region
    AWS slice.
 
 Do not start by building every empty service. Extend the walking refund slice and
@@ -722,7 +768,6 @@ Before handing off:
 
 ## 18. Immediate handoff warning
 
-The Refund Proposal implementation and this updated context document must be
-committed and pushed to `dev` before a normal `git clone` can retrieve them.
-Until that happens, share this file directly and tell collaborators that
-`origin/dev` currently ends at commit `2d62cd8`.
+Refund execution is now safe across Gateway restarts and multiple Gateway instances
+only when PostgreSQL migrations have been applied. Do not run the Integration
+Gateway against a real refund provider with an un-migrated database.
