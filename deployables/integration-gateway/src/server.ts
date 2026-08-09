@@ -1,10 +1,14 @@
 import { buildApp } from './app.js';
+import { Pool } from 'pg';
 import { loadConfig } from './config.js';
 import { createHmacContextAssertionVerifier } from './trusted-context.js';
 import { createVendureCommerceProvider } from './vendure-client.js';
 import { createHmacWorkflowAccessAssertionVerifier } from './workflow-access.js';
+import { PostgresRefundExecutionRepository } from './refund-execution-repository.js';
 
 const config = loadConfig();
+const pool = new Pool({ connectionString: config.DATABASE_URL });
+const refundExecutionRepository = new PostgresRefundExecutionRepository(pool);
 const commerceProvider = createVendureCommerceProvider({
   adminApiUrl: config.VENDURE_ADMIN_API_URL,
   apiKey: config.VENDURE_API_KEY,
@@ -40,6 +44,7 @@ const app = buildApp({
   verifyWorkflowAccessAssertion,
   verifyWorkflowRefundExecutionAssertion,
   verifyWorkflowRefundReconciliationAssertion,
+  refundExecutionRepository,
   logger: true,
 });
 
@@ -50,5 +55,10 @@ try {
   });
 } catch (error) {
   app.log.error(error);
+  await pool.end();
   process.exit(1);
 }
+
+async function shutdown() { await app.close(); await pool.end(); }
+process.once('SIGINT', () => void shutdown());
+process.once('SIGTERM', () => void shutdown());

@@ -7,6 +7,7 @@ test('loadConfig applies local server defaults', () => {
   const config = loadConfig({
     VENDURE_ADMIN_API_URL: 'http://localhost:3001/admin-api',
     VENDURE_API_KEY: 'test-api-key',
+    DATABASE_URL: 'postgresql://localhost/customer_service_os',
     TENANT_ID: 'tenant-local',
     ENVIRONMENT_ID: 'local',
     CONTEXT_ASSERTION_HMAC_SECRET:

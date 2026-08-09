@@ -111,7 +111,7 @@ export function createIntegrationGatewayRefundContextClient({
       try {
         response = await fetchImpl(executionEndpoint, {
           method: 'POST', headers: { 'content-type': 'application/json', [WORKFLOW_ACCESS_ASSERTION_HEADER]: assertion },
-          body: JSON.stringify({ orderReference: proposal.intent.orderId, reasonCode: proposal.intent.reasonCode, amount: preview.requestedAmount, selection: preview.selection, idempotencyKey: `refund:${workflowId}:${preview.previewId}` }),
+          body: JSON.stringify({ orderReference: proposal.intent.orderId, reasonCode: proposal.intent.reasonCode, amount: preview.requestedAmount, selection: preview.selection, previewId: preview.previewId, idempotencyKey: `refund:${workflowId}:${preview.previewId}` }),
           signal: AbortSignal.timeout(timeoutMilliseconds),
         });
       } catch { return { status: 'PENDING_RECONCILIATION' }; }
@@ -125,7 +125,7 @@ export function createIntegrationGatewayRefundContextClient({
     async reconcileRefund(input) {
       const assertion = await signWorkflowAccessAssertion({ workflowId: input.workflowId, access: input.access, purpose: 'refund_reconcile' });
       let response: Response;
-      try { response = await fetchImpl(reconciliationEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', [WORKFLOW_ACCESS_ASSERTION_HEADER]: assertion }, body: JSON.stringify({ orderReference: input.proposal.intent.orderId, amount: input.preview.requestedAmount }), signal: AbortSignal.timeout(timeoutMilliseconds) }); } catch { return { status: 'NOT_FOUND' }; }
+      try { response = await fetchImpl(reconciliationEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', [WORKFLOW_ACCESS_ASSERTION_HEADER]: assertion }, body: JSON.stringify({ orderReference: input.proposal.intent.orderId, previewId: input.preview.previewId, amount: input.preview.requestedAmount }), signal: AbortSignal.timeout(timeoutMilliseconds) }); } catch { return { status: 'NOT_FOUND' }; }
       if (!response.ok) return { status: 'NOT_FOUND' };
       const result = z.object({ status: z.enum(['SUCCEEDED', 'NOT_FOUND']), providerRefundId: z.string().optional() }).strict().parse(await response.json());
       return result.providerRefundId === undefined ? { status: result.status } : { status: result.status, providerRefundId: result.providerRefundId };
