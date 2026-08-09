@@ -151,3 +151,76 @@ test('does not expose an Agent Runtime server failure', async (context) => {
     },
   });
 });
+
+test('starts a durable refund workflow only for a complete proposal', async (context) => {
+  const correlationIds = ['request-1', 'trace-1'];
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'signed-context',
+    intakeRefund: async () => ({
+      statusCode: 200,
+      body: {
+        status: 'refund_proposal_ready',
+        refund_proposal: {
+          proposalId: 'proposal-001',
+          journeyType: 'REFUND',
+          missingFields: [],
+          intent: {
+            orderId: 'ORDER-123',
+            reasonCode: 'DAMAGED',
+            scope: 'FULL_ORDER',
+            itemIds: [],
+            requestedAmount: { amountMinor: 5_000, currency: 'USD' },
+          },
+        },
+      },
+    }),
+    startRefundWorkflow: async (input) => {
+      assert.deepEqual(input, {
+        workflowId: 'refund-proposal-001',
+        policyVersion: 'refund-policy-v1',
+        proposal: {
+          proposalId: 'proposal-001',
+          journeyType: 'REFUND',
+          intent: {
+            orderId: 'ORDER-123',
+            reasonCode: 'DAMAGED',
+            scope: 'FULL_ORDER',
+            itemIds: [],
+            requestedAmount: { amountMinor: 5_000, currency: 'USD' },
+          },
+        },
+        access: {
+          tenantId: 'tenant-local',
+          environmentId: 'local',
+          subjectCustomerId: 'customer-42',
+          requestId: 'request-1',
+          traceId: 'trace-1',
+        },
+      });
+      return { workflowId: input.workflowId };
+    },
+    createCorrelationId: () => {
+      const id = correlationIds.shift();
+      assert.ok(id);
+      return id;
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/refunds/intake',
+    headers: { authorization: 'Bearer customer-access-token' },
+    payload: {
+      customer_message: 'Refund my damaged order.',
+      order_reference: 'ORDER-123',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().refund_workflow, {
+    workflow_id: 'refund-proposal-001',
+    status: 'started',
+  });
+});

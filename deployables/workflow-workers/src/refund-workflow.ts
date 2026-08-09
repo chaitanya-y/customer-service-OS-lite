@@ -4,11 +4,14 @@ import {
   defineSignal,
   proxyActivities,
   setHandler,
+  workflowInfo,
 } from "@temporalio/workflow";
 
 import type { RefundWorkflowActivities } from "./refund-workflow-activities.js";
 import type { RefundProposal } from "./refund-policy-input.js";
 import type { RefundPolicyDecision } from "./refund-policy.js";
+import type { WorkflowJourneyAccess } from './workflow-access-assertion.js';
+import type { RefundPreview } from './refund-preview.js';
 
 const activities = proxyActivities<RefundWorkflowActivities>({
   startToCloseTimeout: "30 seconds",
@@ -18,9 +21,11 @@ const activities = proxyActivities<RefundWorkflowActivities>({
 export type RefundWorkflowRequest = Readonly<{
   proposal: RefundProposal;
   policyVersion: string;
+  access: WorkflowJourneyAccess;
 }>;
 
 export type RefundCustomerConfirmation = Readonly<{
+  previewId: string;
   accepted: boolean;
   confirmedAt: string;
 }>;
@@ -36,6 +41,7 @@ export type RefundWorkflowState = Readonly<{
     | "AWAITING_APPROVAL"
     | "HUMAN_TAKEOVER_REQUIRED";
   decision?: RefundPolicyDecision;
+  preview?: RefundPreview;
 }>;
 
 export const confirmRefund = defineSignal<[RefundCustomerConfirmation]>(
@@ -44,6 +50,9 @@ export const confirmRefund = defineSignal<[RefundCustomerConfirmation]>(
 
 export const getRefundWorkflowState = defineQuery<RefundWorkflowState>(
   "refund.state",
+);
+export const getRefundWorkflowAccess = defineQuery<WorkflowJourneyAccess>(
+  "refund.access",
 );
 
 /**
@@ -58,14 +67,12 @@ export async function refundWorkflow(
   let confirmation: RefundCustomerConfirmation | undefined;
 
   setHandler(getRefundWorkflowState, () => state);
-  setHandler(confirmRefund, (receivedConfirmation) => {
-    if (confirmation === undefined) {
-      confirmation = receivedConfirmation;
-    }
-  });
+  setHandler(getRefundWorkflowAccess, () => request.access);
 
   const refundContext = await activities.refreshRefundContext({
     proposal: request.proposal,
+    workflowId: workflowInfo().workflowId,
+    access: request.access,
   });
   const decision = await activities.evaluateRefundPolicy({
     proposal: request.proposal,
@@ -87,15 +94,35 @@ export async function refundWorkflow(
       state = { stage: "HUMAN_TAKEOVER_REQUIRED", decision };
       return state;
     case "ALLOW":
-      state = { stage: "AWAITING_CUSTOMER_CONFIRMATION", decision };
-      await condition(() => confirmation !== undefined);
-      if (confirmation === undefined) {
-        throw new Error("REFUND_CONFIRMATION_INVARIANT");
+      {
+        const preview = await activities.createRefundPreview({
+          proposal: request.proposal,
+          refundContext,
+          decision,
+        });
+        state = {
+          stage: "AWAITING_CUSTOMER_CONFIRMATION",
+          decision,
+          preview,
+        };
+        setHandler(confirmRefund, (receivedConfirmation) => {
+          if (
+            confirmation === undefined &&
+            receivedConfirmation.previewId === preview.previewId
+          ) {
+            confirmation = receivedConfirmation;
+          }
+        });
+        await condition(() => confirmation?.previewId === preview.previewId);
+        if (confirmation === undefined) {
+          throw new Error("REFUND_CONFIRMATION_INVARIANT");
+        }
+        state = {
+          stage: confirmation.accepted ? "CONFIRMED" : "CANCELLED",
+          decision,
+          preview,
+        };
+        return state;
       }
-      state = {
-        stage: confirmation.accepted ? "CONFIRMED" : "CANCELLED",
-        decision,
-      };
-      return state;
   }
 }

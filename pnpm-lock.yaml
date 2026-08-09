@@ -51,6 +51,9 @@ importers:
 
   deployables/edge-api:
     dependencies:
+      '@temporalio/client':
+        specifier: ^1.22.0
+        version: 1.22.0
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
@@ -107,6 +110,12 @@ importers:
       '@temporalio/workflow':
         specifier: ^1.22.0
         version: 1.22.0
+      jose:
+        specifier: ^6.2.4
+        version: 6.2.4
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@temporalio/testing':
         specifier: ^1.22.0

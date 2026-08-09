@@ -7,10 +7,12 @@ import { registerMcpRoutes } from './mcp-routes.js';
 import { registerOrderRoutes } from './order-routes.js';
 import { registerRefundContextRoutes } from './refund-context-routes.js';
 import type { VerifyContextAssertion } from './trusted-context.js';
+import type { VerifyWorkflowAccessAssertion } from './workflow-access.js';
 
 type BuildAppOptions = {
   commerceProvider: CommerceProvider;
   verifyContextAssertion: VerifyContextAssertion;
+  verifyWorkflowAccessAssertion?: VerifyWorkflowAccessAssertion;
   logger?: boolean;
 };
 
@@ -42,6 +44,7 @@ export function buildApp(
     app,
     getRefundContext,
     options.verifyContextAssertion,
+    options.verifyWorkflowAccessAssertion,
   );
   registerMcpRoutes(
     app,

@@ -29,6 +29,13 @@ const proposal: RefundProposal = {
 const request: RefundWorkflowRequest = {
   proposal,
   policyVersion: "refund-policy-v1",
+  access: {
+    tenantId: "tenant-local",
+    environmentId: "local",
+    subjectCustomerId: "customer-42",
+    requestId: "request-001",
+    traceId: "trace-001",
+  },
 };
 
 function makeDecision(
@@ -77,6 +84,21 @@ function makeActivities(
     async evaluateRefundPolicy() {
       return decision;
     },
+    async createRefundPreview() {
+      return {
+        previewId: 'preview-001',
+        createdAt: '2026-08-08T12:00:00.000Z',
+        proposalId: 'refund-proposal-001',
+        orderId: 'order-001',
+        selection: { scope: 'FULL_ORDER', itemIds: [] },
+        requestedAmount: { amountMinor: 5_000, currency: 'USD' },
+        refundDestination: 'ORIGINAL_PAYMENT_METHOD',
+        policyVersion: 'refund-policy-v1',
+        decisionId: 'policy-decision-001',
+        inputFactsHash: 'sha256:policy-input',
+        validUntil: '2026-08-08T12:15:00.000Z',
+      };
+    },
   };
 }
 
@@ -114,6 +136,12 @@ test("an allowed refund waits for customer confirmation and then completes", asy
     });
 
     await handle.signal(confirmRefund, {
+      previewId: 'obsolete-preview',
+      accepted: true,
+      confirmedAt: '2026-08-08T12:00:30.000Z',
+    });
+    await handle.signal(confirmRefund, {
+      previewId: 'preview-001',
       accepted: true,
       confirmedAt: "2026-08-08T12:01:00.000Z",
     });
@@ -121,6 +149,7 @@ test("an allowed refund waits for customer confirmation and then completes", asy
     const result = await handle.result();
     assert.equal(result.stage, "CONFIRMED");
     assert.equal(result.decision?.effect, "ALLOW");
+    assert.equal(result.preview?.previewId, 'preview-001');
   });
 });
 

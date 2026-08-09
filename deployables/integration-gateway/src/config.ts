@@ -12,6 +12,11 @@ const configSchema = z.object({
     .string()
     .min(1)
     .default('customer-service-os-edge'),
+  WORKFLOW_ACCESS_HMAC_SECRET: z.string().min(32),
+  WORKFLOW_ACCESS_ISSUER: z
+    .string()
+    .min(1)
+    .default('customer-service-os-workflow-workers'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
