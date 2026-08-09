@@ -66,11 +66,12 @@
     "facts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["customerVerified", "transactionRefundable", "itemSelectionValid", "refundableAmount", "refundDestination"],
+      "required": ["customerVerified", "transactionRefundable", "itemSelectionValid", "priorRefundCount", "refundableAmount", "refundDestination"],
       "properties": {
         "customerVerified": { "const": true },
         "transactionRefundable": { "type": "boolean" },
         "itemSelectionValid": { "type": "boolean" },
+        "priorRefundCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
         "refundableAmount": { "$ref": "#/$defs/money" },
         "refundDestination": { "const": "ORIGINAL_PAYMENT_METHOD" }
       }

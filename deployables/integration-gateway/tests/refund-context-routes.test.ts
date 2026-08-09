@@ -64,6 +64,7 @@ test('POST /internal/v1/refund-contexts returns trusted refund facts', async (co
     customerVerified: true,
     transactionRefundable: true,
     itemSelectionValid: true,
+    priorRefundCount: 0,
     refundableAmount: { amountMinor: 10_000, currency: 'USD' },
     refundDestination: 'ORIGINAL_PAYMENT_METHOD',
   });

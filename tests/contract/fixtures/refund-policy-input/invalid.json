@@ -2,7 +2,6 @@
   "schemaVersion": "1",
   "journeyType": "REFUND",
   "policyVersion": "refund-policy-v1",
-  "effect": "ALLOW",
   "request": {
     "proposalId": "refund-proposal-001",
     "orderId": "order-001",
@@ -10,6 +9,24 @@
     "scope": "FULL_ORDER",
     "itemIds": []
   },
-  "facts": {},
-  "factRefs": []
+  "facts": {
+    "customerVerified": true,
+    "transactionRefundable": true,
+    "itemSelectionValid": true,
+    "priorRefundCount": 0,
+    "refundableAmount": {
+      "amountMinor": 15000,
+      "currency": "USD"
+    },
+    "refundDestination": "ORIGINAL_PAYMENT_METHOD",
+    "riskClass": "LOW"
+  },
+  "factRefs": [
+    {
+      "factId": "refund-context-001",
+      "factType": "REFUND_CONTEXT",
+      "sourceVersion": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "observedAt": "2026-08-05T15:00:00.000Z"
+    }
+  ]
 }

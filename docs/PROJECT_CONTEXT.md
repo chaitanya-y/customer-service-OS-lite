@@ -1,8 +1,8 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-08-02
+Last updated: 2026-08-08
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
-Working branch: `dev`
+Working branch: `main`
 
 ## 1. Why this file exists
 
@@ -60,11 +60,11 @@ deployed together to keep the first version practical.
 |---|---|---|
 | Edge/API | React + TypeScript and Node.js + TypeScript | Customer UI, authentication, trusted tenant context, validation, rate limiting, routing, SSE |
 | Conversation Runtime | Node.js + TypeScript | Conversations, messages, ordering, persistence, projections, and event delivery |
-| Agent Runtime | Python | LangGraph, bounded specialists, context construction, model orchestration, retrieval, and typed proposals |
+| Agent Runtime | Python | LangGraph, bounded specialists, context construction, online retrieval orchestration, model orchestration, grounding, and typed proposals |
 | Workflow Workers | Node.js + TypeScript | Temporal workflow, deterministic policy, preview, confirmation, approval, retries, and reconciliation |
 | Integration Gateway | Node.js + TypeScript | Commerce connectors, MCP servers, authorization, idempotency, action safety, and audit |
 | Human Operations | React + TypeScript and Node.js + TypeScript | Escalation queues, approvals, takeover, review, and release-back |
-| Control and Knowledge | React + TypeScript, Node.js + TypeScript, and Python | Admin, tenant config, prompt/model/policy/knowledge releases, RAG ingestion, evaluations, and red-team datasets |
+| Control and Knowledge | React + TypeScript, Node.js + TypeScript, and Python | Admin, tenant config, prompt/model/policy/knowledge releases, ingestion, index publication, evaluations, and red-team datasets |
 
 The three browser surfaces are:
 
@@ -79,7 +79,8 @@ flowchart TD
     UI["Customer Chat UI"] --> EDGE["Edge API"]
     EDGE --> CONV["Conversation Service"]
     CONV --> AGENT["Python LangGraph Agent Runtime"]
-    AGENT --> RAG["Knowledge / RAG retrieval"]
+    AGENT --> RAG["Retrieval Gateway / OpenSearch evidence"]
+    CONTROL["Control and Knowledge"] -->|"published knowledge release"| RAG
     AGENT -->|"read-only lookup_order"| MCP["Node Integration Gateway MCP server"]
     MCP --> VENDURE["Vendure commerce system"]
     AGENT -->|"typed RefundProposal only"| WF["Temporal Workflow + Policy"]
@@ -181,11 +182,11 @@ contracts/
 deployables/
   agent-runtime/         Python FastAPI + LangGraph
   control-knowledge/     planned control plane, RAG, and evaluation workloads
-  conversation-runtime/ planned conversation service
+  conversation-runtime/ Node/Fastify conversation service and outbox
   edge-api/              Node/Fastify customer auth, context signing, routing
   human-operations/      planned human operations service
   integration-gateway/  Node/Fastify Vendure adapter, REST projection, MCP server
-  workflow-workers/      planned Temporal workflow and policy service
+  workflow-workers/      deterministic refund policy and Temporal workflow foundation
 surfaces/
   customer-widget/       planned customer UI
   operations-console/    planned human-agent console
@@ -211,6 +212,8 @@ The repository contains schemas for:
 - execution evidence;
 - provider-neutral order context;
 - refund proposal;
+- provider-neutral refund context;
+- refund policy input;
 - policy decision.
 
 The root test suite validates JSON examples and lints the protobuf contract.
@@ -222,8 +225,12 @@ The Node.js/TypeScript Integration Gateway contains:
 - a Vendure Admin GraphQL client;
 - a provider-neutral `CommerceOrder`;
 - the safe `OrderContext` projection;
+- the trusted `RefundContext` projection for Workflow Workers;
 - a `getOrderContext` use case;
+- a `getRefundContext` use case;
 - `GET /v1/orders/:orderReference`;
+- `POST /internal/v1/refund-contexts`, protected by trusted context and not
+  exposed as an MCP tool;
 - a stateless MCP Streamable HTTP endpoint at `POST /mcp`;
 - the read-only MCP tool `lookup_order`;
 - validation and stable error responses;
@@ -232,7 +239,7 @@ The Node.js/TypeScript Integration Gateway contains:
 The MCP tool accepts only `orderReference`. Its annotations declare that it is
 read-only, non-destructive, idempotent, and open-world.
 
-### Agent Runtime: committed base plus uncommitted Refund Proposal slice
+### Agent Runtime: committed and pushed Refund Proposal slice
 
 The Python Agent Runtime contains:
 
@@ -258,9 +265,48 @@ The Python Agent Runtime contains:
 - canonical JSON Schema compatibility tests;
 - API and MCP client tests.
 
-The Refund Proposal implementation is currently uncommitted. Its tests do not call
-a paid model. A real OpenAI call still requires local configuration and explicit
-approval.
+Its tests do not call a paid model. A real OpenAI call still requires local
+configuration and explicit approval.
+
+### Conversation Runtime: committed and pushed
+
+The Node.js/TypeScript Conversation Runtime contains:
+
+- durable conversation and message acceptance APIs;
+- encrypted message persistence interfaces;
+- idempotent mutation handling;
+- PostgreSQL migrations for conversation records and the outbox;
+- trusted context verification and tenant/customer scoping;
+- unit and route tests.
+
+The database-backed persistence integration test requires
+`CONVERSATION_TEST_DATABASE_URL`; it is skipped when that local test database is
+not configured.
+
+### Workflow Workers: deterministic refund policy and Temporal foundation
+
+The Node.js/TypeScript Workflow Workers package contains:
+
+- the immutable `refund-policy-v1` release;
+- deterministic `evaluateRefundPolicy(...)` decisions: `ALLOW`,
+  `APPROVAL_REQUIRED`, `TAKEOVER_REQUIRED`, `DENY`, and `NEEDS_FACTS`;
+- proposal and trusted-refund-context binding through
+  `createRefundPolicyInput(...)`;
+- deterministic risk assessment from trusted completed prior-refund counts:
+  zero is low risk, one is elevated risk, and two or more require takeover;
+- SHA-256 policy-input evidence and stable fact references;
+- policy boundary tests for amounts, currencies, reasons, approval, takeover,
+  missing facts, and mismatched trusted facts.
+- a Temporal `refundWorkflow(...)` that refreshes facts, requests a policy
+  decision, exposes durable state, and waits for an exact customer-confirmation
+  signal when policy allows a refund;
+- activity contracts that keep Gateway I/O and deterministic policy evaluation
+  outside the Temporal workflow sandbox;
+- local Temporal integration tests covering confirmed and denied journeys.
+
+This foundation deliberately does not issue a refund. Gateway-backed fact refresh,
+canonical preview creation, approval/takeover signals, and the narrow authorized
+refund activity remain separate next steps.
 
 ### Edge API: committed and pushed
 
@@ -285,14 +331,12 @@ assertion, and downstream client interfaces.
 
 At the time of this handoff:
 
-- branch: `dev`
+- branch: `main`
 - remote: `origin`
 - remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
-- latest pushed commit: `2d62cd8 feat: establish trusted customer context at edge`
-- `origin/dev` contains the trusted-context and Edge API vertical slice.
-
-The current `dev` working tree contains the uncommitted Refund Proposal
-implementation and its tests. Do not overwrite or discard it.
+- latest pushed commit: `2a5d8e1 merge: deterministic refund policy input flow`
+- `origin/main` contains the trusted-context, conversation runtime, governed
+  proposal, trusted refund context, and deterministic policy slices.
 
 ## 9. Prerequisites
 
@@ -604,16 +648,14 @@ parts remain:
 
 - production customer authentication through Cognito;
 - workforce delegation and case-bound order authorization;
-- Conversation Service and persistent conversation model;
 - Edge streaming and rate limiting;
 - customer chat UI;
 - RAG ingestion, versioned knowledge releases, hybrid retrieval, reranking, and
   citations;
 - triage specialist and RAG-grounded refund reasoning;
 - live model evaluation and release gating for the refund specialist;
-- Temporal refund workflow and replay-safe versioning;
-- deterministic versioned refund policy implementation;
-- canonical refund preview and exact customer confirmation;
+- Gateway-backed Temporal fact refresh and replay-safe workflow versioning;
+- canonical refund preview bound to the exact customer confirmation;
 - human approval, escalation queue, and takeover console;
 - authorized/idempotent refund execution;
 - Kafka topics, event schemas, consumers, and outbox delivery;
@@ -628,17 +670,17 @@ parts remain:
 
 The shortest safe path to the first vertical slice is:
 
-1. Review, run, commit, and push the Refund Proposal slice.
-2. Add reproducible Vendure initialization and seed data so another clone can run
+1. Connect the Temporal workflow to a service-to-service Gateway fact refresh,
+   then add canonical preview creation and confirmation binding.
+2. Add approval and human-takeover signals before implementing the narrow,
+   idempotent authorized refund action and provider reconciliation.
+3. Add reproducible Vendure initialization and seed data so another clone can run
    the same end-to-end lookup.
-3. Add the first versioned refund policy and policy decision contract execution.
-4. Implement the minimal Temporal workflow:
-   facts refresh -> policy -> preview -> confirmation -> optional approval ->
-   authorized action -> provider confirmation.
-5. Add human handoff for policy-required approval and ambiguous provider outcomes.
-6. Add Kafka event publication through an outbox for journey/audit projections.
-7. Add the first small versioned refund-policy knowledge corpus and RAG citations.
-8. Add traces and a compact evaluation dataset before deploying the single-region
+4. Add Kafka event publication through an outbox for journey/audit projections.
+5. Add the first small versioned refund-policy knowledge corpus and RAG citations.
+   Control and Knowledge owns ingestion and release publication; Agent Runtime
+   owns online retrieval orchestration, grounding, and citations.
+6. Add traces and a compact evaluation dataset before deploying the single-region
    AWS slice.
 
 Do not start by building every empty service. Extend the walking refund slice and

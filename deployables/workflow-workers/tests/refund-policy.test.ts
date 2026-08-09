@@ -17,14 +17,14 @@ function makeInput({
   currency = "USD",
   refundableAmountMinor = 60_000,
   refundableCurrency = currency,
-  riskClass = "LOW",
+  priorRefundCount = 0,
   refundDestination = "ORIGINAL_PAYMENT_METHOD",
 }: {
   amountMinor?: number;
   currency?: string;
   refundableAmountMinor?: number;
   refundableCurrency?: string;
-  riskClass?: "LOW" | "ELEVATED" | "HIGH";
+  priorRefundCount?: number;
   refundDestination?:
     | "ORIGINAL_PAYMENT_METHOD"
     | "STORE_CREDIT"
@@ -46,12 +46,12 @@ function makeInput({
       customerVerified: true,
       transactionRefundable: true,
       itemSelectionValid: true,
+      priorRefundCount,
       refundableAmount: {
         amountMinor: refundableAmountMinor,
         currency: refundableCurrency,
       },
       refundDestination,
-      riskClass,
     },
     factRefs: [
       {
@@ -157,7 +157,7 @@ test("returns NEEDS_FACTS instead of guessing", () => {
     "REQUESTED_AMOUNT",
     "REFUNDABLE_AMOUNT",
     "REFUND_DESTINATION",
-    "RISK_CLASS",
+    "PRIOR_REFUND_HISTORY",
   ]);
 });
 
@@ -183,7 +183,7 @@ test("denies mismatched request and refundable currencies", () => {
 
 test("elevated risk requires approval even below $100", () => {
   const decision = evaluate(
-    makeInput({ amountMinor: 5_000, riskClass: "ELEVATED" }),
+    makeInput({ amountMinor: 5_000, priorRefundCount: 1 }),
   );
 
   assert.equal(decision.effect, "APPROVAL_REQUIRED");
@@ -194,7 +194,7 @@ test("elevated risk requires approval even below $100", () => {
 
 test("high risk requires takeover", () => {
   const decision = evaluate(
-    makeInput({ amountMinor: 5_000, riskClass: "HIGH" }),
+    makeInput({ amountMinor: 5_000, priorRefundCount: 2 }),
   );
 
   assert.equal(decision.effect, "TAKEOVER_REQUIRED");

@@ -28,6 +28,7 @@ export type RefundContext = Readonly<{
     customerVerified: true;
     transactionRefundable: boolean;
     itemSelectionValid: boolean;
+    priorRefundCount: number;
     refundableAmount: Money;
     refundDestination: "ORIGINAL_PAYMENT_METHOD";
   }>;
@@ -70,6 +71,7 @@ export function createRefundPolicyInput({
       customerVerified: refundContext.facts.customerVerified,
       transactionRefundable: refundContext.facts.transactionRefundable,
       itemSelectionValid: refundContext.facts.itemSelectionValid,
+      priorRefundCount: refundContext.facts.priorRefundCount,
       refundableAmount: {
         amountMinor: refundContext.facts.refundableAmount.amountMinor,
         currency: refundContext.facts.refundableAmount.currency,

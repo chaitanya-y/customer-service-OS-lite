@@ -82,7 +82,7 @@
           "REFUND_REASON",
           "ITEM_SELECTION",
           "JURISDICTION",
-          "RISK_CLASS",
+          "PRIOR_REFUND_HISTORY",
           "PURCHASE_DATE",
           "REQUESTED_AMOUNT",
           "REFUNDABLE_AMOUNT",

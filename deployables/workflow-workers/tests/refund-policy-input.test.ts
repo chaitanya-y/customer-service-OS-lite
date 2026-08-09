@@ -38,6 +38,7 @@ const refundContext: RefundContext = {
     customerVerified: true,
     transactionRefundable: true,
     itemSelectionValid: true,
+    priorRefundCount: 0,
     refundableAmount: { amountMinor: 10_000, currency: "USD" },
     refundDestination: "ORIGINAL_PAYMENT_METHOD",
   },
@@ -75,6 +76,7 @@ test("creates policy input from proposal intent and authoritative refund facts",
       customerVerified: true,
       transactionRefundable: true,
       itemSelectionValid: true,
+      priorRefundCount: 0,
       refundableAmount: { amountMinor: 10_000, currency: "USD" },
       refundDestination: "ORIGINAL_PAYMENT_METHOD",
     },
@@ -88,6 +90,18 @@ test("creates policy input from proposal intent and authoritative refund facts",
       },
     ],
   });
+});
+
+test("allows a low-risk refund when trusted facts are complete", () => {
+  const decision = evaluateRefundPolicy(createInput(), REFUND_POLICY_V1, {
+    decisionId: "decision-allow-1",
+    decidedAt: "2026-08-06T12:01:00.000Z",
+  });
+
+  assert.equal(decision.effect, "ALLOW");
+  assert.deepEqual(decision.reasonCodes, [
+    "WITHIN_AUTOMATIC_REFUND_THRESHOLD",
+  ]);
 });
 
 test("rejects trusted facts for a different order", () => {
@@ -133,5 +147,5 @@ test("preserves a missing requested amount so policy can request more facts", ()
 
   assert.equal(input.request.requestedAmount, undefined);
   assert.equal(decision.effect, "NEEDS_FACTS");
-  assert.deepEqual(decision.missingFacts, ["REQUESTED_AMOUNT", "RISK_CLASS"]);
+  assert.deepEqual(decision.missingFacts, ["REQUESTED_AMOUNT"]);
 });

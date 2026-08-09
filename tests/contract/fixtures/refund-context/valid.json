@@ -12,6 +12,7 @@
     "customerVerified": true,
     "transactionRefundable": true,
     "itemSelectionValid": true,
+    "priorRefundCount": 0,
     "refundableAmount": { "amountMinor": 15000, "currency": "USD" },
     "refundDestination": "ORIGINAL_PAYMENT_METHOD"
   }

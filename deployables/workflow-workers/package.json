@@ -13,8 +13,14 @@
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "devDependencies": {
+    "@temporalio/testing": "^1.22.0",
     "@types/node": "^26.1.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@temporalio/client": "^1.22.0",
+    "@temporalio/worker": "^1.22.0",
+    "@temporalio/workflow": "^1.22.0"
   }
 }

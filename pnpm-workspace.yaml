@@ -3,5 +3,7 @@ packages:
   - "surfaces/*"
   - "packages/*"
 allowBuilds:
+  '@swc/core': true
   '@bufbuild/buf': true
   esbuild: true
+  protobufjs: true

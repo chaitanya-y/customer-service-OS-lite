@@ -3,6 +3,8 @@ export type RefundPolicyRelease = Readonly<{
   supportedCurrency: "USD";
   automaticMaximumMinor: number;
   approvalMaximumMinor: number;
+  elevatedRiskPriorRefundCount: number;
+  highRiskPriorRefundCount: number;
   decisionValiditySeconds: number;
   permittedReasonCodes: readonly string[];
 }>;
@@ -12,6 +14,8 @@ export const REFUND_POLICY_V1: RefundPolicyRelease = Object.freeze({
   supportedCurrency: "USD",
   automaticMaximumMinor: 10_000,
   approvalMaximumMinor: 50_000,
+  elevatedRiskPriorRefundCount: 1,
+  highRiskPriorRefundCount: 2,
   decisionValiditySeconds: 15 * 60,
   permittedReasonCodes: Object.freeze([
     "DAMAGED",

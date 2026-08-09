@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { RefundPolicyRelease } from "./refund-policy-release.js";
+import { assessRefundRisk } from "./refund-risk.js";
 
 export type Money = Readonly<{
   amountMinor: number;
@@ -30,12 +31,12 @@ export type RefundPolicyInput = Readonly<{
     customerVerified?: boolean;
     transactionRefundable?: boolean;
     itemSelectionValid?: boolean;
+    priorRefundCount?: number;
     refundableAmount?: Money;
     refundDestination?:
       | "ORIGINAL_PAYMENT_METHOD"
       | "STORE_CREDIT"
       | "OTHER";
-    riskClass?: "LOW" | "ELEVATED" | "HIGH";
   }>;
   factRefs: readonly FactRef[];
 }>;
@@ -55,7 +56,7 @@ export type PolicyEffect =
 export type MissingFact =
   | "REFUND_REASON"
   | "ITEM_SELECTION"
-  | "RISK_CLASS"
+  | "PRIOR_REFUND_HISTORY"
   | "REQUESTED_AMOUNT"
   | "REFUNDABLE_AMOUNT"
   | "REFUND_DESTINATION"
@@ -175,6 +176,8 @@ export function evaluateRefundPolicy(
     return decide("DENY", ["REFUND_AMOUNT_EXCEEDS_REFUNDABLE_BALANCE"]);
   }
 
+  const riskClass = assessRefundRisk(input.facts.priorRefundCount!, release);
+
   const takeoverReasons: string[] = [];
   if (requestedAmount.currency !== release.supportedCurrency) {
     takeoverReasons.push("UNSUPPORTED_CURRENCY_REQUIRES_TAKEOVER");
@@ -182,7 +185,7 @@ export function evaluateRefundPolicy(
   if (input.facts.refundDestination !== "ORIGINAL_PAYMENT_METHOD") {
     takeoverReasons.push("NON_STANDARD_DESTINATION_REQUIRES_TAKEOVER");
   }
-  if (input.facts.riskClass === "HIGH") {
+  if (riskClass === "HIGH") {
     takeoverReasons.push("HIGH_RISK_REFUND_REQUIRES_TAKEOVER");
   }
   if (requestedAmount.amountMinor > release.approvalMaximumMinor) {
@@ -197,7 +200,7 @@ export function evaluateRefundPolicy(
   }
 
   const approvalReasons: string[] = [];
-  if (input.facts.riskClass === "ELEVATED") {
+  if (riskClass === "ELEVATED") {
     approvalReasons.push("ELEVATED_RISK_REQUIRES_APPROVAL");
   }
   if (requestedAmount.amountMinor > release.automaticMaximumMinor) {
@@ -246,8 +249,8 @@ function findMissingFacts(input: RefundPolicyInput): MissingFact[] {
   if (input.facts.refundDestination === undefined) {
     missingFacts.push("REFUND_DESTINATION");
   }
-  if (input.facts.riskClass === undefined) {
-    missingFacts.push("RISK_CLASS");
+  if (input.facts.priorRefundCount === undefined) {
+    missingFacts.push("PRIOR_REFUND_HISTORY");
   }
 
   return missingFacts;
@@ -259,6 +262,10 @@ function assertPolicyRelease(release: RefundPolicyRelease): void {
     !Number.isSafeInteger(release.approvalMaximumMinor) ||
     release.automaticMaximumMinor < 0 ||
     release.approvalMaximumMinor < release.automaticMaximumMinor ||
+    !Number.isSafeInteger(release.elevatedRiskPriorRefundCount) ||
+    !Number.isSafeInteger(release.highRiskPriorRefundCount) ||
+    release.elevatedRiskPriorRefundCount < 1 ||
+    release.highRiskPriorRefundCount <= release.elevatedRiskPriorRefundCount ||
     !Number.isSafeInteger(release.decisionValiditySeconds) ||
     release.decisionValiditySeconds <= 0 ||
     release.permittedReasonCodes.length === 0

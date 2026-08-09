@@ -35,11 +35,13 @@ export function toRefundContext(
     (payment) => payment.status.toUpperCase() === 'SETTLED',
   );
   const payment = settledPayments.length === 1 ? settledPayments[0] : null;
-  const consumedAmountMinor = payment
-    ? payment.refunds
-        .filter((refund) => refundConsumesBalance(refund.status))
-        .reduce((total, refund) => total + refund.amount.amountMinor, 0)
-    : 0;
+  const priorRefunds = payment?.refunds.filter((refund) =>
+    refundConsumesBalance(refund.status),
+  ) ?? [];
+  const consumedAmountMinor = priorRefunds.reduce(
+    (total, refund) => total + refund.amount.amountMinor,
+    0,
+  );
   const remainingPaymentAmountMinor = payment
     ? Math.max(payment.amount.amountMinor - consumedAmountMinor, 0)
     : 0;
@@ -87,6 +89,7 @@ export function toRefundContext(
       transactionRefundable:
         !order.active && payment !== null && remainingPaymentAmountMinor > 0,
       itemSelectionValid,
+      priorRefundCount: priorRefunds.length,
       refundableAmount: money(
         itemSelectionValid ? selectedMaximumMinor : 0,
         order.total.currency,

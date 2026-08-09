@@ -74,6 +74,7 @@ test('refund context uses remaining settled-payment balance for a full order', (
 
   assert.equal(refundContext.facts.transactionRefundable, true);
   assert.equal(refundContext.facts.itemSelectionValid, true);
+  assert.equal(refundContext.facts.priorRefundCount, 1);
   assert.deepEqual(refundContext.facts.refundableAmount, {
     amountMinor: 10_000,
     currency: 'USD',
@@ -94,6 +95,7 @@ test('refund context fails closed for a selected item already in a refund', () =
   );
 
   assert.equal(refundContext.facts.itemSelectionValid, false);
+  assert.equal(refundContext.facts.priorRefundCount, 1);
   assert.deepEqual(refundContext.facts.refundableAmount, {
     amountMinor: 0,
     currency: 'USD',
@@ -127,4 +129,5 @@ test('a failed refund does not consume the refundable balance', () => {
     amountMinor: 15_000,
     currency: 'USD',
   });
+  assert.equal(refundContext.facts.priorRefundCount, 0);
 });
