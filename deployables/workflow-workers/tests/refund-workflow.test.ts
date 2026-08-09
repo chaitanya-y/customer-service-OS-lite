@@ -10,6 +10,7 @@ import type { RefundProposal } from "../src/refund-policy-input.js";
 import type { RefundPolicyDecision } from "../src/refund-policy.js";
 import {
   confirmRefund,
+  decideRefund,
   refundWorkflow,
   type RefundWorkflowRequest,
 } from "../src/refund-workflow.js";
@@ -99,6 +100,10 @@ function makeActivities(
         validUntil: '2026-08-08T12:15:00.000Z',
       };
     },
+    async executeRefund() {
+      return { status: 'SUCCEEDED', providerRefundId: 'vendure-refund-001' };
+    },
+    async reconcileRefund() { return { status: 'NOT_FOUND' }; },
   };
 }
 
@@ -147,7 +152,7 @@ test("an allowed refund waits for customer confirmation and then completes", asy
     });
 
     const result = await handle.result();
-    assert.equal(result.stage, "CONFIRMED");
+    assert.equal(result.stage, "REFUND_SUCCEEDED");
     assert.equal(result.decision?.effect, "ALLOW");
     assert.equal(result.preview?.previewId, 'preview-001');
   });
@@ -164,5 +169,21 @@ test("a denied refund completes without waiting for customer confirmation", asyn
     const result = await handle.result();
     assert.equal(result.stage, "DENIED");
     assert.equal(result.decision?.effect, "DENY");
+  });
+});
+
+test('an approval-required refund waits for customer confirmation and a human approval', async () => {
+  await withWorker(makeActivities(makeDecision('APPROVAL_REQUIRED')), async (environment, taskQueue) => {
+    const handle = await environment.workflowClient.start(refundWorkflow, {
+      taskQueue,
+      workflowId: `refund-${crypto.randomUUID()}`,
+      args: [request],
+    });
+    await handle.signal(confirmRefund, { previewId: 'preview-001', accepted: true, confirmedAt: '2026-08-08T12:01:00.000Z' });
+    await handle.signal(decideRefund, { decision: 'APPROVE', decidedBy: 'agent-001', decidedAt: '2026-08-08T12:02:00.000Z' });
+
+    const result = await handle.result();
+    assert.equal(result.stage, 'REFUND_SUCCEEDED');
+    assert.equal(result.preview?.previewId, 'preview-001');
   });
 });

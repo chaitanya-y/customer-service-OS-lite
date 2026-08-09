@@ -22,6 +22,7 @@ export type WorkflowJourneyAccess = z.infer<typeof workflowJourneyAccessSchema>;
 export type WorkflowAccessAssertionInput = Readonly<{
   workflowId: string;
   access: WorkflowJourneyAccess;
+  purpose: 'refund_fact_refresh' | 'refund_execute' | 'refund_reconcile';
 }>;
 
 export type SignWorkflowAccessAssertion = (
@@ -65,7 +66,7 @@ export function createHmacWorkflowAccessAssertionSigner({
         environmentId: access.environmentId,
       },
       subject: { customerId: access.subjectCustomerId },
-      purpose: 'refund_fact_refresh',
+      purpose: unvalidatedInput.purpose,
       request: { requestId: access.requestId, traceId: access.traceId },
     })
       .setProtectedHeader({ alg: 'HS256', typ: 'cso-workflow+jwt' })

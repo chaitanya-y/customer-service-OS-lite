@@ -49,4 +49,9 @@ export type CommerceOrder = {
 
 export interface CommerceProvider {
   getOrderByReference(reference: string): Promise<CommerceOrder | null>;
+  executeRefund?(input: {
+    paymentId: string;
+    amount: Money;
+    reason: string;
+  }): Promise<{ status: 'SUCCEEDED' | 'FAILED'; providerRefundId?: string }>;
 }

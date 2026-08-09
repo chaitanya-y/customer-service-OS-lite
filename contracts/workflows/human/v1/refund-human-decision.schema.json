@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workflowId", "decision", "decidedBy", "decidedAt"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "workflowId": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["APPROVE", "REJECT", "RESOLVE_TAKEOVER"] },
+    "decidedBy": { "type": "string", "minLength": 1 },
+    "decidedAt": { "type": "string", "format": "date-time" },
+    "reasonCode": { "type": "string", "minLength": 1 }
+  }
+}

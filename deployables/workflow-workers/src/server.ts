@@ -21,6 +21,8 @@ const integrationGateway = createIntegrationGatewayRefundContextClient({
 });
 const activities = createRefundWorkflowActivities({
   fetchRefundContext: integrationGateway.fetchRefundContext,
+  executeRefund: integrationGateway.executeRefund,
+  reconcileRefund: integrationGateway.reconcileRefund,
   refundPolicyRelease: REFUND_POLICY_V1,
   createDecisionContext: () => ({
     decisionId: randomUUID(),

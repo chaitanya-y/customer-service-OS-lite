@@ -60,6 +60,14 @@ const orderByCodeQuery = `
     }
   }
 `;
+const refundOrderMutation = `
+  mutation RefundOrder($input: RefundOrderInput!) {
+    refundOrder(input: $input) {
+      __typename
+      ... on Refund { id }
+    }
+  }
+`;
 
 const vendureOrderSchema = z.object({
   id: z.string(),
@@ -263,6 +271,20 @@ export function createVendureCommerceProvider(
 
       const order = payload.data.orders.items[0];
       return order ? toCommerceOrder(order) : null;
+    },
+    async executeRefund(input) {
+      const response = await fetcher(options.adminApiUrl, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'vendure-api-key': options.apiKey },
+        body: JSON.stringify({ query: refundOrderMutation, variables: { input: { paymentId: input.paymentId, amount: input.amount.amountMinor, reason: input.reason } } }),
+      });
+      if (!response.ok) throw new Error(`Vendure refund failed with HTTP status ${response.status}`);
+      const payload = z.object({ data: z.object({ refundOrder: z.object({ __typename: z.string(), id: z.string().optional() }) }).optional(), errors: z.array(z.object({ message: z.string() })).optional() }).parse(await response.json());
+      if (payload.errors?.length || !payload.data) throw new Error('Vendure refund GraphQL outcome unknown');
+      const result = payload.data.refundOrder;
+      if (result.__typename !== 'Refund') return { status: 'FAILED' as const };
+      return result.id === undefined
+        ? { status: 'SUCCEEDED' as const }
+        : { status: 'SUCCEEDED' as const, providerRefundId: result.id };
     },
   };
 }

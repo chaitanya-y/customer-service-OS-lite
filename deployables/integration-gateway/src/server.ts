@@ -23,10 +23,23 @@ const verifyWorkflowAccessAssertion = createHmacWorkflowAccessAssertionVerifier(
   expectedTenantId: config.TENANT_ID,
   expectedEnvironmentId: config.ENVIRONMENT_ID,
 });
+const verifyWorkflowRefundExecutionAssertion = createHmacWorkflowAccessAssertionVerifier({
+  secret: config.WORKFLOW_ACCESS_HMAC_SECRET,
+  expectedIssuer: config.WORKFLOW_ACCESS_ISSUER,
+  expectedAudience: 'integration-gateway',
+  expectedTenantId: config.TENANT_ID,
+  expectedEnvironmentId: config.ENVIRONMENT_ID,
+  expectedPurpose: 'refund_execute',
+});
+const verifyWorkflowRefundReconciliationAssertion = createHmacWorkflowAccessAssertionVerifier({
+  secret: config.WORKFLOW_ACCESS_HMAC_SECRET, expectedIssuer: config.WORKFLOW_ACCESS_ISSUER, expectedAudience: 'integration-gateway', expectedTenantId: config.TENANT_ID, expectedEnvironmentId: config.ENVIRONMENT_ID, expectedPurpose: 'refund_reconcile',
+});
 const app = buildApp({
   commerceProvider,
   verifyContextAssertion,
   verifyWorkflowAccessAssertion,
+  verifyWorkflowRefundExecutionAssertion,
+  verifyWorkflowRefundReconciliationAssertion,
   logger: true,
 });
 

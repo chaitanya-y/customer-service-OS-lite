@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { RefundContext } from './refund-policy-input.js';
-import type { RefreshRefundContextInput } from './refund-workflow-activities.js';
+import type { ExecuteRefundInput, ReconcileRefundInput, RefreshRefundContextInput } from './refund-workflow-activities.js';
 import type { SignWorkflowAccessAssertion } from './workflow-access-assertion.js';
 
 const WORKFLOW_ACCESS_ASSERTION_HEADER = 'x-cso-workflow-assertion';
@@ -20,6 +20,10 @@ const refundContextSchema = z.object({
     refundableAmount: moneySchema,
     refundDestination: z.literal('ORIGINAL_PAYMENT_METHOD'),
   }).strict(),
+}).strict();
+const refundExecutionSchema = z.object({
+  status: z.enum(['SUCCEEDED', 'FAILED', 'PENDING_RECONCILIATION']),
+  providerRefundId: z.string().optional(),
 }).strict();
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -49,8 +53,12 @@ export function createIntegrationGatewayRefundContextClient({
   fetchImpl = fetch,
 }: IntegrationGatewayRefundContextClientOptions): {
   fetchRefundContext(input: RefreshRefundContextInput): Promise<RefundContext>;
+  executeRefund(input: ExecuteRefundInput): Promise<{ status: 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION'; providerRefundId?: string }>;
+  reconcileRefund(input: ReconcileRefundInput): Promise<{ status: 'SUCCEEDED' | 'NOT_FOUND'; providerRefundId?: string }>;
 } {
   const endpoint = new URL('/internal/v1/refund-contexts', baseUrl);
+  const executionEndpoint = new URL('/internal/v1/refunds', baseUrl);
+  const reconciliationEndpoint = new URL('/internal/v1/refund-reconciliations', baseUrl);
 
   return {
     async fetchRefundContext(input) {
@@ -65,7 +73,7 @@ export function createIntegrationGatewayRefundContextClient({
         throw new Error('REFUND_SELECTION_REQUIRED');
       }
 
-      const assertion = await signWorkflowAccessAssertion({ workflowId, access });
+      const assertion = await signWorkflowAccessAssertion({ workflowId, access, purpose: 'refund_fact_refresh' });
       let response: Response;
       try {
         response = await fetchImpl(endpoint, {
@@ -92,6 +100,35 @@ export function createIntegrationGatewayRefundContextClient({
       }
 
       return refundContextSchema.parse(await response.json()) as RefundContext;
+    },
+    async executeRefund(input) {
+      const { access, workflowId, preview, proposal } = input;
+      if (access.tenantId !== expectedTenantId || access.environmentId !== expectedEnvironmentId) {
+        throw new Error('WORKFLOW_ACCESS_SCOPE_MISMATCH');
+      }
+      const assertion = await signWorkflowAccessAssertion({ workflowId, access, purpose: 'refund_execute' });
+      let response: Response;
+      try {
+        response = await fetchImpl(executionEndpoint, {
+          method: 'POST', headers: { 'content-type': 'application/json', [WORKFLOW_ACCESS_ASSERTION_HEADER]: assertion },
+          body: JSON.stringify({ orderReference: proposal.intent.orderId, reasonCode: proposal.intent.reasonCode, amount: preview.requestedAmount, selection: preview.selection, idempotencyKey: `refund:${workflowId}:${preview.previewId}` }),
+          signal: AbortSignal.timeout(timeoutMilliseconds),
+        });
+      } catch { return { status: 'PENDING_RECONCILIATION' }; }
+      if (response.status >= 500) return { status: 'PENDING_RECONCILIATION' };
+      if (!response.ok) return { status: 'FAILED' };
+      const result = refundExecutionSchema.parse(await response.json());
+      return result.providerRefundId === undefined
+        ? { status: result.status }
+        : { status: result.status, providerRefundId: result.providerRefundId };
+    },
+    async reconcileRefund(input) {
+      const assertion = await signWorkflowAccessAssertion({ workflowId: input.workflowId, access: input.access, purpose: 'refund_reconcile' });
+      let response: Response;
+      try { response = await fetchImpl(reconciliationEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', [WORKFLOW_ACCESS_ASSERTION_HEADER]: assertion }, body: JSON.stringify({ orderReference: input.proposal.intent.orderId, amount: input.preview.requestedAmount }), signal: AbortSignal.timeout(timeoutMilliseconds) }); } catch { return { status: 'NOT_FOUND' }; }
+      if (!response.ok) return { status: 'NOT_FOUND' };
+      const result = z.object({ status: z.enum(['SUCCEEDED', 'NOT_FOUND']), providerRefundId: z.string().optional() }).strict().parse(await response.json());
+      return result.providerRefundId === undefined ? { status: result.status } : { status: result.status, providerRefundId: result.providerRefundId };
     },
   };
 }

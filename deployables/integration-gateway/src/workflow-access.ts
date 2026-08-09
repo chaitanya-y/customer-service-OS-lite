@@ -30,7 +30,7 @@ const workflowAccessClaimsSchema = z
         customerId: opaqueId,
       })
       .strict(),
-    purpose: z.literal('refund_fact_refresh'),
+    purpose: z.enum(['refund_fact_refresh', 'refund_execute', 'refund_reconcile']),
     request: z
       .object({
         requestId: opaqueId,
@@ -54,6 +54,7 @@ type WorkflowAccessAssertionVerifierOptions = {
   expectedAudience: string;
   expectedTenantId: string;
   expectedEnvironmentId: string;
+  expectedPurpose?: 'refund_fact_refresh' | 'refund_execute' | 'refund_reconcile';
   now?: () => Date;
 };
 
@@ -63,6 +64,7 @@ export function createHmacWorkflowAccessAssertionVerifier({
   expectedAudience,
   expectedTenantId,
   expectedEnvironmentId,
+  expectedPurpose = 'refund_fact_refresh',
   now = () => new Date(),
 }: WorkflowAccessAssertionVerifierOptions): VerifyWorkflowAccessAssertion {
   if (Buffer.byteLength(secret, 'utf8') < 32) {
@@ -95,6 +97,7 @@ export function createHmacWorkflowAccessAssertionVerifier({
         claims.exp <= nowSeconds ||
         claims.exp <= claims.iat ||
         claims.exp - claims.iat > 300
+        || claims.purpose !== expectedPurpose
       ) {
         throw new Error('WORKFLOW_ACCESS_UNAUTHORIZED');
       }

@@ -35,7 +35,7 @@ export function createRefundPreview({
   createdAt,
 }: CreateRefundPreviewInput): RefundPreview {
   const requestedAmount = proposal.intent.requestedAmount;
-  if (decision.effect !== 'ALLOW' || requestedAmount === undefined) {
+  if ((decision.effect !== 'ALLOW' && decision.effect !== 'APPROVAL_REQUIRED') || requestedAmount === undefined) {
     throw new Error('REFUND_PREVIEW_REQUIRES_ALLOWED_DECISION');
   }
   if (proposal.intent.orderId !== refundContext.source.orderId) {

@@ -29,6 +29,18 @@ export type CreateRefundPreviewActivityInput = Readonly<{
   refundContext: RefundContext;
   decision: RefundPolicyDecision;
 }>;
+export type ExecuteRefundInput = Readonly<{
+  proposal: RefundProposal;
+  preview: RefundPreview;
+  workflowId: string;
+  access: WorkflowJourneyAccess;
+}>;
+export type ExecuteRefundResult = Readonly<{
+  status: 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION';
+  providerRefundId?: string;
+}>;
+export type ReconcileRefundInput = Readonly<{ proposal: RefundProposal; preview: RefundPreview; workflowId: string; access: WorkflowJourneyAccess }>;
+export type ReconcileRefundResult = Readonly<{ status: 'SUCCEEDED' | 'NOT_FOUND'; providerRefundId?: string }>;
 
 export type RefundWorkflowActivities = Readonly<{
   refreshRefundContext(
@@ -40,12 +52,16 @@ export type RefundWorkflowActivities = Readonly<{
   createRefundPreview(
     input: CreateRefundPreviewActivityInput,
   ): Promise<RefundPreview>;
+  executeRefund(input: ExecuteRefundInput): Promise<ExecuteRefundResult>;
+  reconcileRefund(input: ReconcileRefundInput): Promise<ReconcileRefundResult>;
 }>;
 
 type RefundWorkflowActivityDependencies = Readonly<{
   fetchRefundContext(
     input: RefreshRefundContextInput,
   ): Promise<RefundContext>;
+  executeRefund(input: ExecuteRefundInput): Promise<ExecuteRefundResult>;
+  reconcileRefund(input: ReconcileRefundInput): Promise<ReconcileRefundResult>;
   refundPolicyRelease: RefundPolicyRelease;
   createDecisionContext(
     input: EvaluateRefundPolicyInput,
@@ -59,6 +75,8 @@ type RefundWorkflowActivityDependencies = Readonly<{
  */
 export function createRefundWorkflowActivities({
   fetchRefundContext,
+  executeRefund,
+  reconcileRefund,
   refundPolicyRelease,
   createDecisionContext,
   createPreviewContext,
@@ -81,5 +99,7 @@ export function createRefundWorkflowActivities({
     async createRefundPreview(input) {
       return createRefundPreview({ ...input, ...createPreviewContext() });
     },
+    executeRefund,
+    reconcileRefund,
   };
 }
