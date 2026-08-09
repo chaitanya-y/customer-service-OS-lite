@@ -1,8 +1,10 @@
 import { createAgentRuntimeClient } from './agent-runtime-client.js';
+import { Connection, WorkflowClient } from '@temporalio/client';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createHmacContextAssertionSigner } from './context-assertion.js';
 import { createLocalCustomerIdentityVerifier } from './local-customer-auth.js';
+import { createTemporalRefundClient } from './temporal-refund-client.js';
 
 const config = loadConfig();
 const verifyCustomerIdentity = createLocalCustomerIdentityVerifier({
@@ -25,10 +27,21 @@ const signContextAssertion = createHmacContextAssertionSigner({
 const agentRuntimeClient = createAgentRuntimeClient({
   baseUrl: config.AGENT_RUNTIME_BASE_URL,
 });
+const temporalConnection = await Connection.connect({
+  address: config.TEMPORAL_ADDRESS,
+});
+const temporalRefundClient = createTemporalRefundClient({
+  client: new WorkflowClient({ connection: temporalConnection }),
+  taskQueue: config.TEMPORAL_TASK_QUEUE,
+});
 const app = buildApp({
   verifyCustomerIdentity,
   signContextAssertion,
   intakeRefund: agentRuntimeClient.intakeRefund,
+  startRefundWorkflow: temporalRefundClient.startRefundWorkflow,
+  getRefundWorkflow: temporalRefundClient.getRefundWorkflow,
+  confirmRefundWorkflow: temporalRefundClient.confirmRefundWorkflow,
+  refundPolicyVersion: config.REFUND_POLICY_VERSION,
   logger: true,
 });
 

@@ -6,6 +6,10 @@ import {
   CONTEXT_ASSERTION_HEADER,
   type VerifyContextAssertion,
 } from './trusted-context.js';
+import {
+  WORKFLOW_ACCESS_ASSERTION_HEADER,
+  type VerifyWorkflowAccessAssertion,
+} from './workflow-access.js';
 
 const refundContextRequestSchema = z.object({
   orderReference: z.string().trim().min(1).max(100),
@@ -25,6 +29,7 @@ export function registerRefundContextRoutes(
   app: FastifyInstance,
   getRefundContext: GetRefundContext,
   verifyContextAssertion: VerifyContextAssertion,
+  verifyWorkflowAccessAssertion?: VerifyWorkflowAccessAssertion,
 ): void {
   app.post('/internal/v1/refund-contexts', async (request, reply) => {
     const parsedRequest = refundContextRequestSchema.safeParse(request.body);
@@ -38,13 +43,30 @@ export function registerRefundContextRoutes(
       });
     }
 
-    const assertion = request.headers[CONTEXT_ASSERTION_HEADER];
+    const customerAssertion = request.headers[CONTEXT_ASSERTION_HEADER];
+    const workflowAssertion = request.headers[WORKFLOW_ACCESS_ASSERTION_HEADER];
     let accessContext;
 
     try {
-      accessContext = await verifyContextAssertion(
-        typeof assertion === 'string' ? assertion : undefined,
-      );
+      if (
+        typeof customerAssertion === 'string' &&
+        typeof workflowAssertion === 'string'
+      ) {
+        throw new Error('AMBIGUOUS_REFUND_CONTEXT_ACCESS');
+      }
+
+      accessContext =
+        typeof workflowAssertion === 'string'
+          ? await verifyWorkflowAccessAssertion?.(workflowAssertion)
+          : await verifyContextAssertion(
+              typeof customerAssertion === 'string'
+                ? customerAssertion
+                : undefined,
+            );
+
+      if (!accessContext) {
+        throw new Error('WORKFLOW_ACCESS_UNAUTHORIZED');
+      }
     } catch {
       return reply.code(401).send({
         error: {

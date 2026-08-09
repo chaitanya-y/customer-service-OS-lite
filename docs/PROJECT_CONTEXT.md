@@ -302,11 +302,15 @@ The Node.js/TypeScript Workflow Workers package contains:
   signal when policy allows a refund;
 - activity contracts that keep Gateway I/O and deterministic policy evaluation
   outside the Temporal workflow sandbox;
+- a short-lived, Worker-only assertion for Gateway fact refreshes; it carries
+  tenant, customer, workflow, request, and trace identifiers but no customer
+  credential;
+- a Gateway client that validates returned refund facts before policy evaluation;
 - local Temporal integration tests covering confirmed and denied journeys.
 
-This foundation deliberately does not issue a refund. Gateway-backed fact refresh,
-canonical preview creation, approval/takeover signals, and the narrow authorized
-refund activity remain separate next steps.
+This foundation deliberately does not issue a refund. Canonical preview creation,
+approval/takeover signals, and the narrow authorized refund activity remain separate
+next steps.
 
 ### Edge API: committed and pushed
 
@@ -654,7 +658,6 @@ parts remain:
   citations;
 - triage specialist and RAG-grounded refund reasoning;
 - live model evaluation and release gating for the refund specialist;
-- Gateway-backed Temporal fact refresh and replay-safe workflow versioning;
 - canonical refund preview bound to the exact customer confirmation;
 - human approval, escalation queue, and takeover console;
 - authorized/idempotent refund execution;
@@ -670,8 +673,8 @@ parts remain:
 
 The shortest safe path to the first vertical slice is:
 
-1. Connect the Temporal workflow to a service-to-service Gateway fact refresh,
-   then add canonical preview creation and confirmation binding.
+1. Add canonical preview creation and confirmation binding. A material fact or
+   policy change must invalidate the existing confirmation.
 2. Add approval and human-takeover signals before implementing the narrow,
    idempotent authorized refund action and provider reconciliation.
 3. Add reproducible Vendure initialization and seed data so another clone can run

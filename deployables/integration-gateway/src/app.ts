@@ -6,11 +6,17 @@ import { createGetRefundContext } from './get-refund-context.js';
 import { registerMcpRoutes } from './mcp-routes.js';
 import { registerOrderRoutes } from './order-routes.js';
 import { registerRefundContextRoutes } from './refund-context-routes.js';
+import { registerRefundExecutionRoutes } from './refund-execution-routes.js';
+import { registerRefundReconciliationRoutes } from './refund-reconciliation-routes.js';
 import type { VerifyContextAssertion } from './trusted-context.js';
+import type { VerifyWorkflowAccessAssertion } from './workflow-access.js';
 
 type BuildAppOptions = {
   commerceProvider: CommerceProvider;
   verifyContextAssertion: VerifyContextAssertion;
+  verifyWorkflowAccessAssertion?: VerifyWorkflowAccessAssertion;
+  verifyWorkflowRefundExecutionAssertion?: VerifyWorkflowAccessAssertion;
+  verifyWorkflowRefundReconciliationAssertion?: VerifyWorkflowAccessAssertion;
   logger?: boolean;
 };
 
@@ -42,7 +48,10 @@ export function buildApp(
     app,
     getRefundContext,
     options.verifyContextAssertion,
+    options.verifyWorkflowAccessAssertion,
   );
+  registerRefundExecutionRoutes(app, options.commerceProvider, options.verifyWorkflowRefundExecutionAssertion);
+  registerRefundReconciliationRoutes(app, options.commerceProvider, options.verifyWorkflowRefundReconciliationAssertion);
   registerMcpRoutes(
     app,
     getOrderContext,

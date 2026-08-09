@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { buildApp } from '../src/app.js';
 import type { CommerceOrder, CommerceProvider } from '../src/commerce.js';
 import { CONTEXT_ASSERTION_HEADER } from '../src/trusted-context.js';
+import { WORKFLOW_ACCESS_ASSERTION_HEADER } from '../src/workflow-access.js';
 import {
   TEST_CONTEXT_ASSERTION,
   verifyTestContextAssertion,
@@ -88,6 +89,77 @@ test('POST /internal/v1/refund-contexts requires trusted context', async (contex
   const response = await app.inject({
     method: 'POST',
     url: '/internal/v1/refund-contexts',
+    payload: {
+      orderReference: 'ORDER-123',
+      selection: { scope: 'FULL_ORDER', itemIds: [] },
+    },
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(providerCalled, false);
+});
+
+test('POST /internal/v1/refund-contexts accepts a Workflow Worker assertion', async (context) => {
+  const commerceProvider: CommerceProvider = {
+    async getOrderByReference() {
+      return order;
+    },
+  };
+  const app = buildApp({
+    commerceProvider,
+    verifyContextAssertion: verifyTestContextAssertion,
+    async verifyWorkflowAccessAssertion(assertion) {
+      assert.equal(assertion, 'workflow-assertion');
+      return {
+        contextId: 'refund-workflow-001',
+        tenantId: 'tenant-local',
+        environmentId: 'local',
+        subjectCustomerId: 'customer-42',
+        routingEpoch: 1,
+        requestId: 'request-001',
+        traceId: 'trace-001',
+      };
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/internal/v1/refund-contexts',
+    headers: { [WORKFLOW_ACCESS_ASSERTION_HEADER]: 'workflow-assertion' },
+    payload: {
+      orderReference: 'ORDER-123',
+      selection: { scope: 'FULL_ORDER', itemIds: [] },
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().source.orderId, '3');
+});
+
+test('POST /internal/v1/refund-contexts rejects ambiguous customer and worker access', async (context) => {
+  let providerCalled = false;
+  const app = buildApp({
+    commerceProvider: {
+      async getOrderByReference() {
+        providerCalled = true;
+        return order;
+      },
+    },
+    verifyContextAssertion: verifyTestContextAssertion,
+    async verifyWorkflowAccessAssertion() {
+      throw new Error('must not verify ambiguous access');
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/internal/v1/refund-contexts',
+    headers: {
+      [CONTEXT_ASSERTION_HEADER]: TEST_CONTEXT_ASSERTION,
+      [WORKFLOW_ACCESS_ASSERTION_HEADER]: 'workflow-assertion',
+    },
     payload: {
       orderReference: 'ORDER-123',
       selection: { scope: 'FULL_ORDER', itemIds: [] },
