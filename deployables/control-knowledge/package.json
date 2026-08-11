@@ -1,0 +1,23 @@
+{
+  "name": "@customer-service-os/control-knowledge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned knowledge contracts and release controls for Customer Service OS",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}
