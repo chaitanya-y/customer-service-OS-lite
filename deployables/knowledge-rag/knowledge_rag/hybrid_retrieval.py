@@ -13,14 +13,14 @@ from .retrieval_results import (
 class RankedCandidate(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    chunk_id: str = Field(min_length=1)
+    index_document_id: str = Field(min_length=1)
     rank: int = Field(gt=0)
 
 
 class FusedCandidate(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    chunk_id: str = Field(min_length=1)
+    index_document_id: str = Field(min_length=1)
     reciprocal_rank_fusion_score: float
     contributing_retrievers: list[str] = Field(min_length=1)
 
@@ -44,37 +44,39 @@ def reciprocal_rank_fusion(
         if not retriever_name.strip():
             raise ValueError("Retriever names must be non-empty")
 
-        seen_chunk_ids: set[str] = set()
+        seen_index_document_ids: set[str] = set()
 
         for candidate in candidates:
-            if candidate.chunk_id in seen_chunk_ids:
+            if candidate.index_document_id in seen_index_document_ids:
                 raise ValueError(
-                    f"Retriever '{retriever_name}' returned duplicate chunk "
-                    f"ID '{candidate.chunk_id}'."
+                    f"Retriever '{retriever_name}' returned duplicate index "
+                    f"document ID '{candidate.index_document_id}'."
                 )
 
-            seen_chunk_ids.add(candidate.chunk_id)
-            fused_scores[candidate.chunk_id] += 1 / (
+            seen_index_document_ids.add(candidate.index_document_id)
+            fused_scores[candidate.index_document_id] += 1 / (
                 rank_constant + candidate.rank
             )
-            contributing_retrievers[candidate.chunk_id].append(
+            contributing_retrievers[candidate.index_document_id].append(
                 retriever_name
             )
 
     fused_candidates = [
         FusedCandidate(
-            chunk_id=chunk_id,
+            index_document_id=index_document_id,
             reciprocal_rank_fusion_score=score,
-            contributing_retrievers=contributing_retrievers[chunk_id],
+            contributing_retrievers=(
+                contributing_retrievers[index_document_id]
+            ),
         )
-        for chunk_id, score in fused_scores.items()
+        for index_document_id, score in fused_scores.items()
     ]
 
     return sorted(
         fused_candidates,
         key=lambda candidate: (
             -candidate.reciprocal_rank_fusion_score,
-            candidate.chunk_id,
+            candidate.index_document_id,
         ),
     )[:top_k]
 
@@ -99,7 +101,7 @@ def fuse_retrieval_responses(
     vector_evidence = to_retrieved_evidence_list(vector_response)
     keyword_evidence = to_retrieved_evidence_list(keyword_response)
 
-    evidence_by_chunk_id = _merge_evidence_by_chunk_id(
+    evidence_by_index_document_id = _merge_evidence_by_index_document_id(
         {
             "semantic_vector": vector_evidence,
             "lexical_keyword": keyword_evidence,
@@ -116,7 +118,9 @@ def fuse_retrieval_responses(
 
     return [
         FusedEvidence(
-            evidence=evidence_by_chunk_id[candidate.chunk_id],
+            evidence=(
+                evidence_by_index_document_id[candidate.index_document_id]
+            ),
             reciprocal_rank_fusion_score=(
                 candidate.reciprocal_rank_fusion_score
             ),
@@ -131,21 +135,21 @@ def _to_ranked_candidates(
 ) -> list[RankedCandidate]:
     return [
         RankedCandidate(
-            chunk_id=evidence.chunk_id,
+            index_document_id=evidence.index_document_id,
             rank=rank,
         )
         for rank, evidence in enumerate(evidence_list, start=1)
     ]
 
 
-def _merge_evidence_by_chunk_id(
+def _merge_evidence_by_index_document_id(
     evidence_by_retriever: dict[str, Sequence[RetrievedEvidence]],
 ) -> dict[str, RetrievedEvidence]:
     merged_evidence: dict[str, RetrievedEvidence] = {}
 
     for retriever_name, evidence_list in evidence_by_retriever.items():
         for evidence in evidence_list:
-            existing_evidence = merged_evidence.get(evidence.chunk_id)
+            existing_evidence = merged_evidence.get(evidence.index_document_id)
 
             if (
                 existing_evidence is not None
@@ -153,10 +157,10 @@ def _merge_evidence_by_chunk_id(
                 != evidence.content_sha256.lower()
             ):
                 raise HybridRetrievalError(
-                    f"Retriever '{retriever_name}' returned chunk "
-                    f"'{evidence.chunk_id}' with different content."
+                    f"Retriever '{retriever_name}' returned index document "
+                    f"'{evidence.index_document_id}' with different content."
                 )
 
-            merged_evidence[evidence.chunk_id] = evidence
+            merged_evidence[evidence.index_document_id] = evidence
 
     return merged_evidence

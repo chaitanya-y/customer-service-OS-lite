@@ -1,0 +1,91 @@
+{
+  "dataset_id": "acme-refund-retrieval",
+  "dataset_version": "v1",
+  "knowledge_release_id": "refund-policy-2026-08-01",
+  "cases": [
+    {
+      "evaluation_case_id": "damaged-item-refund-v1",
+      "query_text": "Can I get a refund for an item that arrived damaged?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-003-chunk-001"}],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "incorrect-item-refund-v1",
+      "query_text": "Acme sent me the wrong item. Can I request a refund?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-004-chunk-001"}],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "change-of-mind-return-v1",
+      "query_text": "I changed my mind about an unopened item. Can I return it?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-005-chunk-001"}],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "final-sale-refund-v1",
+      "query_text": "Can I get a refund for a final-sale product?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-006-chunk-001"}],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "refund-approval-limit-v1",
+      "query_text": "Does a 300 dollar refund need approval?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-007-chunk-001"}],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "refund-settlement-time-v1",
+      "query_text": "When will a refund appear in my bank account?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-008-chunk-001"}],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "insufficient-evidence-response-v1",
+      "query_text": "Can support promise me a refund before checking my order?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [{"knowledge_document_id": "refund-policy-current-2026-08-01", "chunk_id": "section-009-chunk-001"}],
+      "forbidden_evidence": []
+    }
+  ]
+}

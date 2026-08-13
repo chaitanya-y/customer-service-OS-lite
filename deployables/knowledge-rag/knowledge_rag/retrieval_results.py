@@ -35,6 +35,7 @@ class RetrievedEvidence(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     index_document_id: str = Field(min_length=1)
+    knowledge_document_id: str = Field(min_length=1)
     chunk_id: str = Field(min_length=1)
     content: str = Field(min_length=1)
     content_sha256: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
@@ -56,6 +57,10 @@ def to_retrieved_evidence(
 
     return RetrievedEvidence(
         index_document_id=_required_string(source, "index_document_id"),
+        knowledge_document_id=_required_string(
+            source,
+            "knowledge_document_id",
+        ),
         chunk_id=_required_string(source, "chunk_id"),
         content=_required_string(source, "content"),
         content_sha256=_required_string(source, "content_sha256"),

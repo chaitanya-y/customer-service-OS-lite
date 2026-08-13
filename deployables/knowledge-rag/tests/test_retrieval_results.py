@@ -12,6 +12,7 @@ def make_hit(*, page_start: int | None = None) -> dict[str, object]:
         "_score": 1.6037,
         "_source": {
             "index_document_id": "knowledge-001",
+            "knowledge_document_id": "refund-policy-current-2026-08-01",
             "chunk_id": "section-002-chunk-001",
             "content": (
                 "Customers may request a refund within thirty calendar days."
@@ -40,6 +41,7 @@ def test_to_retrieved_evidence_preserves_citation_and_score() -> None:
     evidence = to_retrieved_evidence(make_hit())
 
     assert evidence.chunk_id == "section-002-chunk-001"
+    assert evidence.knowledge_document_id == "refund-policy-current-2026-08-01"
     assert evidence.retrieval_score == 1.6037
     assert evidence.citation.display_location() == (
         "Acme Refund Policy > 2. Refund eligibility"
