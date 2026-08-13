@@ -1,0 +1,120 @@
+{
+  "dataset_id": "acme-refund-governed-retrieval",
+  "dataset_version": "v1",
+  "knowledge_release_id": "refund-policy-2026-08-01",
+  "cases": [
+    {
+      "evaluation_case_id": "customer-damaged-item-current-policy-v1",
+      "query_text": "Can I get a refund for an item that arrived damaged?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-current-2026-08-01",
+          "chunk_id": "section-003-chunk-001"
+        }
+      ],
+      "forbidden_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-superseded-2026-07-01",
+          "chunk_id": "section-002-chunk-001"
+        },
+        {
+          "knowledge_document_id": "internal-refund-escalation-playbook-2026-08-01",
+          "chunk_id": "section-003-chunk-001"
+        }
+      ]
+    },
+    {
+      "evaluation_case_id": "customer-refund-approval-boundary-v1",
+      "query_text": "Does a 300 dollar refund need approval?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-current-2026-08-01",
+          "chunk_id": "section-007-chunk-001"
+        }
+      ],
+      "forbidden_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-superseded-2026-07-01",
+          "chunk_id": "section-003-chunk-001"
+        },
+        {
+          "knowledge_document_id": "internal-refund-escalation-playbook-2026-08-01",
+          "chunk_id": "section-004-chunk-001"
+        }
+      ]
+    },
+    {
+      "evaluation_case_id": "support-escalation-takeover-v1",
+      "query_text": "Which refund cases require immediate human takeover?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE", "INTERNAL"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [
+        {
+          "knowledge_document_id": "internal-refund-escalation-playbook-2026-08-01",
+          "chunk_id": "section-003-chunk-001"
+        }
+      ],
+      "forbidden_evidence": []
+    },
+    {
+      "evaluation_case_id": "historical-damaged-item-policy-v1",
+      "query_text": "On 15 July 2026, how long did a customer have to request a refund for a damaged item?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-07-15T12:00:00+00:00",
+      "expected_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-superseded-2026-07-01",
+          "chunk_id": "section-002-chunk-001"
+        }
+      ],
+      "forbidden_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-current-2026-08-01",
+          "chunk_id": "section-003-chunk-001"
+        }
+      ]
+    },
+    {
+      "evaluation_case_id": "customer-takeover-boundary-v1",
+      "query_text": "What happens when my refund request is above 500 dollars?",
+      "tenant_id": "acme",
+      "environment_id": "local",
+      "knowledge_release_id": "refund-policy-2026-08-01",
+      "allowed_classifications": ["CUSTOMER_SAFE"],
+      "locale": "en-US",
+      "as_of": "2026-08-12T12:00:00+00:00",
+      "expected_evidence": [
+        {
+          "knowledge_document_id": "refund-policy-current-2026-08-01",
+          "chunk_id": "section-007-chunk-001"
+        }
+      ],
+      "forbidden_evidence": [
+        {
+          "knowledge_document_id": "internal-refund-escalation-playbook-2026-08-01",
+          "chunk_id": "section-003-chunk-001"
+        }
+      ]
+    }
+  ]
+}
