@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_runtime.integrations.order_lookup import OrderContext
+from agent_runtime.refund.answer import CustomerAnswer
 from agent_runtime.refund.proposal import RefundProposal
 
 
@@ -22,6 +23,7 @@ class RefundIntakeResponse(BaseModel):
     order_reference: str | None
     order_context: OrderContext | None = None
     refund_proposal: RefundProposal | None = None
+    customer_answer: CustomerAnswer | None = None
     error_code: str | None = None
     journey: Literal["refund"]
     status: Literal[

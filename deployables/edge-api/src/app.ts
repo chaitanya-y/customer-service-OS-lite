@@ -50,6 +50,8 @@ const confirmationSchema = z.object({ preview_id: z.string().min(1).max(200), ac
 type BuildAppOptions = {
   verifyCustomerIdentity: VerifyCustomerIdentity;
   signContextAssertion: SignContextAssertion;
+  signAgentRuntimeContextAssertion: SignContextAssertion;
+  signKnowledgeRagContextAssertion: SignContextAssertion;
   intakeRefund: IntakeRefund;
   startRefundWorkflow?: StartRefundWorkflow;
   getRefundWorkflow?: GetRefundWorkflow;
@@ -157,15 +159,27 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
     const requestId = createCorrelationId();
     const traceId = createCorrelationId();
-    let contextAssertion;
+    let integrationGatewayContextAssertion;
+    let agentRuntimeContextAssertion;
+    let knowledgeRagContextAssertion;
 
     try {
-      contextAssertion = await options.signContextAssertion({
+      const assertionInput = {
         identity,
         requestId,
         traceId,
         channelId: 'web',
-      });
+      };
+
+      [
+        integrationGatewayContextAssertion,
+        agentRuntimeContextAssertion,
+        knowledgeRagContextAssertion,
+      ] = await Promise.all([
+        options.signContextAssertion(assertionInput),
+        options.signAgentRuntimeContextAssertion(assertionInput),
+        options.signKnowledgeRagContextAssertion(assertionInput),
+      ]);
     } catch (error) {
       request.log.error({ err: error, requestId }, 'Context signing failed');
 
@@ -186,7 +200,11 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       };
       const agentResponse = await options.intakeRefund(
         refundRequest,
-        contextAssertion,
+        {
+          agentRuntime: agentRuntimeContextAssertion,
+          integrationGateway: integrationGatewayContextAssertion,
+          knowledgeRag: knowledgeRagContextAssertion,
+        },
       );
 
       if (agentResponse.statusCode < 200 || agentResponse.statusCode >= 300) {

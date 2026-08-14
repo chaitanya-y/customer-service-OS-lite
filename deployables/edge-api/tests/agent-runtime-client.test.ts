@@ -5,9 +5,13 @@ import {
   AgentRuntimeUnavailableError,
   createAgentRuntimeClient,
 } from '../src/agent-runtime-client.js';
-import { CONTEXT_ASSERTION_HEADER } from '../src/context-assertion.js';
+import {
+  AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER,
+  CONTEXT_ASSERTION_HEADER,
+  KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER,
+} from '../src/context-assertion.js';
 
-test('forwards the refund request and context assertion', async () => {
+test('forwards the refund request and audience-specific context assertions', async () => {
   const client = createAgentRuntimeClient({
     baseUrl: 'http://agent-runtime:8000',
     fetchImpl: async (input, init) => {
@@ -15,7 +19,19 @@ test('forwards the refund request and context assertion', async () => {
       assert.equal(init?.method, 'POST');
       assert.equal(
         new Headers(init?.headers).get(CONTEXT_ASSERTION_HEADER),
-        'signed-context',
+        'gateway-context',
+      );
+      assert.equal(
+        new Headers(init?.headers).get(
+          AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER,
+        ),
+        'agent-runtime-context',
+      );
+      assert.equal(
+        new Headers(init?.headers).get(
+          KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER,
+        ),
+        'knowledge-rag-context',
       );
       assert.equal(
         init?.body,
@@ -35,7 +51,11 @@ test('forwards the refund request and context assertion', async () => {
         customer_message: 'Please refund my order.',
         order_reference: 'ORDER-123',
       },
-      'signed-context',
+      {
+        agentRuntime: 'agent-runtime-context',
+        integrationGateway: 'gateway-context',
+        knowledgeRag: 'knowledge-rag-context',
+      },
     ),
     {
       statusCode: 200,
@@ -53,7 +73,15 @@ test('maps transport failures to a stable client error', async () => {
   });
 
   await assert.rejects(
-    () => client.intakeRefund({ customer_message: 'Refund it.' }, 'context'),
+    () =>
+      client.intakeRefund(
+        { customer_message: 'Refund it.' },
+        {
+          agentRuntime: 'agent-runtime-context',
+          integrationGateway: 'gateway-context',
+          knowledgeRag: 'knowledge-rag-context',
+        },
+      ),
     AgentRuntimeUnavailableError,
   );
 });

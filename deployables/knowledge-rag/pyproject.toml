@@ -9,17 +9,23 @@ description = "Production-oriented knowledge ingestion, retrieval, and evaluatio
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "beautifulsoup4>=4.13,<5",
+  "fastapi>=0.140,<1",
   "pydantic>=2.13,<3",
+  "pydantic-settings>=2.14,<3",
   "pypdf>=6.0,<7",
+  "PyJWT>=2.10,<3",
   "python-docx>=1.2,<2",
   "tiktoken>=0.12,<1",
-    "openai>=2.0,<3",
-    "opensearch-py>=3,<4",
-    "sentence-transformers>=5,<6",
+  "openai>=2.0,<3",
+  "opensearch-py>=3,<4",
+  "python-dotenv>=1.2,<2",
+  "sentence-transformers>=5,<6",
+  "uvicorn[standard]>=0.51,<1",
 ]
 
 [dependency-groups]
 dev = [
+  "httpx>=0.28,<1",
   "pytest>=9.1,<10",
   "ruff>=0.16,<1"
 ]

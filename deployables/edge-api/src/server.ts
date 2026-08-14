@@ -24,6 +24,26 @@ const signContextAssertion = createHmacContextAssertionSigner({
     routingEpoch: config.ROUTING_EPOCH,
   },
 });
+const signAgentRuntimeContextAssertion = createHmacContextAssertionSigner({
+  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+  issuer: config.CONTEXT_ASSERTION_ISSUER,
+  audience: config.AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
+  route: {
+    homeRegion: config.HOME_REGION,
+    homeCell: config.HOME_CELL,
+    routingEpoch: config.ROUTING_EPOCH,
+  },
+});
+const signKnowledgeRagContextAssertion = createHmacContextAssertionSigner({
+  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+  issuer: config.CONTEXT_ASSERTION_ISSUER,
+  audience: config.KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE,
+  route: {
+    homeRegion: config.HOME_REGION,
+    homeCell: config.HOME_CELL,
+    routingEpoch: config.ROUTING_EPOCH,
+  },
+});
 const agentRuntimeClient = createAgentRuntimeClient({
   baseUrl: config.AGENT_RUNTIME_BASE_URL,
 });
@@ -37,6 +57,8 @@ const temporalRefundClient = createTemporalRefundClient({
 const app = buildApp({
   verifyCustomerIdentity,
   signContextAssertion,
+  signAgentRuntimeContextAssertion,
+  signKnowledgeRagContextAssertion,
   intakeRefund: agentRuntimeClient.intakeRefund,
   startRefundWorkflow: temporalRefundClient.startRefundWorkflow,
   getRefundWorkflow: temporalRefundClient.getRefundWorkflow,

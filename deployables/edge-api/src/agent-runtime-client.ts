@@ -1,4 +1,8 @@
-import { CONTEXT_ASSERTION_HEADER } from './context-assertion.js';
+import {
+  AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER,
+  CONTEXT_ASSERTION_HEADER,
+  KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER,
+} from './context-assertion.js';
 
 export type RefundIntakeRequest = {
   customer_message: string;
@@ -10,9 +14,15 @@ export type AgentRuntimeResponse = {
   body: unknown;
 };
 
+export type AgentRuntimeContextAssertions = {
+  agentRuntime: string;
+  integrationGateway: string;
+  knowledgeRag: string;
+};
+
 export type IntakeRefund = (
   request: RefundIntakeRequest,
-  contextAssertion: string,
+  assertions: AgentRuntimeContextAssertions,
 ) => Promise<AgentRuntimeResponse>;
 
 type FetchLike = (
@@ -45,13 +55,15 @@ export function createAgentRuntimeClient({
   const endpoint = new URL('/refunds/intake', baseUrl);
 
   return {
-    async intakeRefund(request, contextAssertion) {
+    async intakeRefund(request, assertions) {
       try {
         const response = await fetchImpl(endpoint, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            [CONTEXT_ASSERTION_HEADER]: contextAssertion,
+            [AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER]: assertions.agentRuntime,
+            [CONTEXT_ASSERTION_HEADER]: assertions.integrationGateway,
+            [KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER]: assertions.knowledgeRag,
           },
           body: JSON.stringify(request),
           signal: AbortSignal.timeout(timeoutMilliseconds),
