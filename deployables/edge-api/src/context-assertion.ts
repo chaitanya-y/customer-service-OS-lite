@@ -6,6 +6,10 @@ import { z } from 'zod';
 import type { AuthenticatedCustomer } from './customer-identity.js';
 
 export const CONTEXT_ASSERTION_HEADER = 'x-cso-context-assertion';
+export const AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER =
+  'x-cso-agent-context-assertion';
+export const KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER =
+  'x-cso-knowledge-context-assertion';
 
 const opaqueId = z
   .string()

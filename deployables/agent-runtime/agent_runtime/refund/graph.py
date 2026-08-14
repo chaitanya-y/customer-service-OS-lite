@@ -2,11 +2,21 @@ from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
 
+from agent_runtime.integrations.customer_evidence import (
+    CustomerEvidenceLookup,
+    CustomerEvidenceLookupError,
+    CustomerEvidenceLookupUnauthorizedError,
+)
 from agent_runtime.integrations.order_lookup import (
     OrderLookup,
     OrderLookupError,
     OrderLookupUnauthorizedError,
     OrderNotFoundError,
+)
+from agent_runtime.refund.answer import (
+    RefundAnswerComposer,
+    RefundAnswerCompositionError,
+    build_fallback_customer_answer,
 )
 from agent_runtime.refund.intent import (
     RefundIntentExtractionError,
@@ -133,11 +143,40 @@ def create_extract_refund_intent_node(intent_extractor: RefundIntentExtractor):
 
 def route_extracted_intent(
     state: RefundState,
-) -> Literal["build_proposal", "end"]:
+) -> Literal["retrieve_customer_evidence", "end"]:
     if state.get("status") == "refund_intent_extracted":
-        return "build_proposal"
+        return "retrieve_customer_evidence"
 
     return "end"
+
+
+def create_retrieve_customer_evidence_node(
+    customer_evidence_lookup: CustomerEvidenceLookup,
+):
+    async def retrieve_customer_evidence(state: RefundState) -> RefundState:
+        customer_message = state.get("customer_message")
+
+        if not customer_message:
+            raise ValueError("customer_message is required")
+
+        try:
+            response = await customer_evidence_lookup.retrieve_customer_evidence(
+                customer_message
+            )
+        except CustomerEvidenceLookupUnauthorizedError:
+            raise
+        except CustomerEvidenceLookupError:
+            return {
+                "knowledge_evidence": [],
+                "knowledge_retrieval_status": "unavailable",
+            }
+
+        return {
+            "knowledge_evidence": response.evidence,
+            "knowledge_retrieval_status": "retrieved",
+        }
+
+    return retrieve_customer_evidence
 
 
 def create_build_refund_proposal_node(proposal_builder: RefundProposalBuilder):
@@ -176,10 +215,55 @@ def create_build_refund_proposal_node(proposal_builder: RefundProposalBuilder):
     return build_refund_proposal
 
 
+def create_compose_customer_answer_node(
+    answer_composer: RefundAnswerComposer,
+):
+    async def compose_customer_answer(state: RefundState) -> RefundState:
+        customer_message = state.get("customer_message")
+        refund_proposal = state.get("refund_proposal")
+        knowledge_evidence = state.get("knowledge_evidence", [])
+
+        if not customer_message or refund_proposal is None:
+            raise ValueError(
+                "customer_message and refund_proposal are required"
+            )
+
+        if not knowledge_evidence:
+            return {
+                "customer_answer": build_fallback_customer_answer(
+                    refund_proposal
+                ),
+                "answer_composition_status": "fallback",
+            }
+
+        try:
+            answer = await answer_composer.compose(
+                customer_message=customer_message,
+                refund_proposal=refund_proposal,
+                knowledge_evidence=knowledge_evidence,
+            )
+        except RefundAnswerCompositionError:
+            return {
+                "customer_answer": build_fallback_customer_answer(
+                    refund_proposal
+                ),
+                "answer_composition_status": "fallback",
+            }
+
+        return {
+            "customer_answer": answer,
+            "answer_composition_status": "generated",
+        }
+
+    return compose_customer_answer
+
+
 def build_refund_graph(
     order_lookup: OrderLookup,
     intent_extractor: RefundIntentExtractor,
     proposal_builder: RefundProposalBuilder,
+    customer_evidence_lookup: CustomerEvidenceLookup,
+    answer_composer: RefundAnswerComposer,
 ):
     builder = StateGraph(RefundState)
 
@@ -195,8 +279,16 @@ def build_refund_graph(
         create_extract_refund_intent_node(intent_extractor),
     )
     builder.add_node(
+        "retrieve_customer_evidence",
+        create_retrieve_customer_evidence_node(customer_evidence_lookup),
+    )
+    builder.add_node(
         "build_refund_proposal",
         create_build_refund_proposal_node(proposal_builder),
+    )
+    builder.add_node(
+        "compose_customer_answer",
+        create_compose_customer_answer_node(answer_composer),
     )
 
     builder.add_edge(START, "initialize_request")
@@ -223,11 +315,13 @@ def build_refund_graph(
         "extract_refund_intent",
         route_extracted_intent,
         {
-            "build_proposal": "build_refund_proposal",
+            "retrieve_customer_evidence": "retrieve_customer_evidence",
             "end": END,
         },
     )
-    builder.add_edge("build_refund_proposal", END)
+    builder.add_edge("retrieve_customer_evidence", "build_refund_proposal")
+    builder.add_edge("build_refund_proposal", "compose_customer_answer")
+    builder.add_edge("compose_customer_answer", END)
     builder.add_edge("request_order_reference", END)
 
     return builder.compile()

@@ -1,0 +1,43 @@
+{
+  "tenant_id": "tenant-local",
+  "environment_id": "local",
+  "knowledge_release_id": "refund-policy-2026-08-01",
+  "registrations": [
+    {
+      "knowledge_document_id": "refund-policy-current-2026-08-01",
+      "source_document_id": "refund-policy",
+      "source_version": "2026-08-01",
+      "source_uri": "s3://cso-knowledge/tenant-local/refund-policy-2026-08-01.md",
+      "expected_source_content_type": "MARKDOWN",
+      "expected_source_content_sha256": "7ea620076fa435d27b88822d4f3e2a97aec1dbb10a11da6d82814bf2932fe943",
+      "classification": "CUSTOMER_SAFE",
+      "locale": "en-US",
+      "effective_from": "2026-08-01T00:00:00+00:00",
+      "effective_until": null
+    },
+    {
+      "knowledge_document_id": "internal-refund-escalation-playbook-2026-08-01",
+      "source_document_id": "internal-refund-escalation-playbook",
+      "source_version": "2026-08-01",
+      "source_uri": "s3://cso-knowledge/tenant-local/internal-refund-escalation-playbook.md",
+      "expected_source_content_type": "MARKDOWN",
+      "expected_source_content_sha256": "aa90d1d38d3b90fda70a9e7d14ed85aa5593b38f6da13f80a344e985171b4848",
+      "classification": "INTERNAL",
+      "locale": "en-US",
+      "effective_from": "2026-08-01T00:00:00+00:00",
+      "effective_until": null
+    },
+    {
+      "knowledge_document_id": "refund-policy-superseded-2026-07-01",
+      "source_document_id": "refund-policy",
+      "source_version": "2026-07-01",
+      "source_uri": "s3://cso-knowledge/tenant-local/refund-policy-2026-07-01.md",
+      "expected_source_content_type": "MARKDOWN",
+      "expected_source_content_sha256": "040d76067b6db3f9390c05f0ccf26c10337685f3456b937438bef3132d8d8a15",
+      "classification": "CUSTOMER_SAFE",
+      "locale": "en-US",
+      "effective_from": "2026-07-01T00:00:00+00:00",
+      "effective_until": "2026-08-01T00:00:00+00:00"
+    }
+  ]
+}

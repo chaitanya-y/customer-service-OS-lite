@@ -1,22 +1,34 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from agent_runtime.integrations.customer_evidence import (
+    KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER,
+    CustomerEvidenceResponse,
+    KnowledgeRagCustomerEvidenceClient,
+)
 from agent_runtime.integrations.order_lookup import (
     CONTEXT_ASSERTION_HEADER,
     McpOrderLookupClient,
     OrderContext,
     OrderLookupUnauthorizedError,
 )
+from agent_runtime.integrations.trusted_context import (
+    AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER,
+    VerifiedAgentRuntimeContext,
+)
 from agent_runtime.main import app
 from agent_runtime.refund.intent import RefundIntentExtraction
 from agent_runtime.refund.proposal import RefundProposalBuilder, RefundProposalVersions
 from agent_runtime.refund.router import (
+    get_agent_runtime_context_verifier,
     get_refund_intent_extractor,
     get_refund_proposal_builder,
 )
 
 client = TestClient(app)
 TEST_CONTEXT_ASSERTION = "header.claims.signature"
+TEST_AGENT_RUNTIME_CONTEXT_ASSERTION = "agent-runtime.header.signature"
+TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION = "knowledge-rag.header.signature"
 
 
 class FakeRefundIntentExtractor:
@@ -30,6 +42,24 @@ class FakeRefundIntentExtractor:
             reason_code="DAMAGED",
             scope="FULL_ORDER",
             selected_item_ids=[],
+        )
+
+
+class FakeAgentRuntimeContextVerifier:
+    def verify(
+        self,
+        assertion: str | None,
+    ) -> VerifiedAgentRuntimeContext:
+        assert assertion == TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+
+        return VerifiedAgentRuntimeContext(
+            context_id="context-1",
+            tenant_id="tenant-local",
+            environment_id="local",
+            subject_customer_id="customer-42",
+            request_id="request-1",
+            trace_id="trace-1",
+            routing_epoch=1,
         )
 
 
@@ -50,6 +80,9 @@ def refund_dependencies():
                 order_lookup_tool_version="lookup-order-v1",
             )
         )
+    )
+    app.dependency_overrides[get_agent_runtime_context_verifier] = lambda: (
+        FakeAgentRuntimeContextVerifier()
     )
 
     yield
@@ -74,10 +107,33 @@ def test_refund_intake(
         fake_lookup_order,
     )
 
+    async def fake_retrieve_customer_evidence(
+        rag_client: KnowledgeRagCustomerEvidenceClient,
+        query_text: str,
+    ) -> CustomerEvidenceResponse:
+        assert rag_client._context_assertion == TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+        assert query_text == "I want a refund."
+        return CustomerEvidenceResponse(
+            knowledge_release_id="refund-policy-2026-08-01",
+            evidence=[],
+        )
+
+    monkeypatch.setattr(
+        KnowledgeRagCustomerEvidenceClient,
+        "retrieve_customer_evidence",
+        fake_retrieve_customer_evidence,
+    )
+
     response = client.post(
         "/refunds/intake",
         headers={
             CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
         },
         json={
             "customer_message": "  I want a refund.  ",
@@ -96,6 +152,7 @@ def test_refund_intake(
     assert body["refund_proposal"]["resultType"] == "JOURNEY_PROPOSAL"
     assert body["refund_proposal"]["intent"]["orderId"] == "3"
     assert body["refund_proposal"]["missingFields"] == []
+    assert body["refund_proposal"]["executionEvidence"]["traceId"] == "trace-1"
 
 
 def test_refund_intake_rejects_empty_message() -> None:
@@ -103,6 +160,12 @@ def test_refund_intake_rejects_empty_message() -> None:
         "/refunds/intake",
         headers={
             CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
         },
         json={"customer_message": "   "},
     )
@@ -144,6 +207,12 @@ def test_refund_intake_rejects_context_denied_by_gateway(
         "/refunds/intake",
         headers={
             CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
         },
         json={
             "customer_message": "I want a refund.",

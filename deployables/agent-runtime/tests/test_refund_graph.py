@@ -2,11 +2,20 @@ from datetime import UTC, datetime
 
 import pytest
 
+from agent_runtime.integrations.customer_evidence import (
+    CustomerEvidenceLookupUnauthorizedError,
+    CustomerEvidenceLookupUnavailableError,
+    CustomerEvidenceResponse,
+)
 from agent_runtime.integrations.order_lookup import (
     OrderContext,
     OrderLookupUnauthorizedError,
     OrderLookupUnavailableError,
     OrderNotFoundError,
+)
+from agent_runtime.refund.answer import (
+    CustomerAnswer,
+    RefundAnswerCompositionError,
 )
 from agent_runtime.refund.graph import build_refund_graph
 from agent_runtime.refund.intent import (
@@ -71,6 +80,55 @@ class FakeRefundIntentExtractor:
         return self.result
 
 
+class FakeCustomerEvidenceLookup:
+    def __init__(
+        self,
+        *,
+        result: CustomerEvidenceResponse | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result or CustomerEvidenceResponse(
+            knowledge_release_id="refund-policy-2026-08-01",
+            evidence=[],
+        )
+        self.error = error
+        self.queries: list[str] = []
+
+    async def retrieve_customer_evidence(
+        self,
+        query_text: str,
+    ) -> CustomerEvidenceResponse:
+        self.queries.append(query_text)
+
+        if self.error:
+            raise self.error
+
+        return self.result
+
+
+class FakeRefundAnswerComposer:
+    def __init__(
+        self,
+        *,
+        result: CustomerAnswer | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result or CustomerAnswer(
+            message="I have captured your refund request.",
+            citations=[],
+        )
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+
+    async def compose(self, **kwargs) -> CustomerAnswer:
+        self.calls.append(kwargs)
+
+        if self.error:
+            raise self.error
+
+        return self.result
+
+
 def create_proposal_builder() -> RefundProposalBuilder:
     identifiers = iter(["proposal-1", "execution-1"])
     return RefundProposalBuilder(
@@ -91,13 +149,19 @@ def create_proposal_builder() -> RefundProposalBuilder:
 def create_graph(
     order_lookup: FakeOrderLookup,
     intent_extractor: FakeRefundIntentExtractor | None = None,
+    customer_evidence_lookup: FakeCustomerEvidenceLookup | None = None,
+    answer_composer: FakeRefundAnswerComposer | None = None,
 ):
     extractor = intent_extractor or FakeRefundIntentExtractor()
+    evidence_lookup = customer_evidence_lookup or FakeCustomerEvidenceLookup()
+    composer = answer_composer or FakeRefundAnswerComposer()
     return (
         build_refund_graph(
             order_lookup,
             extractor,
             create_proposal_builder(),
+            evidence_lookup,
+            composer,
         ),
         extractor,
     )
@@ -126,6 +190,9 @@ async def test_refund_graph_builds_a_ready_proposal(
     assert result["refund_proposal"].missing_fields == []
     assert order_lookup.references == ["ORDER-123"]
     assert intent_extractor.messages == ["I want a refund."]
+    assert result["knowledge_evidence"] == []
+    assert result["knowledge_retrieval_status"] == "retrieved"
+    assert result["answer_composition_status"] == "fallback"
 
 
 @pytest.mark.asyncio
@@ -244,3 +311,154 @@ async def test_refund_graph_records_intent_extraction_failure(
     assert result["status"] == "intent_extraction_unavailable"
     assert result["error_code"] == "intent_extraction_unavailable"
     assert result["refund_proposal"] is None
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_continues_when_customer_evidence_is_unavailable(
+    order_context: OrderContext,
+) -> None:
+    graph, _ = create_graph(
+        FakeOrderLookup(result=order_context),
+        customer_evidence_lookup=FakeCustomerEvidenceLookup(
+            error=CustomerEvidenceLookupUnavailableError()
+        ),
+    )
+
+    result = await graph.ainvoke(
+        {
+            "customer_message": "Refund my damaged order.",
+            "order_reference": "ORDER-123",
+            "turn_id": "turn-1",
+            "trace_id": "trace-1",
+        }
+    )
+
+    assert result["status"] == "refund_proposal_ready"
+    assert result["knowledge_evidence"] == []
+    assert result["knowledge_retrieval_status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_propagates_customer_evidence_authorization_failure(
+    order_context: OrderContext,
+) -> None:
+    graph, _ = create_graph(
+        FakeOrderLookup(result=order_context),
+        customer_evidence_lookup=FakeCustomerEvidenceLookup(
+            error=CustomerEvidenceLookupUnauthorizedError()
+        ),
+    )
+
+    with pytest.raises(CustomerEvidenceLookupUnauthorizedError):
+        await graph.ainvoke(
+            {
+                "customer_message": "Refund my damaged order.",
+                "order_reference": "ORDER-123",
+                "turn_id": "turn-1",
+                "trace_id": "trace-1",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_uses_composer_only_when_rag_evidence_exists(
+    order_context: OrderContext,
+) -> None:
+    evidence_lookup = FakeCustomerEvidenceLookup(
+        result=CustomerEvidenceResponse.model_validate(
+            {
+                "knowledge_release_id": "refund-policy-2026-08-01",
+                "evidence": [
+                    {
+                        "knowledge_document_id": "refund-policy-current-2026-08-01",
+                        "chunk_id": "section-003-chunk-001",
+                        "content": "Damaged items may be refunded.",
+                        "citation": {
+                            "source_uri": "s3://cso-knowledge/tenant-local/refund-policy-2026-08-01.md",
+                            "title": "Refund Policy",
+                            "section_path": ["Refund eligibility"],
+                        },
+                        "retrieval_methods": ["semantic_vector"],
+                        "reranker_rank": 1,
+                    }
+                ],
+            }
+        )
+    )
+    composer = FakeRefundAnswerComposer(
+        result=CustomerAnswer(
+            message="The refund policy covers damaged items.",
+            citations=[
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-003-chunk-001",
+                }
+            ],
+        )
+    )
+    graph, _ = create_graph(
+        FakeOrderLookup(result=order_context),
+        customer_evidence_lookup=evidence_lookup,
+        answer_composer=composer,
+    )
+
+    result = await graph.ainvoke(
+        {
+            "customer_message": "Refund my damaged order.",
+            "order_reference": "ORDER-123",
+            "turn_id": "turn-1",
+            "trace_id": "trace-1",
+        }
+    )
+
+    assert result["answer_composition_status"] == "generated"
+    assert result["customer_answer"].citations[0].chunk_id == (
+        "section-003-chunk-001"
+    )
+    assert composer.calls[0]["knowledge_evidence"] == evidence_lookup.result.evidence
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_falls_back_when_answer_composition_fails(
+    order_context: OrderContext,
+) -> None:
+    evidence_lookup = FakeCustomerEvidenceLookup(
+        result=CustomerEvidenceResponse.model_validate(
+            {
+                "knowledge_release_id": "refund-policy-2026-08-01",
+                "evidence": [
+                    {
+                        "knowledge_document_id": "refund-policy-current-2026-08-01",
+                        "chunk_id": "section-003-chunk-001",
+                        "content": "Damaged items may be refunded.",
+                        "citation": {
+                            "source_uri": "s3://cso-knowledge/tenant-local/refund-policy-2026-08-01.md",
+                            "title": "Refund Policy",
+                            "section_path": ["Refund eligibility"],
+                        },
+                        "retrieval_methods": ["semantic_vector"],
+                        "reranker_rank": 1,
+                    }
+                ],
+            }
+        )
+    )
+    graph, _ = create_graph(
+        FakeOrderLookup(result=order_context),
+        customer_evidence_lookup=evidence_lookup,
+        answer_composer=FakeRefundAnswerComposer(
+            error=RefundAnswerCompositionError()
+        ),
+    )
+
+    result = await graph.ainvoke(
+        {
+            "customer_message": "Refund my damaged order.",
+            "order_reference": "ORDER-123",
+            "turn_id": "turn-1",
+            "trace_id": "trace-1",
+        }
+    )
+
+    assert result["answer_composition_status"] == "fallback"
+    assert result["customer_answer"].citations == []

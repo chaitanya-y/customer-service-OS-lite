@@ -14,6 +14,8 @@ test('health reports the Edge API is ready', async (context) => {
   const app = buildApp({
     verifyCustomerIdentity: async () => TEST_IDENTITY,
     signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
     intakeRefund: async () => ({ statusCode: 200, body: {} }),
   });
   context.after(() => app.close());
@@ -42,12 +44,34 @@ test('authenticates, signs context, and forwards a valid refund request', async 
       });
       return 'signed-context';
     },
-    intakeRefund: async (request, assertion) => {
+    signAgentRuntimeContextAssertion: async (input) => {
+      assert.deepEqual(input, {
+        identity: TEST_IDENTITY,
+        requestId: 'request-1',
+        traceId: 'trace-1',
+        channelId: 'web',
+      });
+      return 'agent-runtime-context';
+    },
+    signKnowledgeRagContextAssertion: async (input) => {
+      assert.deepEqual(input, {
+        identity: TEST_IDENTITY,
+        requestId: 'request-1',
+        traceId: 'trace-1',
+        channelId: 'web',
+      });
+      return 'knowledge-rag-context';
+    },
+    intakeRefund: async (request, assertions) => {
       assert.deepEqual(request, {
         customer_message: 'Please refund my order.',
         order_reference: 'ORDER-123',
       });
-      assert.equal(assertion, 'signed-context');
+      assert.deepEqual(assertions, {
+        agentRuntime: 'agent-runtime-context',
+        integrationGateway: 'signed-context',
+        knowledgeRag: 'knowledge-rag-context',
+      });
       return {
         statusCode: 200,
         body: { status: 'order_context_loaded' },
@@ -83,6 +107,8 @@ test('rejects an invalid request before authentication', async (context) => {
       return TEST_IDENTITY;
     },
     signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
     intakeRefund: async () => ({ statusCode: 200, body: {} }),
   });
   context.after(() => app.close());
@@ -110,6 +136,8 @@ test('rejects a request without valid customer authentication', async (
       contextSigningCalled = true;
       return 'signed-context';
     },
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
     intakeRefund: async () => ({ statusCode: 200, body: {} }),
   });
   context.after(() => app.close());
@@ -129,6 +157,8 @@ test('does not expose an Agent Runtime server failure', async (context) => {
   const app = buildApp({
     verifyCustomerIdentity: async () => TEST_IDENTITY,
     signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
     intakeRefund: async () => ({
       statusCode: 500,
       body: { secret_internal_detail: 'stack trace' },
@@ -157,6 +187,8 @@ test('starts a durable refund workflow only for a complete proposal', async (con
   const app = buildApp({
     verifyCustomerIdentity: async () => TEST_IDENTITY,
     signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
     intakeRefund: async () => ({
       statusCode: 200,
       body: {

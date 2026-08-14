@@ -35,6 +35,14 @@ const configSchema = z
       .string()
       .min(1)
       .default('integration-gateway'),
+    AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE: z
+      .string()
+      .min(1)
+      .default('agent-runtime'),
+    KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE: z
+      .string()
+      .min(1)
+      .default('knowledge-rag'),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'local') {

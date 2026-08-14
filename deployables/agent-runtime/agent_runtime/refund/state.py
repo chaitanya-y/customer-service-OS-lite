@@ -1,6 +1,8 @@
 from typing import Literal, TypedDict
 
+from agent_runtime.integrations.customer_evidence import CustomerEvidence
 from agent_runtime.integrations.order_lookup import OrderContext
+from agent_runtime.refund.answer import CustomerAnswer
 from agent_runtime.refund.intent import RefundIntentExtraction
 from agent_runtime.refund.proposal import RefundProposal
 
@@ -11,6 +13,14 @@ class RefundState(TypedDict, total=False):
     order_context: OrderContext | None
     refund_intent: RefundIntentExtraction | None
     refund_proposal: RefundProposal | None
+    knowledge_evidence: list[CustomerEvidence]
+    knowledge_retrieval_status: Literal["retrieved", "unavailable"]
+    customer_answer: CustomerAnswer
+    answer_composition_status: Literal["generated", "fallback"]
+    tenant_id: str
+    environment_id: str
+    context_id: str
+    request_id: str
     turn_id: str
     trace_id: str
     error_code: str | None

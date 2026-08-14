@@ -27,6 +27,13 @@ MANIFEST_PATH = (
     / "refund-knowledge-release-v1.json"
 )
 
+TENANT_LOCAL_MANIFEST_PATH = (
+    FIXTURES_PATH
+    / "source-registrations"
+    / "tenant-local"
+    / "refund-knowledge-release-v1.json"
+)
+
 CURRENT_POLICY_URI = (
     "s3://cso-knowledge/acme/refund-policy-2026-08-01.md"
 )
@@ -35,6 +42,16 @@ INTERNAL_PLAYBOOK_URI = (
 )
 SUPERSEDED_POLICY_URI = (
     "s3://cso-knowledge/acme/refund-policy-2026-07-01.md"
+)
+
+TENANT_LOCAL_CURRENT_POLICY_URI = (
+    "s3://cso-knowledge/tenant-local/refund-policy-2026-08-01.md"
+)
+TENANT_LOCAL_INTERNAL_PLAYBOOK_URI = (
+    "s3://cso-knowledge/tenant-local/internal-refund-escalation-playbook.md"
+)
+TENANT_LOCAL_SUPERSEDED_POLICY_URI = (
+    "s3://cso-knowledge/tenant-local/refund-policy-2026-07-01.md"
 )
 
 CURRENT_POLICY_PATH = (
@@ -81,6 +98,16 @@ def make_resolver() -> FakeSourceUriResolver:
     )
 
 
+def make_tenant_local_resolver() -> FakeSourceUriResolver:
+    return FakeSourceUriResolver(
+        {
+            TENANT_LOCAL_CURRENT_POLICY_URI: CURRENT_POLICY_PATH,
+            TENANT_LOCAL_INTERNAL_PLAYBOOK_URI: INTERNAL_PLAYBOOK_PATH,
+            TENANT_LOCAL_SUPERSEDED_POLICY_URI: SUPERSEDED_POLICY_PATH,
+        }
+    )
+
+
 def test_compile_knowledge_release_creates_governed_index_documents() -> None:
     manifest = load_knowledge_release_manifest(MANIFEST_PATH)
     embedding_provider = DeterministicEmbeddingProvider(dimension=8)
@@ -110,6 +137,26 @@ def test_compile_knowledge_release_creates_governed_index_documents() -> None:
         KnowledgeDocumentClassification.CUSTOMER_SAFE,
         KnowledgeDocumentClassification.INTERNAL,
     }
+
+
+def test_compile_knowledge_release_scopes_documents_to_tenant_local() -> None:
+    manifest = load_knowledge_release_manifest(TENANT_LOCAL_MANIFEST_PATH)
+
+    compilation = compile_knowledge_release(
+        manifest=manifest,
+        source_uri_resolver=make_tenant_local_resolver(),
+        embedding_provider=DeterministicEmbeddingProvider(dimension=8),
+        ingestion_job_id="tenant-local-release-ingestion-001",
+    )
+
+    assert compilation.tenant_id == "tenant-local"
+    assert compilation.environment_id == "local"
+    assert len(compilation.artifacts) == 3
+    assert all(
+        document.tenant_id == "tenant-local"
+        and document.environment_id == "local"
+        for document in compilation.index_documents
+    )
 
 
 def test_compile_knowledge_release_rejects_a_source_with_changed_content() -> None:
