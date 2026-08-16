@@ -62,6 +62,9 @@ def test_builds_a_complete_full_order_proposal(
     assert proposal.intent.order_id == "3"
     assert proposal.intent.scope == "FULL_ORDER"
     assert proposal.intent.item_ids == []
+    assert proposal.intent.requested_amount is not None
+    assert proposal.intent.requested_amount.amount_minor == 10_000
+    assert proposal.intent.requested_amount.currency == "USD"
     assert proposal.missing_fields == []
     assert proposal.evidence_ids == ["observation-1"]
     assert proposal.execution_evidence.execution_id == "execution-1"
@@ -101,6 +104,9 @@ def test_accepts_item_ids_that_exist_in_the_order(
 
     assert proposal.intent.scope == "SELECTED_ITEMS"
     assert proposal.intent.item_ids == ["item-1"]
+    assert proposal.intent.requested_amount is not None
+    assert proposal.intent.requested_amount.amount_minor == 10_000
+    assert proposal.intent.requested_amount.currency == "USD"
     assert proposal.missing_fields == []
 
 
@@ -118,6 +124,7 @@ def test_does_not_silently_accept_an_invented_item_id(
 
     assert proposal.intent.scope == "UNSPECIFIED"
     assert proposal.intent.item_ids == []
+    assert proposal.intent.requested_amount is None
     assert proposal.missing_fields == ["ITEM_SELECTION"]
 
 

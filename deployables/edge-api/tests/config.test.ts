@@ -17,6 +17,7 @@ test('loads safe local defaults', () => {
   assert.equal(config.AUTH_MODE, 'local');
   assert.equal(config.PORT, 3000);
   assert.equal(config.AGENT_RUNTIME_BASE_URL, 'http://127.0.0.1:8000');
+  assert.equal(config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS, 60_000);
   assert.equal(
     config.AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
     'agent-runtime',
@@ -25,6 +26,15 @@ test('loads safe local defaults', () => {
     config.KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE,
     'knowledge-rag',
   );
+});
+
+test('loads a configured Agent Runtime timeout', () => {
+  const config = loadConfig({
+    ...BASE_ENV,
+    AGENT_RUNTIME_TIMEOUT_MILLISECONDS: '45000',
+  });
+
+  assert.equal(config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS, 45_000);
 });
 
 test('refuses local authentication in production', () => {

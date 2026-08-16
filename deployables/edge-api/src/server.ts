@@ -46,6 +46,7 @@ const signKnowledgeRagContextAssertion = createHmacContextAssertionSigner({
 });
 const agentRuntimeClient = createAgentRuntimeClient({
   baseUrl: config.AGENT_RUNTIME_BASE_URL,
+  timeoutMilliseconds: config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS,
 });
 const temporalConnection = await Connection.connect({
   address: config.TEMPORAL_ADDRESS,

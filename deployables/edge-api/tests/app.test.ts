@@ -192,11 +192,18 @@ test('starts a durable refund workflow only for a complete proposal', async (con
     intakeRefund: async () => ({
       statusCode: 200,
       body: {
-        status: 'refund_proposal_ready',
-        refund_proposal: {
+      status: 'refund_proposal_ready',
+      refund_proposal: {
+          schemaVersion: '1',
+          resultType: 'JOURNEY_PROPOSAL',
           proposalId: 'proposal-001',
           journeyType: 'REFUND',
+          turnId: 'turn-001',
           missingFields: [],
+          evidenceIds: ['order-observation-001'],
+          executionEvidence: {
+            executionId: 'execution-001',
+          },
           intent: {
             orderId: 'ORDER-123',
             reasonCode: 'DAMAGED',

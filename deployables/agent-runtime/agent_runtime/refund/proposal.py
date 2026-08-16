@@ -206,12 +206,45 @@ class RefundProposalBuilder:
             else:
                 item_ids = selected_item_ids
 
+        requested_amount = RefundProposalBuilder._requested_amount(
+            scope=scope,
+            item_ids=item_ids,
+            order_context=order_context,
+        )
+
         return (
             RefundIntent(
                 order_id=order_context.source.order_id,
                 reason_code=extraction.reason_code,
                 scope=scope,
                 item_ids=item_ids,
+                requested_amount=requested_amount,
             ),
             missing_fields,
+        )
+
+    @staticmethod
+    def _requested_amount(
+        *,
+        scope: ProposalScope,
+        item_ids: list[str],
+        order_context: OrderContext,
+    ) -> Money | None:
+        if scope == "FULL_ORDER":
+            return order_context.total
+
+        if scope != "SELECTED_ITEMS":
+            return None
+
+        selected_items = [
+            item for item in order_context.items if item.item_id in item_ids
+        ]
+        currency = selected_items[0].line_total.currency
+
+        if any(item.line_total.currency != currency for item in selected_items):
+            raise ValueError("Selected refund items must use one currency")
+
+        return Money(
+            amount_minor=sum(item.line_total.amount_minor for item in selected_items),
+            currency=currency,
         )

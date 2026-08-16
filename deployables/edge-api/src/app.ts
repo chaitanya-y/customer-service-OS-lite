@@ -38,7 +38,7 @@ const readyRefundProposalSchema = z.object({
       currency: z.string().min(1),
     }).strict(),
   }).strict(),
-}).strict();
+}).passthrough();
 
 const readyAgentResponseSchema = z.object({
   status: z.literal('refund_proposal_ready'),

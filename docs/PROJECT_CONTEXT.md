@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -132,14 +132,21 @@ Canonical contract:
 - `contracts/internal-api/proto/customer_service_os/context/v1/trusted_tenant_context.proto`
 - `contracts/internal-api/trusted-context-assertion/v1/context-assertion-claims.schema.json`
 
-The current guardrail slice forwards an opaque, short-lived assertion from the
-Agent Runtime to the Integration Gateway. The Gateway verifies its HMAC signature,
-issuer, audience, tenant, lifetime, purpose, and self-service customer binding
-before an order lookup. The assertion never enters LangGraph state or model input.
 The Edge API authenticates a local customer token, derives the trusted customer
-identity from that token, and issues a separate 60-second internal assertion. The
-customer cannot supply or override the trusted tenant or customer identity in the
-refund request body.
+identity from that token, and creates three separate short-lived assertions from
+that one trusted identity:
+
+- `x-cso-context-assertion` is for the Integration Gateway only;
+- `x-cso-agent-context-assertion` is for the Agent Runtime only;
+- `x-cso-knowledge-context-assertion` is for the Knowledge/RAG service only.
+
+Each receiving service verifies signature, issuer, audience, tenant, lifetime,
+purpose, and self-service customer binding before using the assertion. The Agent
+Runtime verifies its own assertion, forwards the Gateway assertion only to the
+read-only MCP order lookup client, and forwards the RAG assertion only to the
+customer-evidence client. Assertions never enter LangGraph state or model input.
+The customer cannot supply or override the trusted tenant or customer identity in
+the refund request body.
 
 ### Order context
 
@@ -268,6 +275,12 @@ The Python Agent Runtime contains:
 - a structured-output LangChain refund-intent specialist;
 - deterministic construction of the canonical `RefundProposal`;
 - authoritative validation of model-selected item IDs against `OrderContext`;
+- verification of its audience-specific Edge assertion before a refund graph runs;
+- a typed client for the Knowledge/RAG customer-evidence API;
+- a retrieval node after intent extraction that supplies customer-safe evidence to
+  the graph but does not make a policy decision;
+- a grounded answer composer that can cite only chunks returned by that retrieval;
+- safe fallback customer answers when retrieval or answer generation is unavailable;
 - execution evidence containing honest prompt, model-route, knowledge, guardrail,
   evaluation, and tool-contract versions;
 - refund graph statuses:
@@ -284,11 +297,11 @@ The Python Agent Runtime contains:
 Its tests do not call a paid model. A real OpenAI call still requires local
 configuration and explicit approval.
 
-### Knowledge/RAG: committed and pushed retrieval foundation
+### Knowledge/RAG: committed and pushed retrieval foundation and online evidence API
 
 `deployables/knowledge-rag` contains the Python knowledge workload. It currently
-implements the complete retrieval path, but not yet the Agent Runtime integration
-or final answer generation.
+implements the retrieval path and the online customer-evidence boundary used by
+the Agent Runtime.
 
 - parsers for Markdown, HTML, PDF, DOCX, and text source documents;
 - structure-aware parent/child chunking with stable local chunk IDs;
@@ -304,6 +317,16 @@ or final answer generation.
 - document-scoped retrieval evaluation metrics and governed safety datasets;
 - release compilation before publication, so a failed source or embedding step
   does not partially publish a release.
+- `POST /v1/customer-evidence`, which accepts only `query_text` plus the
+  audience-specific trusted assertion;
+- service-owned selection of tenant, environment, active knowledge release, locale,
+  effective time, index, and `CUSTOMER_SAFE` classification;
+- rejection of invalid or misdirected assertions before retrieval.
+
+The customer-evidence API deliberately does not accept tenant IDs, release IDs,
+classification filters, or OpenSearch index names from the client. This keeps
+internal documents and another tenant's documents outside the customer request
+surface.
 
 The first local knowledge release contains three synthetic documents for tenant
 `acme` and environment `local`:
@@ -318,6 +341,13 @@ Metadata filtering is mandatory for tenant, environment, knowledge release,
 classification, locale, and effective dates. A customer-safe request cannot
 retrieve internal evidence. A historical July request can retrieve the superseded
 policy, while an August request cannot.
+
+The active local runtime configuration uses tenant `tenant-local`, release
+`refund-policy-2026-08-01`, and index
+`cso-knowledge-tenant-local-local-v1`. That published index contains 18 chunks,
+including both customer-safe and internal material. The online customer-evidence
+API always filters the latter out; the `acme` corpus above remains a separate
+learning and retrieval-evaluation fixture.
 
 The real local governed evaluation ran against the OpenSearch index containing 18
 indexed chunks
@@ -408,26 +438,25 @@ The Node.js/TypeScript Edge API contains:
   reuse between customer tokens and internal assertions;
 - unit, route, client, and Edge-to-Gateway compatibility tests.
 
-Current local work on `dev`, not committed at the time of this handoff, adds
-audience-separated assertions for Agent Runtime integration:
+The committed Edge-to-Agent-Runtime path uses audience-separated assertions:
 
-- Edge API creates two short-lived assertions from the same authenticated customer
+- Edge API creates three short-lived assertions from the same authenticated customer
   identity, request ID, and trace ID;
 - `x-cso-agent-context-assertion` is intended only for Agent Runtime, with
   audience `agent-runtime`;
 - `x-cso-context-assertion` remains intended only for Integration Gateway, with
   audience `integration-gateway`;
-- Agent Runtime receives both headers. It will verify the first before using its
-  tenant and environment for RAG, and will forward the second only to the MCP order
-  lookup client.
+- `x-cso-knowledge-context-assertion` is intended only for Knowledge/RAG, with
+  audience `knowledge-rag`;
+- Agent Runtime receives all three headers, verifies its own header, forwards the
+  Gateway header only to the MCP order lookup client, and forwards the RAG header
+  only to the customer-evidence API.
 
 Audience verification prevents a token issued for the Integration Gateway from
 being accepted as an Agent Runtime authorization token. The current local design
 uses one shared HMAC secret for both verifiers, so it does not isolate services if
 one verifier is compromised. Before deployment, use separate per-audience signing
 keys or Edge-held asymmetric signing keys with service-specific public verifiers.
-The Agent Runtime verification and RAG call are the next implementation step.
-
 The production AWS authentication adapter is not implemented yet. It will replace
 the local token verifier with Cognito while preserving the route, identity,
 assertion, and downstream client interfaces.
@@ -442,11 +471,13 @@ At the time of this handoff:
 - remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
 - branch workflow: implement and test on `dev`, then merge verified changes to
   `main`;
-- `main` contains the governed refund execution, reconciliation, and the
-  Knowledge/RAG retrieval and evaluation foundation;
-- `dev` has the tested but uncommitted Edge API audience-separation changes;
-- the next planned capability is Agent Runtime verification of its dedicated
-  assertion, followed by RAG augmentation and grounded answer generation.
+- `main` contains the governed refund execution and reconciliation, the
+  Knowledge/RAG retrieval and evaluation foundation, audience-separated internal
+  assertions, online customer-safe retrieval, and grounded answer composition;
+- `dev` is the working branch for the next change and is kept aligned with verified
+  `main` before new work begins;
+- the next planned capability is a real local request through Edge API, Agent
+  Runtime, Knowledge/RAG, Integration Gateway, and Vendure.
 
 ## 9. Prerequisites
 
@@ -546,21 +577,48 @@ CONTEXT_ASSERTION_HMAC_SECRET=<same-secret-as-integration-gateway>
 CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
 CONTEXT_ASSERTION_AUDIENCE=integration-gateway
 AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE=agent-runtime
+KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE=knowledge-rag
 ```
 
 `deployables/agent-runtime/.env` needs these values before a real model-backed
-refund extraction:
+refund extraction and grounded customer answer:
 
 ```dotenv
 OPENAI_API_KEY=<create-an-openai-api-key>
 REFUND_INTENT_MODEL=<approved-openai-model>
+REFUND_ANSWER_MODEL=<approved-openai-model>
+TENANT_ID=tenant-local
+ENVIRONMENT_ID=local
+CONTEXT_ASSERTION_HMAC_SECRET=<same-secret-as-edge-api-and-knowledge-rag>
+CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
+AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE=agent-runtime
+KNOWLEDGE_RAG_BASE_URL=http://127.0.0.1:8001
+KNOWLEDGE_RAG_TIMEOUT_SECONDS=10
 AGENT_RELEASE_ID=agent-runtime-0.1.0
 MODEL_ROUTE_ID=refund-intent-openai-v1
-KNOWLEDGE_RELEASE_ID=knowledge-not-used
+KNOWLEDGE_RELEASE_ID=refund-policy-2026-08-01
 GUARDRAIL_VERSION=refund-proposal-guardrails-v1
 EVALUATION_VERSION=evaluation-not-released
 ORDER_LOOKUP_TOOL_VERSION=lookup-order-v1
 ```
+
+`deployables/knowledge-rag/.env` needs:
+
+```dotenv
+OPENAI_API_KEY=<create-an-openai-api-key>
+TENANT_ID=tenant-local
+ENVIRONMENT_ID=local
+CONTEXT_ASSERTION_HMAC_SECRET=<same-secret-as-edge-api-and-agent-runtime>
+CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
+KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE=knowledge-rag
+KNOWLEDGE_RELEASE_ID=refund-policy-2026-08-01
+KNOWLEDGE_INDEX_NAME=cso-knowledge-tenant-local-local-v1
+```
+
+For local development, the same context-assertion HMAC secret is used by Edge API,
+Agent Runtime, Integration Gateway, and Knowledge/RAG. The assertions are still
+separated by audience. Before AWS deployment, replace this local shared-secret
+design with separate per-audience keys or Edge-held asymmetric signing keys.
 
 Never commit these environment files.
 
@@ -584,6 +642,10 @@ a local order through the Vendure Dashboard.
 ## 12. Start the local stack
 
 Use separate terminals and start dependencies from the bottom up.
+
+The Knowledge/RAG service expects a local OpenSearch instance on port `9200` and
+the configured release index to be published before it can serve evidence. The
+repository does not yet provide one-command OpenSearch orchestration.
 
 ### Terminal 0: PostgreSQL
 
@@ -629,7 +691,22 @@ Expected URLs:
   `http://127.0.0.1:3002/v1/orders/<ORDER_REFERENCE>`
 - MCP Streamable HTTP endpoint: `http://127.0.0.1:3002/mcp`
 
-### Terminal 3: Agent Runtime
+### Terminal 3: Knowledge/RAG
+
+```bash
+cd deployables/knowledge-rag
+uv run uvicorn knowledge_rag.main:app --reload --host 127.0.0.1 --port 8001
+```
+
+Expected URLs:
+
+- health: `http://127.0.0.1:8001/health`
+- internal customer evidence: `POST http://127.0.0.1:8001/v1/customer-evidence`
+
+The customer-evidence endpoint requires the RAG-specific trusted assertion from
+the Edge API. Do not call it from a browser or customer client.
+
+### Terminal 4: Agent Runtime
 
 ```bash
 cd deployables/agent-runtime
@@ -645,7 +722,7 @@ The refund intake endpoint is an internal endpoint and requires the trusted
 context assertion created by the Edge API. Do not call it directly from a browser
 or customer client.
 
-### Terminal 4: Edge API
+### Terminal 5: Edge API
 
 ```bash
 cd deployables/edge-api
@@ -719,9 +796,8 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-Last verified result with the Refund Proposal slice: Ruff passed and 25 tests
-passed. There was one existing FastAPI/httpx deprecation warning, not a test
-failure.
+Last verified result: Ruff passed and 44 tests passed. There was one existing
+FastAPI/httpx deprecation warning, not a test failure.
 
 Run the Knowledge/RAG checks:
 
@@ -731,7 +807,7 @@ uv run ruff check .
 uv run pytest
 ```
 
-Last verified result: Ruff passed and 87 tests passed. These tests use
+Last verified result: Ruff passed and 101 tests passed. These tests use
 deterministic local embedding and reranking providers where appropriate and do not
 call OpenAI.
 
@@ -790,9 +866,8 @@ parts remain:
 - workforce delegation and case-bound order authorization;
 - Edge streaming and rate limiting;
 - customer chat UI;
-- a verified Agent Runtime context assertion and tenant-safe RAG request;
-- RAG augmentation inside the refund specialist;
-- final response generation grounded in retrieved evidence and citations;
+- one real local request through all running services, including the model-backed
+  refund intent and answer calls;
 - answer-grounding, citation, specialist, supervisor, tool-selection, trajectory,
   and guardrail evaluations;
 - triage specialist and RAG-grounded refund reasoning;
@@ -808,21 +883,21 @@ parts remain:
 
 ## 16. Recommended next sequence
 
-The shortest safe path to the first vertical slice is:
+The shortest safe path to the first complete vertical slice is:
 
-1. Verify the Agent Runtime-specific assertion and derive its trusted tenant and
-   environment context. Do not accept RAG governance filters from customer input.
-2. Add a RAG retrieval node to the LangGraph refund flow. It must request only
-   `CUSTOMER_SAFE` evidence for customer turns and return citations or an explicit
-   no-evidence result.
-3. Add a grounded response-drafting step. It may explain policy evidence but may
-   not promise authorization, eligibility, or refund completion.
-4. Add answer and agent evaluations, then connect RAG evidence to execution
+1. Start Vendure, Integration Gateway, Knowledge/RAG, Agent Runtime, and Edge API
+   with their configured local environment files. Send one authenticated customer
+   request through the Edge API and inspect the typed proposal, evidence, citations,
+   and safe customer answer.
+2. Connect the existing typed proposal to the deterministic policy and Temporal
+   workflow path, then return the policy-controlled preview to the conversation
+   surface.
+3. Add answer and agent evaluations, then connect RAG evidence to execution
    evidence for reproducible traces.
-5. Add reproducible Vendure initialization and seed data so another clone can run
+4. Add reproducible Vendure initialization and seed data so another clone can run
    the same end-to-end lookup.
-6. Add Kafka event publication through an outbox for journey/audit projections.
-7. Add traces and a compact evaluation dataset before deploying the single-region
+5. Add Kafka event publication through an outbox for journey/audit projections.
+6. Add traces and a compact evaluation dataset before deploying the single-region
    AWS slice.
 
 Do not start by building every empty service. Extend the walking refund slice and
