@@ -5,7 +5,6 @@ import { test } from "node:test";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 
-import type { RefundWorkflowActivities } from "../src/refund-workflow-activities.js";
 import type { RefundProposal } from "../src/refund-policy-input.js";
 import type { RefundPolicyDecision } from "../src/refund-policy.js";
 import {
@@ -14,6 +13,14 @@ import {
   refundWorkflow,
   type RefundWorkflowRequest,
 } from "../src/refund-workflow.js";
+import type {
+  CloseHumanCaseInput,
+  ExecuteRefundResult,
+  OpenHumanCaseInput,
+  OpenHumanCaseResult,
+  ReconcileRefundResult,
+  RefundWorkflowActivities,
+} from "../src/refund-workflow-activities.js";
 
 const proposal: RefundProposal = {
   proposalId: "refund-proposal-001",
@@ -28,6 +35,7 @@ const proposal: RefundProposal = {
 };
 
 const request: RefundWorkflowRequest = {
+  orderReference: "ORDER-001",
   proposal,
   policyVersion: "refund-policy-v1",
   access: {
@@ -58,11 +66,28 @@ function makeDecision(
   };
 }
 
+type ActivityOptions = Readonly<{
+  executeRefundResult?: ExecuteRefundResult;
+  reconcileRefundResult?: ReconcileRefundResult;
+  refreshedAmounts?: readonly number[];
+  onExecute?: () => void;
+  openHumanCase?: (input: OpenHumanCaseInput) => Promise<void> | void;
+  closeHumanCase?: (input: CloseHumanCaseInput) => Promise<void> | void;
+}>;
+
 function makeActivities(
   decision: RefundPolicyDecision,
+  options: ActivityOptions = {},
 ): RefundWorkflowActivities {
+  let refreshCount = 0;
   return {
     async refreshRefundContext() {
+      const amountIndex = Math.min(
+        refreshCount++,
+        (options.refreshedAmounts?.length ?? 1) - 1,
+      );
+      const refundableAmountMinor =
+        options.refreshedAmounts?.[amountIndex] ?? 5_000;
       return {
         observationId: "refund-context-001",
         observedAt: "2026-08-08T12:00:00.000Z",
@@ -77,7 +102,7 @@ function makeActivities(
           transactionRefundable: true,
           itemSelectionValid: true,
           priorRefundCount: 0,
-          refundableAmount: { amountMinor: 5_000, currency: "USD" },
+          refundableAmount: { amountMinor: refundableAmountMinor, currency: "USD" },
           refundDestination: "ORIGINAL_PAYMENT_METHOD",
         },
       };
@@ -101,9 +126,22 @@ function makeActivities(
       };
     },
     async executeRefund() {
-      return { status: 'SUCCEEDED', providerRefundId: 'vendure-refund-001' };
+      options.onExecute?.();
+      return options.executeRefundResult ?? {
+        status: 'SUCCEEDED',
+        providerRefundId: 'vendure-refund-001',
+      };
     },
-    async reconcileRefund() { return { status: 'NOT_FOUND' }; },
+    async reconcileRefund() {
+      return options.reconcileRefundResult ?? { status: 'NOT_FOUND' };
+    },
+    async openHumanCase(input) {
+      await options.openHumanCase?.(input);
+      return { caseId: input.caseId } satisfies OpenHumanCaseResult;
+    },
+    async closeHumanCase(input) {
+      await options.closeHumanCase?.(input);
+    },
   };
 }
 
@@ -155,7 +193,78 @@ test("an allowed refund waits for customer confirmation and then completes", asy
     assert.equal(result.stage, "REFUND_SUCCEEDED");
     assert.equal(result.decision?.effect, "ALLOW");
     assert.equal(result.preview?.previewId, 'preview-001');
+
+    const queriedState = await handle.query('refund.state');
+    assert.equal(queriedState.stage, 'REFUND_SUCCEEDED');
   });
+});
+
+test('a human takeover resolves to its final state', async () => {
+  await withWorker(makeActivities(makeDecision('TAKEOVER_REQUIRED')), async (environment, taskQueue) => {
+    const handle = await environment.workflowClient.start(refundWorkflow, {
+      taskQueue,
+      workflowId: `refund-${crypto.randomUUID()}`,
+      args: [request],
+    });
+
+    await handle.signal(decideRefund, {
+      decision: 'RESOLVE_TAKEOVER',
+      decidedBy: 'agent-001',
+      decidedAt: '2026-08-08T12:02:00.000Z',
+    });
+
+    const result = await handle.result();
+    assert.equal(result.stage, 'TAKEOVER_RESOLVED');
+  });
+});
+
+test('opens a takeover case before entering the human wait state, with only takeover actions', async () => {
+  let releaseOpenCase: (() => void) | undefined;
+  const caseOpenStarted = new Promise<void>((resolve) => {
+    releaseOpenCase = resolve;
+  });
+  let allowCaseOpen: (() => void) | undefined;
+  const caseOpenCanFinish = new Promise<void>((resolve) => {
+    allowCaseOpen = resolve;
+  });
+  let receivedCase: OpenHumanCaseInput | undefined;
+
+  await withWorker(
+    makeActivities(makeDecision('TAKEOVER_REQUIRED'), {
+      async openHumanCase(input) {
+        receivedCase = input;
+        releaseOpenCase?.();
+        await caseOpenCanFinish;
+      },
+    }),
+    async (environment, taskQueue) => {
+      const workflowId = `refund-${crypto.randomUUID()}`;
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId,
+        args: [request],
+      });
+
+      await caseOpenStarted;
+      const whileCaseIsOpening = await handle.query('refund.state');
+      assert.equal(whileCaseIsOpening.stage, 'EVALUATING');
+
+      allowCaseOpen?.();
+      await handle.signal(decideRefund, {
+        decision: 'RESOLVE_TAKEOVER',
+        decidedBy: 'supervisor-001',
+        decidedAt: '2026-08-08T12:02:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'TAKEOVER_RESOLVED');
+      assert.deepEqual(receivedCase?.allowedActions, ['RESOLVE_TAKEOVER', 'REJECT']);
+      assert.equal(receivedCase?.caseType, 'REFUND_TAKEOVER');
+      assert.equal(receivedCase?.caseId, `case:${workflowId}`);
+      assert.equal(receivedCase?.reviewPacket.orderReference, 'ORDER-001');
+      assert.equal(receivedCase?.reviewPacket.preview, undefined);
+    },
+  );
 });
 
 test("a denied refund completes without waiting for customer confirmation", async () => {
@@ -173,7 +282,10 @@ test("a denied refund completes without waiting for customer confirmation", asyn
 });
 
 test('an approval-required refund waits for customer confirmation and a human approval', async () => {
-  await withWorker(makeActivities(makeDecision('APPROVAL_REQUIRED')), async (environment, taskQueue) => {
+  let receivedCase: OpenHumanCaseInput | undefined;
+  await withWorker(makeActivities(makeDecision('APPROVAL_REQUIRED'), {
+    openHumanCase(input) { receivedCase = input; },
+  }), async (environment, taskQueue) => {
     const handle = await environment.workflowClient.start(refundWorkflow, {
       taskQueue,
       workflowId: `refund-${crypto.randomUUID()}`,
@@ -185,5 +297,150 @@ test('an approval-required refund waits for customer confirmation and a human ap
     const result = await handle.result();
     assert.equal(result.stage, 'REFUND_SUCCEEDED');
     assert.equal(result.preview?.previewId, 'preview-001');
+
+    const queriedState = await handle.query('refund.state');
+    assert.equal(queriedState.stage, 'REFUND_SUCCEEDED');
+    assert.deepEqual(receivedCase?.allowedActions, ['APPROVE', 'REJECT']);
+    assert.equal(receivedCase?.caseType, 'REFUND_APPROVAL');
+    assert.equal(receivedCase?.reviewPacket.preview?.previewId, 'preview-001');
   });
+});
+
+test('closes the takeover case only after the final human decision', async () => {
+  const events: string[] = [];
+  let closedCase: CloseHumanCaseInput | undefined;
+  await withWorker(
+    makeActivities(makeDecision('TAKEOVER_REQUIRED'), {
+      openHumanCase() { events.push('opened'); },
+      closeHumanCase(input) { events.push('closed'); closedCase = input; },
+    }),
+    async (environment, taskQueue) => {
+      const workflowId = `refund-${crypto.randomUUID()}`;
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId,
+        args: [request],
+      });
+      await handle.signal(decideRefund, {
+        decision: 'REJECT',
+        decidedBy: 'supervisor-001',
+        decidedAt: '2026-08-08T12:02:00.000Z',
+        reasonCode: 'MANUAL_REJECTION',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REJECTED');
+      assert.deepEqual(events, ['opened', 'closed']);
+      assert.equal(closedCase?.caseId, `case:${workflowId}`);
+      assert.equal(closedCase?.outcome, 'REJECTED');
+      assert.equal(closedCase?.decision.action, 'REJECT');
+      assert.equal(closedCase?.decision.reasonCode, 'MANUAL_REJECTION');
+    },
+  );
+});
+
+test('duplicate customer confirmation executes the refund only once', async () => {
+  let executions = 0;
+  await withWorker(
+    makeActivities(makeDecision('ALLOW'), { onExecute: () => { executions += 1; } }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      const confirmation = {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:01:00.000Z',
+      };
+      await handle.signal(confirmRefund, confirmation);
+      await handle.signal(confirmRefund, confirmation);
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REFUND_SUCCEEDED');
+      assert.equal(executions, 1);
+    },
+  );
+});
+
+test('invalidates a preview when the refundable balance changes', async () => {
+  let executions = 0;
+  await withWorker(
+    makeActivities(makeDecision('ALLOW'), {
+      refreshedAmounts: [5_000, 4_000],
+      onExecute: () => { executions += 1; },
+    }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      await handle.signal(confirmRefund, {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:01:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'PREVIEW_INVALIDATED');
+      assert.equal(executions, 0);
+    },
+  );
+});
+
+test('provider failure does not report a successful refund', async () => {
+  await withWorker(
+    makeActivities(makeDecision('ALLOW'), {
+      executeRefundResult: { status: 'FAILED' },
+    }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      await handle.signal(confirmRefund, {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:01:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REFUND_FAILED');
+    },
+  );
+});
+
+test('a pending provider result is resolved by reconciliation', async () => {
+  await withWorker(
+    makeActivities(makeDecision('ALLOW'), {
+      executeRefundResult: { status: 'PENDING_RECONCILIATION' },
+      reconcileRefundResult: {
+        status: 'SUCCEEDED',
+        providerRefundId: 'vendure-refund-reconciled',
+      },
+    }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      await handle.signal(confirmRefund, {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:01:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REFUND_SUCCEEDED');
+      assert.equal(result.providerRefundId, 'vendure-refund-reconciled');
+    },
+  );
 });

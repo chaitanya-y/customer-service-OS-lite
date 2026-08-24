@@ -2,6 +2,7 @@ import { WorkflowClient } from '@temporalio/client';
 
 export type RefundWorkflowStartInput = Readonly<{
   workflowId: string;
+  orderReference?: string;
   proposal: Readonly<{
     proposalId: string;
     journeyType: 'REFUND';
@@ -90,6 +91,7 @@ export function createTemporalRefundClient({
         taskQueue,
         workflowId: input.workflowId,
         args: [{
+          ...(input.orderReference === undefined ? {} : { orderReference: input.orderReference }),
           proposal: input.proposal,
           policyVersion: input.policyVersion,
           access: input.access,

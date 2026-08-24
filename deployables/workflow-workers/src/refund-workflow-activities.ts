@@ -12,6 +12,63 @@ import {
   type RefundPreview,
 } from './refund-preview.js';
 
+export type HumanCaseType = 'REFUND_APPROVAL' | 'REFUND_TAKEOVER';
+export type HumanCaseAction = 'APPROVE' | 'REJECT' | 'RESOLVE_TAKEOVER';
+
+/**
+ * A minimized review packet. It intentionally excludes raw customer messages,
+ * payment credentials, and provider transaction details.
+ */
+export type HumanCaseReviewPacket = Readonly<{
+  orderReference?: string;
+  proposal: Readonly<{
+    proposalId: string;
+    orderId: string;
+    reasonCode: string;
+    scope: RefundProposal['intent']['scope'];
+    itemIds: readonly string[];
+    requestedAmount?: Readonly<{ amountMinor: number; currency: string }>;
+  }>;
+  policy: Readonly<{
+    decisionId: string;
+    effect: RefundPolicyDecision['effect'];
+    policyVersion: string;
+    inputFactsHash: string;
+    reasonCodes: readonly string[];
+    factRefs: RefundPolicyDecision['factRefs'];
+  }>;
+  preview?: RefundPreview;
+}>;
+
+export type OpenHumanCaseInput = Readonly<{
+  caseId: string;
+  workflowId: string;
+  idempotencyKey: string;
+  access: WorkflowJourneyAccess;
+  caseType: HumanCaseType;
+  allowedActions: readonly HumanCaseAction[];
+  reviewPacket: HumanCaseReviewPacket;
+}>;
+
+export type OpenHumanCaseResult = Readonly<{
+  /** Service-owned ID returned by Human Operations after an idempotent open. */
+  caseId: string;
+}>;
+
+export type CloseHumanCaseInput = Readonly<{
+  caseId: string;
+  workflowId: string;
+  idempotencyKey: string;
+  access: WorkflowJourneyAccess;
+  outcome: 'APPROVED' | 'REJECTED' | 'TAKEOVER_RESOLVED';
+  decision: Readonly<{
+    action: HumanCaseAction;
+    decidedBy: string;
+    decidedAt: string;
+    reasonCode?: string;
+  }>;
+}>;
+
 export type RefreshRefundContextInput = Readonly<{
   proposal: RefundProposal;
   workflowId: string;
@@ -54,6 +111,8 @@ export type RefundWorkflowActivities = Readonly<{
   ): Promise<RefundPreview>;
   executeRefund(input: ExecuteRefundInput): Promise<ExecuteRefundResult>;
   reconcileRefund(input: ReconcileRefundInput): Promise<ReconcileRefundResult>;
+  openHumanCase(input: OpenHumanCaseInput): Promise<OpenHumanCaseResult>;
+  closeHumanCase(input: CloseHumanCaseInput): Promise<void>;
 }>;
 
 type RefundWorkflowActivityDependencies = Readonly<{
@@ -62,6 +121,8 @@ type RefundWorkflowActivityDependencies = Readonly<{
   ): Promise<RefundContext>;
   executeRefund(input: ExecuteRefundInput): Promise<ExecuteRefundResult>;
   reconcileRefund(input: ReconcileRefundInput): Promise<ReconcileRefundResult>;
+  openHumanCase(input: OpenHumanCaseInput): Promise<OpenHumanCaseResult>;
+  closeHumanCase(input: CloseHumanCaseInput): Promise<void>;
   refundPolicyRelease: RefundPolicyRelease;
   createDecisionContext(
     input: EvaluateRefundPolicyInput,
@@ -77,6 +138,8 @@ export function createRefundWorkflowActivities({
   fetchRefundContext,
   executeRefund,
   reconcileRefund,
+  openHumanCase,
+  closeHumanCase,
   refundPolicyRelease,
   createDecisionContext,
   createPreviewContext,
@@ -101,5 +164,7 @@ export function createRefundWorkflowActivities({
     },
     executeRefund,
     reconcileRefund,
+    openHumanCase,
+    closeHumanCase,
   };
 }

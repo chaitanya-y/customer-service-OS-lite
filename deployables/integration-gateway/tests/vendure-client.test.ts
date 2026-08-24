@@ -184,3 +184,23 @@ test('Vendure provider returns null when the order does not exist', async () => 
 
   assert.equal(order, null);
 });
+
+test('Vendure provider looks up an internal order ID with the order query', async () => {
+  let capturedRequest: RequestInit | undefined;
+  const commerceProvider = createVendureCommerceProvider({
+    adminApiUrl: 'http://vendure.test/admin-api',
+    apiKey: 'test-api-key',
+    async fetcher(_input, request) {
+      capturedRequest = request;
+      return Response.json({ data: { order: null } });
+    },
+  });
+
+  const order = await commerceProvider.getOrderById('3');
+
+  assert.equal(order, null);
+  assert.ok(capturedRequest);
+  const body = JSON.parse(String(capturedRequest.body));
+  assert.deepEqual(body.variables, { id: '3' });
+  assert.match(body.query, /order\(id: \$id\)/);
+});

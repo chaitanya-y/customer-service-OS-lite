@@ -45,6 +45,22 @@ test('verifies a valid local customer access token', async () => {
   assert.deepEqual(await createVerifier()(await createToken()), TEST_IDENTITY);
 });
 
+test('issues local customer tokens with a 48-hour default lifetime', async () => {
+  const token = await signLocalCustomerAccessToken({
+    secret: TEST_SECRET,
+    issuer: 'local-auth',
+    audience: 'edge-api',
+    identity: TEST_IDENTITY,
+    now: () => TEST_NOW,
+  });
+  const justBeforeExpiry = new Date(TEST_NOW.getTime() + 172_799_000);
+
+  assert.deepEqual(
+    await createVerifier(justBeforeExpiry)(token),
+    TEST_IDENTITY,
+  );
+});
+
 test('rejects a token for another tenant', async () => {
   const token = await createToken({ tenantId: 'tenant-other' });
 

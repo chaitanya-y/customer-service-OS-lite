@@ -37,8 +37,13 @@ const order: CommerceOrder = {
 };
 
 test('POST /internal/v1/refund-contexts returns trusted refund facts', async (context) => {
+  let receivedOrderId: string | undefined;
   const commerceProvider: CommerceProvider = {
     async getOrderByReference() {
+      return order;
+    },
+    async getOrderById(orderId) {
+      receivedOrderId = orderId;
       return order;
     },
   };
@@ -55,12 +60,13 @@ test('POST /internal/v1/refund-contexts returns trusted refund facts', async (co
       [CONTEXT_ASSERTION_HEADER]: TEST_CONTEXT_ASSERTION,
     },
     payload: {
-      orderReference: 'ORDER-123',
+      orderId: '3',
       selection: { scope: 'FULL_ORDER', itemIds: [] },
     },
   });
 
   assert.equal(response.statusCode, 200);
+  assert.equal(receivedOrderId, '3');
   assert.deepEqual(response.json().facts, {
     customerVerified: true,
     transactionRefundable: true,
@@ -79,6 +85,10 @@ test('POST /internal/v1/refund-contexts requires trusted context', async (contex
       providerCalled = true;
       return order;
     },
+    async getOrderById() {
+      providerCalled = true;
+      return order;
+    },
   };
   const app = buildApp({
     commerceProvider,
@@ -90,7 +100,7 @@ test('POST /internal/v1/refund-contexts requires trusted context', async (contex
     method: 'POST',
     url: '/internal/v1/refund-contexts',
     payload: {
-      orderReference: 'ORDER-123',
+      orderId: '3',
       selection: { scope: 'FULL_ORDER', itemIds: [] },
     },
   });
@@ -102,6 +112,10 @@ test('POST /internal/v1/refund-contexts requires trusted context', async (contex
 test('POST /internal/v1/refund-contexts accepts a Workflow Worker assertion', async (context) => {
   const commerceProvider: CommerceProvider = {
     async getOrderByReference() {
+      return order;
+    },
+    async getOrderById(orderId) {
+      assert.equal(orderId, '3');
       return order;
     },
   };
@@ -128,7 +142,7 @@ test('POST /internal/v1/refund-contexts accepts a Workflow Worker assertion', as
     url: '/internal/v1/refund-contexts',
     headers: { [WORKFLOW_ACCESS_ASSERTION_HEADER]: 'workflow-assertion' },
     payload: {
-      orderReference: 'ORDER-123',
+      orderId: '3',
       selection: { scope: 'FULL_ORDER', itemIds: [] },
     },
   });
@@ -142,6 +156,10 @@ test('POST /internal/v1/refund-contexts rejects ambiguous customer and worker ac
   const app = buildApp({
     commerceProvider: {
       async getOrderByReference() {
+        providerCalled = true;
+        return order;
+      },
+      async getOrderById() {
         providerCalled = true;
         return order;
       },
@@ -161,7 +179,7 @@ test('POST /internal/v1/refund-contexts rejects ambiguous customer and worker ac
       [WORKFLOW_ACCESS_ASSERTION_HEADER]: 'workflow-assertion',
     },
     payload: {
-      orderReference: 'ORDER-123',
+      orderId: '3',
       selection: { scope: 'FULL_ORDER', itemIds: [] },
     },
   });

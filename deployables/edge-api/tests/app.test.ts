@@ -26,6 +26,62 @@ test('health reports the Edge API is ready', async (context) => {
   assert.deepEqual(response.json(), { service: 'edge-api', status: 'ok' });
 });
 
+test('returns a refund workflow stage for an authenticated customer', async (context) => {
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
+    intakeRefund: async () => ({ statusCode: 200, body: {} }),
+    getRefundWorkflow: async (input) => {
+      assert.equal(input.workflowId, 'refund-001');
+      assert.equal(input.access.subjectCustomerId, 'customer-42');
+      return { stage: 'AWAITING_CUSTOMER_CONFIRMATION' };
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/v1/refunds/refund-001',
+    headers: { authorization: 'Bearer customer-access-token' },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    workflow_id: 'refund-001',
+    stage: 'AWAITING_CUSTOMER_CONFIRMATION',
+  });
+});
+
+test('does not report workflow query failures as customer authentication failures', async (context) => {
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
+    intakeRefund: async () => ({ statusCode: 200, body: {} }),
+    getRefundWorkflow: async () => {
+      throw new Error('Temporal query timed out');
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/v1/refunds/refund-001',
+    headers: { authorization: 'Bearer customer-access-token' },
+  });
+
+  assert.equal(response.statusCode, 502);
+  assert.deepEqual(response.json(), {
+    error: {
+      code: 'workflow_unavailable',
+      message: 'Refund workflow is temporarily unavailable',
+    },
+  });
+});
+
 test('authenticates, signs context, and forwards a valid refund request', async (
   context,
 ) => {
@@ -217,6 +273,7 @@ test('starts a durable refund workflow only for a complete proposal', async (con
     startRefundWorkflow: async (input) => {
       assert.deepEqual(input, {
         workflowId: 'refund-proposal-001',
+        orderReference: 'ORDER-123',
         policyVersion: 'refund-policy-v1',
         proposal: {
           proposalId: 'proposal-001',

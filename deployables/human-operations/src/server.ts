@@ -2,11 +2,13 @@ import { Connection, WorkflowClient } from '@temporalio/client';
 
 import { buildApp } from './app.js';
 import { createHumanAssertionVerifier } from './human-access.js';
+import { createWorkflowCaseAccessVerifier } from './workflow-access.js';
 
 const secret = process.env.HUMAN_ACCESS_HMAC_SECRET;
 const tenantId = process.env.TENANT_ID;
 const environmentId = process.env.ENVIRONMENT_ID;
-if (!secret || secret.length < 32 || !tenantId || !environmentId) {
+const workflowSecret = process.env.HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET;
+if (!secret || secret.length < 32 || !workflowSecret || workflowSecret.length < 32 || !tenantId || !environmentId) {
   throw new Error('INVALID_HUMAN_OPERATIONS_CONFIG');
 }
 
@@ -18,6 +20,13 @@ const app = buildApp({
   verifyHuman: createHumanAssertionVerifier({
     secret,
     issuer: process.env.HUMAN_ACCESS_ISSUER ?? 'customer-service-os-human-operations',
+    audience: 'human-operations',
+    tenantId,
+    environmentId,
+  }),
+  verifyWorkflowCaseAccess: createWorkflowCaseAccessVerifier({
+    secret: workflowSecret,
+    issuer: process.env.HUMAN_OPERATIONS_WORKFLOW_ISSUER ?? 'customer-service-os-workflow-workers',
     audience: 'human-operations',
     tenantId,
     environmentId,

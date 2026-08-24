@@ -2,7 +2,7 @@ import { jwtVerify } from 'jose';
 import { z } from 'zod';
 
 export const HUMAN_ASSERTION_HEADER = 'x-cso-human-assertion';
-const claimsSchema = z.object({ staffId: z.string().min(1), tenantId: z.string().min(1), environmentId: z.string().min(1), role: z.enum(['REFUND_APPROVER', 'REFUND_SUPERVISOR']), iss: z.string(), aud: z.string() }).strict();
+const claimsSchema = z.object({ staffId: z.string().min(1), tenantId: z.string().min(1), environmentId: z.string().min(1), role: z.enum(['REFUND_APPROVER', 'REFUND_SUPERVISOR']), iss: z.string(), aud: z.string(), iat: z.number().int().optional(), exp: z.number().int().optional() }).strict();
 export type HumanAccess = z.infer<typeof claimsSchema>;
 export function createHumanAssertionVerifier(options: { secret: string; issuer: string; audience: string; tenantId: string; environmentId: string }) {
   const key = new TextEncoder().encode(options.secret);

@@ -12,7 +12,7 @@ import {
 } from './workflow-access.js';
 
 const refundContextRequestSchema = z.object({
-  orderReference: z.string().trim().min(1).max(100),
+  orderId: z.string().trim().min(1).max(160),
   selection: z.discriminatedUnion('scope', [
     z.object({
       scope: z.literal('FULL_ORDER'),
@@ -78,7 +78,7 @@ export function registerRefundContextRoutes(
 
     try {
       const refundContext = await getRefundContext(
-        parsedRequest.data.orderReference,
+        parsedRequest.data.orderId,
         parsedRequest.data.selection,
         accessContext,
       );
@@ -97,7 +97,7 @@ export function registerRefundContextRoutes(
       request.log.error(
         {
           err: error,
-          orderReference: parsedRequest.data.orderReference,
+          orderId: parsedRequest.data.orderId,
         },
         'Commerce provider refund context lookup failed',
       );

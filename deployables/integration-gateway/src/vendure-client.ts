@@ -6,58 +6,66 @@ import type {
   Money,
 } from './commerce.js';
 
+const orderFields = `
+  id
+  code
+  state
+  active
+  currencyCode
+  orderPlacedAt
+  totalWithTax
+  customer {
+    id
+    firstName
+    lastName
+    emailAddress
+  }
+  lines {
+    id
+    quantity
+    unitPriceWithTax
+    linePriceWithTax
+    productVariant {
+      id
+      sku
+      name
+    }
+  }
+  payments {
+    id
+    state
+    amount
+    method
+    transactionId
+    refunds {
+      id
+      state
+      total
+      lines {
+        orderLineId
+      }
+    }
+  }
+  fulfillments {
+    id
+    state
+    method
+    trackingCode
+  }
+`;
+
 const orderByCodeQuery = `
   query Orders($options: OrderListOptions) {
     orders(options: $options) {
       totalItems
-      items {
-        id
-        code
-        state
-        active
-        currencyCode
-        orderPlacedAt
-        totalWithTax
-        customer {
-          id
-          firstName
-          lastName
-          emailAddress
-        }
-        lines {
-          id
-          quantity
-          unitPriceWithTax
-          linePriceWithTax
-          productVariant {
-            id
-            sku
-            name
-          }
-        }
-        payments {
-          id
-          state
-          amount
-          method
-          transactionId
-          refunds {
-            id
-            state
-            total
-            lines {
-              orderLineId
-            }
-          }
-        }
-        fulfillments {
-          id
-          state
-          method
-          trackingCode
-        }
-      }
+      items { ${orderFields} }
     }
+  }
+`;
+
+const orderByIdQuery = `
+  query Order($id: ID!) {
+    order(id: $id) { ${orderFields} }
   }
 `;
 const refundOrderMutation = `
@@ -149,6 +157,10 @@ const vendureResponseSchema = z.object({
       }),
     )
     .optional(),
+});
+const vendureOrderByIdResponseSchema = z.object({
+  data: z.object({ order: vendureOrderSchema.nullable() }).optional(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
 });
 
 type Fetcher = (
@@ -271,6 +283,35 @@ export function createVendureCommerceProvider(
 
       const order = payload.data.orders.items[0];
       return order ? toCommerceOrder(order) : null;
+    },
+    async getOrderById(orderId) {
+      const response = await fetcher(options.adminApiUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'vendure-api-key': options.apiKey,
+        },
+        body: JSON.stringify({
+          query: orderByIdQuery,
+          variables: { id: orderId },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Vendure request failed with HTTP status ${response.status}`,
+        );
+      }
+
+      const payload = vendureOrderByIdResponseSchema.parse(
+        await response.json(),
+      );
+
+      if (payload.errors?.length || !payload.data) {
+        throw new Error('Vendure returned a GraphQL error');
+      }
+
+      return payload.data.order ? toCommerceOrder(payload.data.order) : null;
     },
     async executeRefund(input) {
       const response = await fetcher(options.adminApiUrl, {

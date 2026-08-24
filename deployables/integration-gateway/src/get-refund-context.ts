@@ -16,11 +16,11 @@ export function createGetRefundContext({
   now = () => new Date(),
 }: GetRefundContextDependencies) {
   return async function getRefundContext(
-    orderReference: string,
+    orderId: string,
     selection: RefundSelection,
     accessContext: OrderAccessContext,
   ) {
-    const order = await commerceProvider.getOrderByReference(orderReference);
+    const order = await commerceProvider.getOrderById(orderId);
 
     if (
       !order?.customer ||

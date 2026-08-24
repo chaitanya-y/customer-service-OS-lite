@@ -106,13 +106,20 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     const params = workflowParamsSchema.safeParse(request.params);
     if (!params.success) return reply.code(400).send({ error: { code: 'invalid_workflow_id', message: 'Workflow ID is invalid' } });
     if (!options.getRefundWorkflow) return reply.code(503).send({ error: { code: 'workflow_unavailable', message: 'Refund workflow is unavailable' } });
+    let identity;
     try {
-      const identity = await verifyRequestIdentity(request.headers.authorization);
+      identity = await verifyRequestIdentity(request.headers.authorization);
+    } catch {
+      return reply.code(401).send({ error: { code: 'customer_unauthorized', message: 'Customer authentication is required' } });
+    }
+
+    try {
       const workflow = await options.getRefundWorkflow({ workflowId: params.data.workflowId, access: { tenantId: identity.tenantId, environmentId: identity.environmentId, subjectCustomerId: identity.customerId, requestId: createCorrelationId(), traceId: createCorrelationId() } });
       return reply.send({ workflow_id: params.data.workflowId, ...workflow });
     } catch (error) {
       if (error instanceof RefundWorkflowNotFoundError) return reply.code(404).send({ error: { code: 'refund_workflow_not_found', message: 'Refund workflow was not found' } });
-      return reply.code(401).send({ error: { code: 'customer_unauthorized', message: 'Customer authentication is required' } });
+      request.log.error({ err: error }, 'Refund workflow status query failed');
+      return reply.code(502).send({ error: { code: 'workflow_unavailable', message: 'Refund workflow is temporarily unavailable' } });
     }
   });
 
@@ -121,13 +128,20 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     const body = confirmationSchema.safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send({ error: { code: 'invalid_refund_confirmation', message: 'Refund confirmation is invalid' } });
     if (!options.confirmRefundWorkflow) return reply.code(503).send({ error: { code: 'workflow_unavailable', message: 'Refund workflow is unavailable' } });
+    let identity;
     try {
-      const identity = await verifyRequestIdentity(request.headers.authorization);
+      identity = await verifyRequestIdentity(request.headers.authorization);
+    } catch {
+      return reply.code(401).send({ error: { code: 'customer_unauthorized', message: 'Customer authentication is required' } });
+    }
+
+    try {
       await options.confirmRefundWorkflow({ workflowId: params.data.workflowId, previewId: body.data.preview_id, accepted: body.data.accepted, access: { tenantId: identity.tenantId, environmentId: identity.environmentId, subjectCustomerId: identity.customerId, requestId: createCorrelationId(), traceId: createCorrelationId() } });
       return reply.code(202).send({ workflow_id: params.data.workflowId, status: 'confirmation_received' });
     } catch (error) {
       if (error instanceof RefundWorkflowNotFoundError) return reply.code(404).send({ error: { code: 'refund_workflow_not_found', message: 'Refund workflow was not found' } });
-      return reply.code(401).send({ error: { code: 'customer_unauthorized', message: 'Customer authentication is required' } });
+      request.log.error({ err: error }, 'Refund workflow confirmation failed');
+      return reply.code(502).send({ error: { code: 'workflow_unavailable', message: 'Refund workflow is temporarily unavailable' } });
     }
   });
 
@@ -221,6 +235,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
       const workflow = await options.startRefundWorkflow({
         workflowId: `refund-${readyResponse.data.refund_proposal.proposalId}`,
+        ...(parsedRequest.data.order_reference === undefined
+          ? {}
+          : { orderReference: parsedRequest.data.order_reference }),
         proposal: {
           proposalId: readyResponse.data.refund_proposal.proposalId,
           journeyType: 'REFUND',

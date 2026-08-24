@@ -22,7 +22,12 @@ export type WorkflowJourneyAccess = z.infer<typeof workflowJourneyAccessSchema>;
 export type WorkflowAccessAssertionInput = Readonly<{
   workflowId: string;
   access: WorkflowJourneyAccess;
-  purpose: 'refund_fact_refresh' | 'refund_execute' | 'refund_reconcile';
+  purpose:
+    | 'refund_fact_refresh'
+    | 'refund_execute'
+    | 'refund_reconcile'
+    | 'human_case_open'
+    | 'human_case_close';
 }>;
 
 export type SignWorkflowAccessAssertion = (

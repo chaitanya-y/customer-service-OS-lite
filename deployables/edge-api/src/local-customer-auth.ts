@@ -35,6 +35,8 @@ const localCustomerClaimsSchema = z
   })
   .strict();
 
+const MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS = 48 * 60 * 60;
+
 type LocalCustomerIdentityVerifierOptions = {
   secret: string;
   expectedIssuer: string;
@@ -96,7 +98,7 @@ export function createLocalCustomerIdentityVerifier({
         claims.iat > nowSeconds + 30 ||
         claims.exp <= nowSeconds ||
         claims.exp <= claims.iat ||
-        claims.exp - claims.iat > 3_600
+        claims.exp - claims.iat > MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS
       ) {
         throw new CustomerAuthenticationError();
       }
@@ -122,13 +124,19 @@ export async function signLocalCustomerAccessToken({
   issuer,
   audience,
   identity: unvalidatedIdentity,
-  lifetimeSeconds = 3_600,
+  lifetimeSeconds = MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS,
   now = () => new Date(),
 }: LocalCustomerTokenOptions): Promise<string> {
   const identity = authenticatedCustomerSchema.parse(unvalidatedIdentity);
 
-  if (!Number.isInteger(lifetimeSeconds) || lifetimeSeconds < 1 || lifetimeSeconds > 3_600) {
-    throw new Error('Local customer token lifetime must be between 1 and 3600 seconds');
+  if (
+    !Number.isInteger(lifetimeSeconds) ||
+    lifetimeSeconds < 1 ||
+    lifetimeSeconds > MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS
+  ) {
+    throw new Error(
+      'Local customer token lifetime must be between 1 and 172800 seconds',
+    );
   }
 
   const signingKey = createHmacKey(secret);

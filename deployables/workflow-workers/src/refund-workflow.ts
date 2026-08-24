@@ -9,7 +9,13 @@ import {
   workflowInfo,
 } from "@temporalio/workflow";
 
-import type { RefundWorkflowActivities } from "./refund-workflow-activities.js";
+import type {
+  CloseHumanCaseInput,
+  HumanCaseAction,
+  HumanCaseType,
+  OpenHumanCaseInput,
+  RefundWorkflowActivities,
+} from "./refund-workflow-activities.js";
 import type { RefundProposal } from "./refund-policy-input.js";
 import type { RefundPolicyDecision } from "./refund-policy.js";
 import type { WorkflowJourneyAccess } from './workflow-access-assertion.js';
@@ -21,6 +27,7 @@ const activities = proxyActivities<RefundWorkflowActivities>({
 });
 
 export type RefundWorkflowRequest = Readonly<{
+  orderReference?: string;
   proposal: RefundProposal;
   policyVersion: string;
   access: WorkflowJourneyAccess;
@@ -97,7 +104,8 @@ export async function refundWorkflow(
 
   if (request.recovery) {
     state = { stage: 'PENDING_RECONCILIATION', decision: request.recovery.decision, preview: request.recovery.preview };
-    return reconcilePendingRefund(request, request.recovery.decision, request.recovery.preview, request.recovery.attemptsInRun);
+    state = await reconcilePendingRefund(request, request.recovery.decision, request.recovery.preview, request.recovery.attemptsInRun);
+    return state;
   }
 
   const refundContext = await activities.refreshRefundContext({
@@ -126,22 +134,88 @@ export async function refundWorkflow(
           if (confirmation === undefined && received.previewId === preview.previewId) confirmation = received;
         });
         await condition(() => confirmation?.previewId === preview.previewId);
-        if (!confirmation?.accepted) return { stage: 'CANCELLED', decision, preview };
+        if (!confirmation?.accepted) {
+          state = { stage: 'CANCELLED', decision, preview };
+          return state;
+        }
+        const humanCase = await activities.openHumanCase(
+          buildOpenHumanCaseInput({
+            request,
+            workflowId: workflowInfo().workflowId,
+            decision,
+            preview,
+            caseType: 'REFUND_APPROVAL',
+            allowedActions: ['APPROVE', 'REJECT'],
+          }),
+        );
         state = { stage: 'AWAITING_APPROVAL', decision, preview };
         setHandler(decideRefund, (received) => {
           if (humanDecision === undefined && (received.decision === 'APPROVE' || received.decision === 'REJECT')) humanDecision = received;
         });
         await condition(() => humanDecision !== undefined);
-        if (humanDecision?.decision === 'REJECT') return { stage: 'REJECTED', decision, preview };
-        return executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        if (humanDecision?.decision === 'REJECT') {
+          await activities.closeHumanCase(
+            buildCloseHumanCaseInput({
+              request,
+              workflowId: workflowInfo().workflowId,
+              caseId: humanCase.caseId,
+              decision: humanDecision,
+              outcome: 'REJECTED',
+            }),
+          );
+          state = { stage: 'REJECTED', decision, preview };
+          return state;
+        }
+        if (humanDecision === undefined) {
+          throw new Error('HUMAN_DECISION_INVARIANT');
+        }
+        await activities.closeHumanCase(
+          buildCloseHumanCaseInput({
+            request,
+            workflowId: workflowInfo().workflowId,
+            caseId: humanCase.caseId,
+            decision: humanDecision,
+            outcome: 'APPROVED',
+          }),
+        );
+        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        return state;
       }
     case "TAKEOVER_REQUIRED":
+      const humanCase = await activities.openHumanCase(
+        buildOpenHumanCaseInput({
+          request,
+          workflowId: workflowInfo().workflowId,
+          decision,
+          caseType: 'REFUND_TAKEOVER',
+          allowedActions: ['RESOLVE_TAKEOVER', 'REJECT'],
+        }),
+      );
       state = { stage: "HUMAN_TAKEOVER_REQUIRED", decision };
       setHandler(decideRefund, (received) => {
         if (humanDecision === undefined && (received.decision === 'RESOLVE_TAKEOVER' || received.decision === 'REJECT')) humanDecision = received;
       });
       await condition(() => humanDecision !== undefined);
-      return { stage: humanDecision?.decision === 'REJECT' ? 'REJECTED' : 'TAKEOVER_RESOLVED', decision };
+      if (humanDecision === undefined) {
+        throw new Error('HUMAN_DECISION_INVARIANT');
+      }
+      const outcome = humanDecision.decision === 'REJECT'
+        ? 'REJECTED'
+        : 'TAKEOVER_RESOLVED';
+      await activities.closeHumanCase(
+        buildCloseHumanCaseInput({
+          request,
+          workflowId: workflowInfo().workflowId,
+          caseId: humanCase.caseId,
+          decision: humanDecision,
+          outcome,
+        }),
+      );
+      state = {
+        stage: outcome,
+        decision,
+      };
+      return state;
     case "ALLOW":
       {
         const preview = await activities.createRefundPreview({
@@ -166,10 +240,97 @@ export async function refundWorkflow(
         if (confirmation === undefined) {
           throw new Error("REFUND_CONFIRMATION_INVARIANT");
         }
-        if (!confirmation.accepted) return { stage: 'CANCELLED', decision, preview };
-        return executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        if (!confirmation.accepted) {
+          state = { stage: 'CANCELLED', decision, preview };
+          return state;
+        }
+        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        return state;
       }
   }
+}
+
+function buildOpenHumanCaseInput({
+  request,
+  workflowId,
+  decision,
+  preview,
+  caseType,
+  allowedActions,
+}: Readonly<{
+  request: RefundWorkflowRequest;
+  workflowId: string;
+  decision: RefundPolicyDecision;
+  preview?: RefundPreview;
+  caseType: HumanCaseType;
+  allowedActions: readonly HumanCaseAction[];
+}>): OpenHumanCaseInput {
+  const requestedAmount = request.proposal.intent.requestedAmount;
+  return {
+    caseId: `case:${workflowId}`,
+    workflowId,
+    idempotencyKey: `workflow:${workflowId}:human-case`,
+    access: request.access,
+    caseType,
+    allowedActions: [...allowedActions],
+    reviewPacket: {
+      ...(request.orderReference === undefined
+        ? {}
+        : { orderReference: request.orderReference }),
+      proposal: {
+        proposalId: request.proposal.proposalId,
+        orderId: request.proposal.intent.orderId,
+        reasonCode: request.proposal.intent.reasonCode,
+        scope: request.proposal.intent.scope,
+        itemIds: [...request.proposal.intent.itemIds],
+        ...(requestedAmount === undefined
+          ? {}
+          : {
+              requestedAmount: {
+                amountMinor: requestedAmount.amountMinor,
+                currency: requestedAmount.currency,
+              },
+            }),
+      },
+      policy: {
+        decisionId: decision.decisionId,
+        effect: decision.effect,
+        policyVersion: decision.policyVersion,
+        inputFactsHash: decision.inputFactsHash,
+        reasonCodes: [...decision.reasonCodes],
+        factRefs: decision.factRefs.map((factRef) => ({ ...factRef })),
+      },
+      ...(preview === undefined ? {} : { preview }),
+    },
+  };
+}
+
+function buildCloseHumanCaseInput({
+  request,
+  workflowId,
+  caseId,
+  decision,
+  outcome,
+}: Readonly<{
+  request: RefundWorkflowRequest;
+  workflowId: string;
+  caseId: string;
+  decision: RefundHumanDecision;
+  outcome: 'APPROVED' | 'REJECTED' | 'TAKEOVER_RESOLVED';
+}>): CloseHumanCaseInput {
+  return {
+    caseId,
+    workflowId,
+    idempotencyKey: `workflow:${workflowId}:human-case:close:${decision.decision}`,
+    access: request.access,
+    outcome,
+    decision: {
+      action: decision.decision,
+      decidedBy: decision.decidedBy,
+      decidedAt: decision.decidedAt,
+      ...(decision.reasonCode === undefined ? {} : { reasonCode: decision.reasonCode }),
+    },
+  };
 }
 
 async function executeAuthorizedRefund(

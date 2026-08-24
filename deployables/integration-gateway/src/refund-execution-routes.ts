@@ -7,7 +7,7 @@ import type { RefundExecutionRepository } from './refund-execution-repository.js
 import { WORKFLOW_ACCESS_ASSERTION_HEADER, type VerifyWorkflowAccessAssertion } from './workflow-access.js';
 
 const requestSchema = z.object({
-  orderReference: z.string().trim().min(1).max(100),
+  orderId: z.string().trim().min(1).max(160),
   reasonCode: z.string().trim().min(1).max(100),
   amount: z.object({ amountMinor: z.number().int().positive(), currency: z.literal('USD') }).strict(),
   selection: z.object({ scope: z.enum(['FULL_ORDER', 'SELECTED_ITEMS']), itemIds: z.array(z.string()).max(100) }).strict(),
@@ -28,14 +28,14 @@ export function registerRefundExecutionRoutes(app: FastifyInstance, commerceProv
     } catch { return reply.code(401).send({ error: { code: 'workflow_unauthorized' } }); }
     if (!access) return reply.code(401).send({ error: { code: 'workflow_unauthorized' } });
     if (!commerceProvider.executeRefund) return reply.code(501).send({ error: { code: 'refund_execution_not_configured' } });
-    const order = await commerceProvider.getOrderByReference(parsed.data.orderReference);
+    const order = await commerceProvider.getOrderById(parsed.data.orderId);
     if (!order || order.customer?.id !== access?.subjectCustomerId) return reply.code(404).send({ error: { code: 'order_not_found' } });
     const currentContext = toRefundContext(order, parsed.data.selection, { observationId: 'refund-execution-check', observedAt: new Date().toISOString() });
     const payment = order.payments.find((candidate) => candidate.status.toUpperCase() === 'SETTLED');
     if (!payment || !currentContext.facts.transactionRefundable || !currentContext.facts.itemSelectionValid || currentContext.facts.refundableAmount.currency !== parsed.data.amount.currency || parsed.data.amount.amountMinor > currentContext.facts.refundableAmount.amountMinor) {
       return reply.code(409).send({ error: { code: 'refund_no_longer_eligible' } });
     }
-    const reservation = await repository.reserve({ tenantId: access.tenantId, environmentId: access.environmentId, idempotencyKey: parsed.data.idempotencyKey, workflowId: access.contextId, previewId: parsed.data.previewId, orderReference: parsed.data.orderReference, amountMinor: parsed.data.amount.amountMinor, currency: parsed.data.amount.currency, occurredAt: new Date().toISOString() });
+    const reservation = await repository.reserve({ tenantId: access.tenantId, environmentId: access.environmentId, idempotencyKey: parsed.data.idempotencyKey, workflowId: access.contextId, previewId: parsed.data.previewId, orderId: parsed.data.orderId, amountMinor: parsed.data.amount.amountMinor, currency: parsed.data.amount.currency, occurredAt: new Date().toISOString() });
     if (reservation.kind === 'existing') {
       if (reservation.execution.status === 'SUCCEEDED') return succeededResponse(reservation.execution.providerRefundId);
       if (reservation.execution.status === 'FAILED') return { status: 'FAILED' } satisfies ExecutionResult;
