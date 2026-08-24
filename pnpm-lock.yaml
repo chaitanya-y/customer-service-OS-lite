@@ -18,7 +18,7 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.20.0)
 
-  deployables/control-knowledge:
+  apps/services/control-knowledge:
     dependencies:
       zod:
         specifier: ^4.4.3
@@ -34,7 +34,7 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  deployables/conversation-runtime:
+  apps/services/conversation-runtime:
     dependencies:
       fastify:
         specifier: ^5.10.0
@@ -65,7 +65,7 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  deployables/edge-api:
+  apps/services/edge-api:
     dependencies:
       '@temporalio/client':
         specifier: ^1.22.0
@@ -90,7 +90,7 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  deployables/human-operations:
+  apps/services/human-operations:
     dependencies:
       '@temporalio/client':
         specifier: ^1.22.0
@@ -115,7 +115,7 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  deployables/integration-gateway:
+  apps/services/integration-gateway:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
@@ -146,7 +146,7 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  deployables/workflow-workers:
+  apps/services/workflow-workers:
     dependencies:
       '@temporalio/client':
         specifier: ^1.22.0
@@ -177,6 +177,93 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  apps/web/admin-console:
+    dependencies:
+      '@cso/ui':
+        specifier: workspace:*
+        version: link:../../../packages/ui
+      next:
+        specifier: 16.3.2
+        version: 16.3.2(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      '@types/react':
+        specifier: ^19.2.2
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.2
+        version: 19.2.4(@types/react@19.2.18)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  apps/web/customer-portal:
+    dependencies:
+      '@cso/auth':
+        specifier: workspace:*
+        version: link:../../../packages/auth
+      '@cso/ui':
+        specifier: workspace:*
+        version: link:../../../packages/ui
+      next:
+        specifier: 16.3.2
+        version: 16.3.2(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      '@types/react':
+        specifier: ^19.2.2
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.2
+        version: 19.2.4(@types/react@19.2.18)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  apps/web/operations-console:
+    dependencies:
+      '@cso/ui':
+        specifier: workspace:*
+        version: link:../../../packages/ui
+      next:
+        specifier: 16.3.2
+        version: 16.3.2(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      '@types/react':
+        specifier: ^19.2.2
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.2
+        version: 19.2.4(@types/react@19.2.18)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/auth: {}
 
   packages/ui:
@@ -187,93 +274,6 @@ importers:
       react:
         specifier: 19.2.8
         version: 19.2.8
-
-  surfaces/admin-console:
-    dependencies:
-      '@cso/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      next:
-        specifier: 16.3.2
-        version: 16.3.2(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react:
-        specifier: 19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: 19.2.8
-        version: 19.2.8(react@19.2.8)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.10.1
-        version: 24.13.3
-      '@types/react':
-        specifier: ^19.2.2
-        version: 19.2.18
-      '@types/react-dom':
-        specifier: ^19.2.2
-        version: 19.2.4(@types/react@19.2.18)
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  surfaces/customer-widget:
-    dependencies:
-      '@cso/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
-      '@cso/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      next:
-        specifier: 16.3.2
-        version: 16.3.2(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react:
-        specifier: 19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: 19.2.8
-        version: 19.2.8(react@19.2.8)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.10.1
-        version: 24.13.3
-      '@types/react':
-        specifier: ^19.2.2
-        version: 19.2.18
-      '@types/react-dom':
-        specifier: ^19.2.2
-        version: 19.2.4(@types/react@19.2.18)
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  surfaces/operations-console:
-    dependencies:
-      '@cso/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      next:
-        specifier: 16.3.2
-        version: 16.3.2(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react:
-        specifier: 19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: 19.2.8
-        version: 19.2.8(react@19.2.8)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.10.1
-        version: 24.13.3
-      '@types/react':
-        specifier: ^19.2.2
-        version: 19.2.18
-      '@types/react-dom':
-        specifier: ^19.2.2
-        version: 19.2.4(@types/react@19.2.18)
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
 
 packages:
 

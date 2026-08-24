@@ -1,6 +1,6 @@
 packages:
-  - "deployables/*"
-  - "surfaces/*"
+  - "apps/services/*"
+  - "apps/web/*"
   - "packages/*"
 allowBuilds:
   '@swc/core': true

@@ -4,14 +4,25 @@
 
 This document is the visual source of truth for the three browser applications:
 
-- `surfaces/customer-widget`
-- `surfaces/operations-console`
-- `surfaces/admin-console`
+- `apps/web/customer-portal`
+- `apps/web/operations-console`
+- `apps/web/admin-console`
 
 Customer Service OS is a governed platform for building, releasing, operating,
 and auditing customer-service agents. The interface must feel calm and human to a
 customer, while giving operators and administrators high information density and
 clear evidence. It must never look like an ungoverned chatbot demo.
+
+## Implementation status
+
+As of 2026-08-24, the shared `@cso/ui` package implements semantic light and dark
+tokens, `ThemeProvider`, a pre-paint `ThemeScript`, and `ThemeControl`. The
+Customer Widget and Operations Console use this foundation. The Admin Console is a
+theme-enabled visual shell while its release-management screens are still planned.
+
+The first customer and operator screens intentionally use a small component set.
+The larger primitive inventory below remains the design target, not a claim that
+every primitive has already been built.
 
 ## Design direction
 
@@ -212,3 +223,5 @@ administration dashboard.
 | 2026-08-21 | Establish light, dark, and system theme support | Customer and operator work happens across different environments and hours. |
 | 2026-08-21 | Adopt quiet editorial enterprise direction | Trust, evidence, and high-stakes operations need clarity more than visual novelty. |
 | 2026-08-21 | Use Sierra as an inspiration, not a design source to copy | The product should learn from its clarity and trust posture while keeping an original identity. |
+| 2026-08-24 | Share theme implementation through `@cso/ui` | Customer, operator, and future admin screens now use one semantic token and preference system. |
+| 2026-08-24 | Keep browser screens behind same-origin BFF routes | The UI stays free of service assertions and cannot call Temporal, Vendure, MCP, or OpenSearch directly. |
