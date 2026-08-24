@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-08-14
+Last updated: 2026-08-24
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -68,17 +68,16 @@ deployed together to keep the first version practical.
 
 The three browser surfaces are:
 
-- `surfaces/customer-widget`
-- `surfaces/operations-console`
-- `surfaces/admin-console`
+- `apps/web/customer-portal`
+- `apps/web/operations-console`
+- `apps/web/admin-console`
 
 ### Refund journey data flow
 
 ```mermaid
 flowchart TD
     UI["Customer Chat UI"] --> EDGE["Edge API"]
-    EDGE --> CONV["Conversation Service"]
-    CONV --> AGENT["Python LangGraph Agent Runtime"]
+    EDGE --> AGENT["Python LangGraph Agent Runtime"]
     AGENT --> RAG["Retrieval Gateway / OpenSearch evidence"]
     CONTROL["Control and Knowledge"] -->|"published knowledge release"| RAG
     AGENT -->|"read-only lookup_order"| MCP["Node Integration Gateway MCP server"]
@@ -88,7 +87,8 @@ flowchart TD
     WF -->|"approval when required"| HUMAN["Human Operations"]
     WF -->|"narrow authorized activity"| GATEWAY["Integration Gateway"]
     GATEWAY -->|"idempotent refund request"| PROVIDER["Refund provider"]
-    WF --> EVENTS["Kafka events + audit evidence"]
+    CONV["Conversation Runtime\n(not yet on the browser request path)"]
+    WF --> AUDIT["Gateway and Human Operations audit evidence"]
 ```
 
 ## 4. Non-negotiable safety and governance rules
@@ -186,28 +186,33 @@ contracts/
   internal-api/          trusted internal protobuf contracts
   tools/                 MCP/tool contracts
   workflows/             proposal and policy decision contracts
-deployables/
-  agent-runtime/         Python FastAPI + LangGraph
-  control-knowledge/     control-plane contracts and source-document fixtures
-  conversation-runtime/ Node/Fastify conversation service and outbox
-  edge-api/              Node/Fastify customer auth, context signing, routing
-  human-operations/      staff authorization and Temporal decision API
-  integration-gateway/  Node/Fastify Vendure adapter, REST projection, MCP server
-  knowledge-rag/         Python ingestion, retrieval, reranking, and RAG evaluation
-  workflow-workers/      deterministic refund policy and Temporal workflow foundation
-surfaces/
-  customer-widget/       planned customer UI
-  operations-console/    planned human-agent console
-  admin-console/         planned administration UI
+apps/
+  services/
+    agent-runtime/       Python FastAPI + LangGraph
+    control-knowledge/   control-plane contracts and source-document fixtures
+    conversation-runtime/ Node/Fastify conversation service and outbox
+    edge-api/            Node/Fastify customer auth, context signing, routing
+    human-operations/    staff authorization and Temporal decision API
+    integration-gateway/ Node/Fastify Vendure adapter, REST projection, MCP server
+    knowledge-rag/       Python ingestion, retrieval, reranking, and RAG evaluation
+    workflow-workers/    deterministic refund policy and Temporal workflow foundation
+    telephony-gateway/   future phone-provider boundary; no implementation yet
+    voice-runtime/       future speech orchestration; no implementation yet
+    voice-evaluation/    future call-quality evaluation; no implementation yet
+  web/
+    customer-portal/     Next.js customer BFF and refund journey UI
+    operations-console/  Next.js Human Operations BFF and case-review UI
+    admin-console/       Next.js administration UI shell
 tests/contract/          cross-boundary JSON contract tests
 tools/simulators/
   commerce-sandbox/      local Vendure commerce system
 docs/adr/                architecture decisions
-infra/                   future local/AWS infrastructure
+infrastructure/          future local/AWS infrastructure
 ```
 
-Empty planned directories are intentional architecture boundaries, not completed
-services.
+Some directories remain intentional architecture boundaries rather than completed
+services. Check the implementation-status sections below instead of inferring
+completion from a directory name.
 
 ## 7. What is implemented
 
@@ -280,6 +285,9 @@ The Python Agent Runtime contains:
 - a retrieval node after intent extraction that supplies customer-safe evidence to
   the graph but does not make a policy decision;
 - a grounded answer composer that can cite only chunks returned by that retrieval;
+- a separately configured answer-model deadline, defaulting to 30 seconds through
+  `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS`, with no automatic retry on the
+  synchronous customer turn;
 - safe fallback customer answers when retrieval or answer generation is unavailable;
 - execution evidence containing honest prompt, model-route, knowledge, guardrail,
   evaluation, and tool-contract versions;
@@ -299,7 +307,7 @@ configuration and explicit approval.
 
 ### Knowledge/RAG: committed and pushed retrieval foundation and online evidence API
 
-`deployables/knowledge-rag` contains the Python knowledge workload. It currently
+`apps/services/knowledge-rag` contains the Python knowledge workload. It currently
 implements the retrieval path and the online customer-evidence boundary used by
 the Agent Runtime.
 
@@ -413,15 +421,31 @@ to find authoritative Vendure refund evidence. A found provider refund becomes
 `REFUND_SUCCEEDED`; otherwise the workflow remains
 `PENDING_RECONCILIATION` and retries safely.
 
-### Human Operations: committed and pushed
+### Human Operations: local functional slice
 
-The Node.js/TypeScript Human Operations service contains:
+The Node.js/TypeScript Human Operations service now owns a local refund review
+case lifecycle:
 
-- staff JWT verification with tenant, environment, and refund-approval roles;
-- a protected decision endpoint that derives the staff identity from the assertion,
-  never from request JSON;
+- separate signed assertions for staff access and Worker-only case operations;
+- role-based case visibility and decisions: `REFUND_APPROVER` can approve or
+  reject approval cases, while `REFUND_SUPERVISOR` can resolve or reject takeover
+  cases;
+- Worker-only case open and close endpoints, plus staff list, read, claim,
+  reassign, and decision endpoints;
+- optimistic case-version checks and idempotency keys for staff mutations;
+- minimized review packets containing proposal, policy, preview, and evidence IDs,
+  but not raw customer messages or payment credentials;
+- append-only local audit events for case opening, claim, decision, and close;
+- a decision outbox record. It is delivered directly to Temporal in the local
+  slice and is retained for a future durable Kafka/outbox dispatcher if delivery
+  fails;
 - Temporal signals for `APPROVE`, `REJECT`, and `RESOLVE_TAKEOVER` decisions;
-- tests for missing authorization, spoofed identity, and a valid decision.
+- tests for authentication, tenant/role permissions, spoofed identity,
+  idempotency, stale case versions, and valid decisions.
+
+`InMemoryHumanCaseRepository` is deliberately the current local adapter. A Human
+Operations restart clears all cases and audit history. A transactional PostgreSQL
+repository and durable outbox dispatcher are required before deployment.
 
 ### Edge API: committed and pushed
 
@@ -434,6 +458,8 @@ The Node.js/TypeScript Edge API contains:
 - a separate, short-lived trusted context assertion for internal calls;
 - forwarding to the Agent Runtime without exposing the customer token;
 - stable authentication and downstream-failure responses;
+- starts the Temporal refund workflow after a schema-valid proposal, and exposes
+  customer-owned workflow read and exact-preview confirmation routes;
 - startup guards that reject local authentication in production and reject key
   reuse between customer tokens and internal assertions;
 - unit, route, client, and Edge-to-Gateway compatibility tests.
@@ -461,9 +487,31 @@ The production AWS authentication adapter is not implemented yet. It will replac
 the local token verifier with Cognito while preserving the route, identity,
 assertion, and downstream client interfaces.
 
+### Browser surfaces: customer and human review are implemented locally
+
+The repository contains three Next.js applications that share `@cso/ui` theme
+tokens and `@cso/auth` local-session helpers.
+
+- `apps/web/customer-portal` runs on port `3100`. It creates a development-only
+  HTTP-only session cookie, submits an authenticated refund request through
+  same-origin BFF routes, renders customer-safe workflow status, displays an
+  exact preview, and sends customer confirmation or decline.
+- `apps/web/operations-console` runs on port `3101`. It creates a local staff
+  session, shows a filtered refund case queue, renders the review packet and
+  audit trail, and submits idempotent claim and decision mutations through its
+  same-origin BFF routes.
+- `apps/web/admin-console` runs on port `3102`. It currently provides the shared
+  theme and visual shell only. Release-management screens are not implemented.
+
+Customer and operations BFFs accept only their own local development origin for
+mutations. They proxy to Edge API or Human Operations respectively, so browser
+code never calls Temporal, Vendure, OpenSearch, MCP, or service assertions
+directly. The initial journey page refreshes after a customer confirmation; SSE
+and polling after an external human decision remain future work.
+
 ## 8. Current Git state
 
-At the time of this handoff:
+The repository workflow is:
 
 - implementation branch: `dev`
 - release branch: `main`
@@ -471,13 +519,12 @@ At the time of this handoff:
 - remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
 - branch workflow: implement and test on `dev`, then merge verified changes to
   `main`;
-- `main` contains the governed refund execution and reconciliation, the
-  Knowledge/RAG retrieval and evaluation foundation, audience-separated internal
-  assertions, online customer-safe retrieval, and grounded answer composition;
-- `dev` is the working branch for the next change and is kept aligned with verified
-  `main` before new work begins;
-- the next planned capability is a real local request through Edge API, Agent
-  Runtime, Knowledge/RAG, Integration Gateway, and Vendure.
+- `dev` is the implementation branch. Build and test a change here before moving
+  it to `main`.
+- `main` is the verified release branch. Do not assume it contains unmerged `dev`
+  work; check `git log main..dev` before describing the release state.
+- The current local slice includes the customer browser journey, Human Operations
+  browser journey, Temporal workflow, and Vendure simulator integration.
 
 ## 9. Prerequisites
 
@@ -488,9 +535,17 @@ Use these major versions:
 - pnpm 11.9.0
 - Python 3.12.x
 - `uv`
+- Docker Desktop
+- Temporal CLI or a local Temporal server
+- a local OpenSearch instance for the Knowledge/RAG service
 
 Node 20.11 previously failed while starting the Vendure/Vite development stack.
 Use Node 24 for this repository.
+
+Current macOS Apple Silicon workaround: if the Temporal Worker fails under Node
+24 with `RangeError: Invalid atomic access index`, run only
+`apps/services/workflow-workers` under Node `22.21.0`. This is a local Temporal
+Worker compatibility issue, not the intended repository or deployment version.
 
 The Agent Runtime currently constrains Python to `>=3.12,<3.13`.
 
@@ -525,7 +580,9 @@ cd ../../..
 Install the Python Agent Runtime:
 
 ```bash
-cd deployables/agent-runtime
+cd apps/services/agent-runtime
+uv sync --dev
+cd ../knowledge-rag
 uv sync --dev
 cd ../..
 ```
@@ -545,7 +602,7 @@ SUPERADMIN_USERNAME=<local-admin-username>
 SUPERADMIN_PASSWORD=<local-admin-password>
 ```
 
-`deployables/integration-gateway/.env` needs:
+`apps/services/integration-gateway/.env` needs:
 
 ```dotenv
 PORT=3002
@@ -557,9 +614,11 @@ TENANT_ID=tenant-local
 ENVIRONMENT_ID=local
 CONTEXT_ASSERTION_HMAC_SECRET=<generate-at-least-32-random-bytes>
 CONTEXT_ASSERTION_ISSUER=customer-service-os-edge
+WORKFLOW_ACCESS_HMAC_SECRET=<a-different-at-least-32-byte-random-secret>
+WORKFLOW_ACCESS_ISSUER=customer-service-os-workflow-workers
 ```
 
-`deployables/edge-api/.env` needs:
+`apps/services/edge-api/.env` needs:
 
 ```dotenv
 NODE_ENV=development
@@ -567,6 +626,9 @@ AUTH_MODE=local
 HOST=127.0.0.1
 PORT=3000
 AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8000
+AGENT_RUNTIME_TIMEOUT_MILLISECONDS=60000
+TEMPORAL_ADDRESS=127.0.0.1:7233
+TEMPORAL_TASK_QUEUE=refund-workflows
 TENANT_ID=tenant-local
 ENVIRONMENT_ID=local
 LOCAL_AUTH_HMAC_SECRET=<a-separate-at-least-32-byte-random-secret>
@@ -580,13 +642,45 @@ AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE=agent-runtime
 KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE=knowledge-rag
 ```
 
-`deployables/agent-runtime/.env` needs these values before a real model-backed
+`apps/services/workflow-workers/.env` needs:
+
+```dotenv
+TEMPORAL_ADDRESS=127.0.0.1:7233
+TEMPORAL_TASK_QUEUE=refund-workflows
+INTEGRATION_GATEWAY_BASE_URL=http://127.0.0.1:3002
+HUMAN_OPERATIONS_BASE_URL=http://127.0.0.1:3003
+TENANT_ID=tenant-local
+ENVIRONMENT_ID=local
+WORKFLOW_ACCESS_HMAC_SECRET=<same-secret-as-integration-gateway>
+WORKFLOW_ACCESS_ISSUER=customer-service-os-workflow-workers
+HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET=<a-different-at-least-32-byte-secret>
+HUMAN_OPERATIONS_WORKFLOW_ISSUER=customer-service-os-workflow-workers
+```
+
+`apps/services/human-operations/.env` needs:
+
+```dotenv
+HOST=127.0.0.1
+PORT=3003
+TEMPORAL_ADDRESS=127.0.0.1:7233
+TENANT_ID=tenant-local
+ENVIRONMENT_ID=local
+HUMAN_ACCESS_HMAC_SECRET=<a-unique-at-least-32-byte-secret>
+HUMAN_ACCESS_ISSUER=customer-service-os-human-operations
+HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET=<same-secret-as-workflow-workers>
+HUMAN_OPERATIONS_WORKFLOW_ISSUER=customer-service-os-workflow-workers
+LOCAL_HUMAN_STAFF_ID=local-refund-supervisor
+LOCAL_HUMAN_ROLE=REFUND_SUPERVISOR
+```
+
+`apps/services/agent-runtime/.env` needs these values before a real model-backed
 refund extraction and grounded customer answer:
 
 ```dotenv
 OPENAI_API_KEY=<create-an-openai-api-key>
 REFUND_INTENT_MODEL=<approved-openai-model>
 REFUND_ANSWER_MODEL=<approved-openai-model>
+REFUND_ANSWER_MODEL_TIMEOUT_SECONDS=30
 TENANT_ID=tenant-local
 ENVIRONMENT_ID=local
 CONTEXT_ASSERTION_HMAC_SECRET=<same-secret-as-edge-api-and-knowledge-rag>
@@ -602,7 +696,7 @@ EVALUATION_VERSION=evaluation-not-released
 ORDER_LOOKUP_TOOL_VERSION=lookup-order-v1
 ```
 
-`deployables/knowledge-rag/.env` needs:
+`apps/services/knowledge-rag/.env` needs:
 
 ```dotenv
 OPENAI_API_KEY=<create-an-openai-api-key>
@@ -621,6 +715,10 @@ separated by audience. Before AWS deployment, replace this local shared-secret
 design with separate per-audience keys or Edge-held asymmetric signing keys.
 
 Never commit these environment files.
+
+The Customer Widget and Operations Console have their own `.env.example` files.
+Populate them only with freshly generated local tokens. The complete token steps
+are in [the local refund runbook](LOCAL_REFUND_RUNBOOK.md).
 
 ### Fresh-clone Vendure limitation
 
@@ -641,26 +739,38 @@ a local order through the Vendure Dashboard.
 
 ## 12. Start the local stack
 
-Use separate terminals and start dependencies from the bottom up.
+Use separate terminals and start dependencies from the bottom up. The canonical
+current instructions, including local token creation and the browser test, are in
+[the local refund runbook](LOCAL_REFUND_RUNBOOK.md). The commands below remain a
+service reference.
 
 The Knowledge/RAG service expects a local OpenSearch instance on port `9200` and
 the configured release index to be published before it can serve evidence. The
 repository does not yet provide one-command OpenSearch orchestration.
 
-### Terminal 0: PostgreSQL
+### Terminal 0: Temporal
 
 ```bash
-docker compose -f infra/local/compose.yaml up -d postgres
-cd deployables/integration-gateway
+temporal server start-dev
+```
+
+Temporal serves gRPC on `127.0.0.1:7233` and the local UI on
+`http://127.0.0.1:8233`.
+
+### Terminal 1: PostgreSQL
+
+```bash
+docker compose -f infrastructure/local/compose.yaml up -d postgres
+cd apps/services/integration-gateway
 pnpm migrate
 ```
 
 The migration command uses `MIGRATION_DATABASE_URL`. The running Gateway uses
 the restricted `DATABASE_URL` account. For an existing local database created
 before this repository version, create the local `cso_integration_app` role from
-`infra/local/postgres/001_roles.sql` once before running the migration.
+`infrastructure/local/postgres/001_roles.sql` once before running the migration.
 
-### Terminal 1: Vendure
+### Terminal 2: Vendure
 
 ```bash
 cd tools/simulators/commerce-sandbox
@@ -677,10 +787,10 @@ Expected local URLs:
 
 The Vendure worker does not expose an HTTP port.
 
-### Terminal 2: Integration Gateway
+### Terminal 3: Integration Gateway
 
 ```bash
-cd deployables/integration-gateway
+cd apps/services/integration-gateway
 pnpm dev
 ```
 
@@ -691,10 +801,10 @@ Expected URLs:
   `http://127.0.0.1:3002/v1/orders/<ORDER_REFERENCE>`
 - MCP Streamable HTTP endpoint: `http://127.0.0.1:3002/mcp`
 
-### Terminal 3: Knowledge/RAG
+### Terminal 4: Knowledge/RAG
 
 ```bash
-cd deployables/knowledge-rag
+cd apps/services/knowledge-rag
 uv run uvicorn knowledge_rag.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
@@ -706,10 +816,10 @@ Expected URLs:
 The customer-evidence endpoint requires the RAG-specific trusted assertion from
 the Edge API. Do not call it from a browser or customer client.
 
-### Terminal 4: Agent Runtime
+### Terminal 5: Agent Runtime
 
 ```bash
-cd deployables/agent-runtime
+cd apps/services/agent-runtime
 uv run uvicorn agent_runtime.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -722,10 +832,31 @@ The refund intake endpoint is an internal endpoint and requires the trusted
 context assertion created by the Edge API. Do not call it directly from a browser
 or customer client.
 
-### Terminal 5: Edge API
+### Terminal 6: Human Operations
 
 ```bash
-cd deployables/edge-api
+cd apps/services/human-operations
+pnpm dev
+```
+
+Expected URL:
+
+- health: `http://127.0.0.1:3003/health`
+
+### Terminal 7: Workflow Workers
+
+```bash
+cd apps/services/workflow-workers
+pnpm dev
+```
+
+Workflow Workers do not expose an HTTP endpoint. Verify their registration in
+Temporal UI and keep this process running before submitting a customer request.
+
+### Terminal 8: Edge API
+
+```bash
+cd apps/services/edge-api
 pnpm dev
 ```
 
@@ -734,7 +865,7 @@ Expected URLs:
 - health: `http://127.0.0.1:3000/health`
 - customer refund intake: `POST http://127.0.0.1:3000/v1/refunds/intake`
 
-Generate a one-hour local customer access token:
+Generate a local customer access token, valid for at most 48 hours:
 
 ```bash
 pnpm local:token
@@ -755,6 +886,27 @@ curl -sS http://127.0.0.1:3000/v1/refunds/intake \
 Expected graph status for a complete model extraction is `refund_proposal_ready`.
 Incomplete reason, scope, or item information produces `awaiting_refund_details`.
 
+### Terminals 9 and 10: Browser surfaces
+
+Generate fresh local tokens, save them to the two browser `.env` files, then start
+the applications from the repository root:
+
+```bash
+cd apps/services/edge-api
+pnpm --silent local:token
+
+cd ../human-operations
+pnpm --silent local:token
+
+cd ../..
+pnpm dev:customer
+pnpm dev:operations
+```
+
+The Customer Widget runs at `http://127.0.0.1:3100/sign-in` and the Operations
+Console at `http://127.0.0.1:3101/sign-in`. The Admin Console shell is started
+separately with `pnpm dev:admin` on port `3102`.
+
 ## 13. Test commands
 
 Run contract tests from the repository root:
@@ -763,53 +915,85 @@ Run contract tests from the repository root:
 pnpm check:contracts
 ```
 
-Last verified result: 21 contract tests passed. Run `pnpm lint:proto` separately
-when the Buf CLI is installed.
+`check:contracts` includes protobuf linting, so Buf must be available in the root
+workspace before this command can pass.
 
 Run the Integration Gateway checks:
 
 ```bash
-cd deployables/integration-gateway
+cd apps/services/integration-gateway
 pnpm typecheck
 pnpm test
 ```
 
-Last verified result: TypeScript passed and 42 Gateway tests passed, including the
-protected execution and reconciliation routes.
+These cover MCP order lookup, protected fact refresh, refund execution,
+reconciliation, idempotency, and the Vendure adapter.
 
 Run the Edge API checks:
 
 ```bash
-cd deployables/edge-api
+cd apps/services/edge-api
 pnpm typecheck
 pnpm test
 ```
 
-Last verified result: TypeScript passed and 19 tests passed.
+These cover local customer authentication, audience-specific assertions, agent
+intake, workflow ownership, and exact-preview confirmation.
+
+Run the Workflow Workers checks:
+
+```bash
+cd apps/services/workflow-workers
+pnpm typecheck
+pnpm test
+```
+
+These cover policy effects, Temporal confirmation and approval paths, human
+takeover, execution, and reconciliation recovery.
+
+Run the Human Operations checks:
+
+```bash
+cd apps/services/human-operations
+pnpm typecheck
+pnpm test
+```
+
+These cover staff and Worker assertions, roles, cases, audit records, idempotency,
+and Temporal decision delivery.
 
 Run the Agent Runtime checks:
 
 ```bash
-cd deployables/agent-runtime
+cd apps/services/agent-runtime
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 ```
 
-Last verified result: Ruff passed and 44 tests passed. There was one existing
-FastAPI/httpx deprecation warning, not a test failure.
+The tests use fakes for model and tool behavior. They do not make a paid OpenAI
+request.
 
 Run the Knowledge/RAG checks:
 
 ```bash
-cd deployables/knowledge-rag
+cd apps/services/knowledge-rag
 uv run ruff check .
 uv run pytest
 ```
 
-Last verified result: Ruff passed and 101 tests passed. These tests use
-deterministic local embedding and reranking providers where appropriate and do not
-call OpenAI.
+These tests use deterministic local embedding and reranking providers where
+appropriate and do not call OpenAI.
+
+Run the browser-surface checks from the repository root:
+
+```bash
+pnpm typecheck:frontend
+pnpm build:frontend
+```
+
+The current surface work has type checking and production builds. Browser-level
+end-to-end and accessibility suites are a follow-up hardening task.
 
 Useful focused test commands:
 
@@ -830,32 +1014,34 @@ pnpm test -- tests/mcp.test.ts
 
 ## 14. Last real local end-to-end proof
 
-The current owner environment successfully executed:
+The owner environment successfully exercised the safe browser takeover path:
 
 ```text
-Python LangGraph
-  -> Python MCP client
-  -> Node MCP server
-  -> Integration Gateway
-  -> Vendure Admin API
-  -> safe OrderContext
-  -> LangGraph status order_context_loaded
+Customer Widget
+  -> Edge API local customer authentication and signed context
+  -> Agent Runtime, read-only MCP/Vendure order lookup, and customer-safe RAG
+  -> Temporal facts refresh and deterministic takeover decision
+  -> Human Operations case creation
+  -> Operations Console claim and RESOLVE_TAKEOVER decision
+  -> Temporal workflow close and customer-safe completion state
 ```
 
-The local test order was:
+The order reference used during the owner test is intentionally documented only
+in [the local runbook](LOCAL_REFUND_RUNBOOK.md), because it belongs to one local
+Vendure database and is not portable seed data. The agent's safe commerce
+projection excluded customer name, email, and payment transaction reference.
 
-- order reference: `AVV8JSZH8G6ZZDMX`
-- order state: `Delivered`
-- amount: `168880` minor units, `USD`
-- payment: `Settled`
-- fulfillment: `Delivered`
-- shipping method: `Test Courier`
-- tracking code: `TEST-TRACK-001`
-- facts version:
-  `sha256:d25c3a2180202ce1cbb40d6d24f2ce6f17ba648fd7c9b556387105458da69be9`
+The safe takeover path does not submit a refund. The automatic and approval
+execution paths have workflow and Gateway tests, and must be exercised only with a
+disposable local Vendure order.
 
-This is evidence from one local database, not portable seed data. The safe
-projection did not expose customer name, email, or payment transaction reference.
+A separate isolated Agent Runtime integration check also verified the online
+grounding path after the browser proof: Edge-signed context reached Knowledge/RAG,
+OpenSearch returned three `CUSTOMER_SAFE` policy chunks, and the answer composer
+returned citations only for those retrieved chunks. The check did not start a
+Temporal workflow or execute a refund. It established that the prior generic
+customer answer was caused by the 15-second answer-model deadline, not a RAG
+retrieval failure. The default is now one bounded 30-second answer attempt.
 
 ## 15. What is not built yet
 
@@ -863,42 +1049,40 @@ Do not mistake directory names or schemas for completed functionality. These maj
 parts remain:
 
 - production customer authentication through Cognito;
-- workforce delegation and case-bound order authorization;
-- Edge streaming and rate limiting;
-- customer chat UI;
-- one real local request through all running services, including the model-backed
-  refund intent and answer calls;
-- answer-grounding, citation, specialist, supervisor, tool-selection, trajectory,
-  and guardrail evaluations;
-- triage specialist and RAG-grounded refund reasoning;
+- durable Human Operations storage, durable outbox delivery, and workforce
+  delegation beyond the local role model;
+- Edge streaming, rate limiting, and an Edge-owned customer journey projection;
+- SSE or polling for live customer and staff updates;
+- connection of Conversation Runtime persistence to the browser request path;
+- broader answer-grounding, citation, specialist, supervisor, tool-selection,
+  trajectory, and guardrail evaluations;
 - live model evaluation and release gating for the refund specialist;
-- human approval and takeover browser console;
 - Kafka topics, event schemas, consumers, and outbox delivery;
 - OpenTelemetry traces, metrics, logs, and audit projections;
 - evaluation datasets, trajectory/tool/policy/safety evaluations, and gates;
-- admin/control plane for version publication;
+- Admin Console release-management screens and control-plane publication APIs;
 - reproducible Vendure migration/seed/bootstrap;
-- local container orchestration;
-- AWS single-region infrastructure and deployment.
+- one-command local orchestration for Temporal, OpenSearch, and the application
+  stack;
+- AWS single-region infrastructure and deployment;
+- a real-phone voice channel. Its planned boundaries are documented in
+  `docs/voice/VOICE_AGENT_BOUNDARY.md`; no voice implementation exists yet.
 
 ## 16. Recommended next sequence
 
-The shortest safe path to the first complete vertical slice is:
+The first local vertical slice is complete. The recommended hardening sequence is:
 
-1. Start Vendure, Integration Gateway, Knowledge/RAG, Agent Runtime, and Edge API
-   with their configured local environment files. Send one authenticated customer
-   request through the Edge API and inspect the typed proposal, evidence, citations,
-   and safe customer answer.
-2. Connect the existing typed proposal to the deterministic policy and Temporal
-   workflow path, then return the policy-controlled preview to the conversation
-   surface.
-3. Add answer and agent evaluations, then connect RAG evidence to execution
-   evidence for reproducible traces.
-4. Add reproducible Vendure initialization and seed data so another clone can run
-   the same end-to-end lookup.
-5. Add Kafka event publication through an outbox for journey/audit projections.
-6. Add traces and a compact evaluation dataset before deploying the single-region
-   AWS slice.
+1. Make the local stack reproducible: commit a Vendure bootstrap/seed path and
+   one-command dependency orchestration. A contributor should not need the owner's
+   local database to run the browser test.
+2. Add browser component, accessibility, and end-to-end tests for customer intake,
+   confirmation, approval, takeover, and reconciliation status.
+3. Persist Human Operations cases and its outbox transactionally, then introduce
+   Kafka delivery for workflow and audit projections.
+4. Add OpenTelemetry traces, metrics, structured logs, and the remaining governed
+   evaluation suites before introducing more journeys.
+5. Build the Control Plane and Admin Console release views, then replace local
+   authentication with Cognito and deploy the single-region AWS slice.
 
 Do not start by building every empty service. Extend the walking refund slice and
 add a boundary only when the journey reaches it.

@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import SecretStr
 
+from agent_runtime import config as runtime_config
 from agent_runtime.integrations.customer_evidence import CustomerEvidence
 from agent_runtime.integrations.order_lookup import OrderContext
 from agent_runtime.refund.answer import (
@@ -142,3 +144,50 @@ def test_fallback_answer_does_not_claim_a_refund_decision(
     assert fallback.citations == []
     assert "approved" not in fallback.message.lower()
     assert "denied" not in fallback.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_configured_answer_composer_uses_a_single_bounded_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+    order_context: OrderContext,
+) -> None:
+    structured_model = FakeStructuredModel(
+        {
+            "message": "Please share photos of the damaged item.",
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-003-chunk-001",
+                }
+            ],
+        }
+    )
+    captured_options: dict[str, object] = {}
+
+    class FakeSettings:
+        refund_answer_model = "test-answer-model"
+        openai_api_key = SecretStr("test-api-key")
+        refund_answer_model_timeout_seconds = 30.0
+
+    class FakeConfiguredChatModel:
+        def __init__(self, **kwargs: object) -> None:
+            captured_options.update(kwargs)
+
+        def with_structured_output(self, *args: object, **kwargs: object):
+            del args, kwargs
+            return structured_model
+
+    monkeypatch.setattr(runtime_config, "RefundAnswerModelSettings", FakeSettings)
+    monkeypatch.setattr(runtime_config, "ChatOpenAI", FakeConfiguredChatModel)
+
+    composer = runtime_config.ConfiguredRefundAnswerComposer()
+    answer = await composer.compose(
+        customer_message="My item arrived damaged.",
+        refund_proposal=make_proposal(order_context),
+        knowledge_evidence=[make_evidence()],
+    )
+
+    assert answer.citations[0].chunk_id == "section-003-chunk-001"
+    assert captured_options["model"] == "test-answer-model"
+    assert captured_options["max_retries"] == 0
+    assert captured_options["timeout"] == 30.0

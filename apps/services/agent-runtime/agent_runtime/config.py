@@ -37,6 +37,11 @@ class RefundAnswerModelSettings(BaseSettings):
 
     openai_api_key: SecretStr
     refund_answer_model: str = Field(min_length=1)
+    refund_answer_model_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=60,
+    )
 
 
 class AgentRuntimeContextSettings(BaseSettings):
@@ -137,8 +142,8 @@ class ConfiguredRefundAnswerComposer:
                     model=settings.refund_answer_model,
                     api_key=settings.openai_api_key,
                     temperature=0,
-                    max_retries=2,
-                    timeout=15,
+                    max_retries=0,
+                    timeout=settings.refund_answer_model_timeout_seconds,
                 )
                 self._delegate = LangChainRefundAnswerComposer(model)
 
