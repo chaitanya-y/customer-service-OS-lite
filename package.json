@@ -6,7 +6,12 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "build:frontend": "pnpm --filter @cso/customer-portal build && pnpm --filter @cso/operations-console build && pnpm --filter @cso/admin-console build",
+    "dev:admin": "pnpm --filter @cso/admin-console dev",
+    "dev:customer": "pnpm --filter @cso/customer-portal dev",
+    "dev:operations": "pnpm --filter @cso/operations-console dev",
     "lint:proto": "buf lint contracts/internal-api/proto && buf lint contracts/events/proto",
+    "typecheck:frontend": "pnpm --filter @cso/customer-portal typecheck && pnpm --filter @cso/operations-console typecheck && pnpm --filter @cso/admin-console typecheck",
     "test:contracts": "node --test tests/contract/*.test.mjs",
     "check:contracts": "pnpm lint:proto && pnpm test:contracts"
   },
