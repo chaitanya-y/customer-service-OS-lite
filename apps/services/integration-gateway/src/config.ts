@@ -18,6 +18,8 @@ const configSchema = z.object({
     .string()
     .min(1)
     .default('customer-service-os-workflow-workers'),
+  TEMPORAL_ADDRESS: z.string().min(1).default('127.0.0.1:7233'),
+  PROVIDER_WEBHOOK_HMAC_SECRET: z.string().min(32).optional(),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

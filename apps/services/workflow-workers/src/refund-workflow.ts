@@ -47,10 +47,16 @@ export type RefundCustomerConfirmation = Readonly<{
   confirmedAt: string;
 }>;
 export type RefundHumanDecision = Readonly<{
-  decision: 'APPROVE' | 'REJECT' | 'RESOLVE_TAKEOVER';
+  decision: 'APPROVE' | 'APPROVE_EXCEPTIONAL_REFUND' | 'REJECT' | 'RESOLVE_TAKEOVER';
   decidedBy: string;
   decidedAt: string;
   reasonCode?: string;
+}>;
+export type RefundProviderOutcome = Readonly<{
+  eventId: string;
+  providerRefundId: string;
+  outcome: 'COMPLETED' | 'FAILED';
+  occurredAt: string;
 }>;
 
 export type RefundWorkflowState = Readonly<{
@@ -67,6 +73,7 @@ export type RefundWorkflowState = Readonly<{
     | "REJECTED"
     | "TAKEOVER_RESOLVED"
     | "PREVIEW_INVALIDATED"
+    | "REFUND_PROCESSING"
     | "REFUND_SUCCEEDED"
     | "REFUND_FAILED"
     | "PENDING_RECONCILIATION";
@@ -79,6 +86,7 @@ export const confirmRefund = defineSignal<[RefundCustomerConfirmation]>(
   "refund.confirmation",
 );
 export const decideRefund = defineSignal<[RefundHumanDecision]>('refund.human-decision');
+export const recordProviderRefundOutcome = defineSignal<[RefundProviderOutcome]>('refund.provider-outcome');
 
 export const getRefundWorkflowState = defineQuery<RefundWorkflowState>(
   "refund.state",
@@ -186,19 +194,68 @@ export async function refundWorkflow(
         buildOpenHumanCaseInput({
           request,
           workflowId: workflowInfo().workflowId,
-          decision,
-          caseType: 'REFUND_TAKEOVER',
-          allowedActions: ['RESOLVE_TAKEOVER', 'REJECT'],
+            decision,
+            caseType: 'REFUND_TAKEOVER',
+          allowedActions: ['APPROVE_EXCEPTIONAL_REFUND', 'RESOLVE_TAKEOVER', 'REJECT'],
         }),
       );
       state = { stage: "HUMAN_TAKEOVER_REQUIRED", decision };
       setHandler(decideRefund, (received) => {
-        if (humanDecision === undefined && (received.decision === 'RESOLVE_TAKEOVER' || received.decision === 'REJECT')) humanDecision = received;
+        if (
+          humanDecision === undefined &&
+          (received.decision === 'APPROVE_EXCEPTIONAL_REFUND' ||
+            received.decision === 'RESOLVE_TAKEOVER' ||
+            received.decision === 'REJECT')
+        ) {
+          humanDecision = received;
+        }
       });
       await condition(() => humanDecision !== undefined);
       if (humanDecision === undefined) {
         throw new Error('HUMAN_DECISION_INVARIANT');
       }
+      if (humanDecision.decision === 'APPROVE_EXCEPTIONAL_REFUND') {
+        await activities.closeHumanCase(
+          buildCloseHumanCaseInput({
+            request,
+            workflowId: workflowInfo().workflowId,
+            caseId: humanCase.caseId,
+            decision: humanDecision,
+            outcome: 'APPROVED',
+          }),
+        );
+
+        // The supervisor's approval authorizes this exception, but never
+        // supplies an amount or destination. Re-read those facts from the
+        // trusted commerce boundary before preparing the customer offer.
+        const refreshedContext = await activities.refreshRefundContext({
+          proposal: request.proposal,
+          workflowId: workflowInfo().workflowId,
+          access: request.access,
+        });
+        const preview = await activities.createRefundPreview({
+          proposal: request.proposal,
+          refundContext: refreshedContext,
+          decision,
+          authorization: {
+            kind: 'HUMAN_EXCEPTIONAL_APPROVAL',
+            caseId: humanCase.caseId,
+            decision: 'APPROVE_EXCEPTIONAL_REFUND',
+          },
+        });
+        state = { stage: 'AWAITING_CUSTOMER_CONFIRMATION', decision, preview };
+        setHandler(confirmRefund, (received) => {
+          if (confirmation === undefined && received.previewId === preview.previewId) confirmation = received;
+        });
+        await condition(() => confirmation?.previewId === preview.previewId);
+        if (!confirmation?.accepted) {
+          state = { stage: 'CANCELLED', decision, preview };
+          return state;
+        }
+        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        return state;
+      }
+
       const outcome = humanDecision.decision === 'REJECT'
         ? 'REJECTED'
         : 'TAKEOVER_RESOLVED';
@@ -348,11 +405,75 @@ async function executeAuthorizedRefund(
       ? { stage: 'REFUND_SUCCEEDED', decision, preview }
       : { stage: 'REFUND_SUCCEEDED', decision, preview, providerRefundId: result.providerRefundId };
   }
+  if (result.status === 'SUBMITTED') {
+    const processingState: RefundWorkflowState = result.providerRefundId === undefined
+      ? { stage: 'REFUND_PROCESSING', decision, preview }
+      : { stage: 'REFUND_PROCESSING', decision, preview, providerRefundId: result.providerRefundId };
+    setState(processingState);
+    return await awaitProviderRefundOutcome(
+      request,
+      decision,
+      preview,
+      result.providerRefundId,
+      setState,
+    );
+  }
   if (result.status === 'PENDING_RECONCILIATION') {
     setState({ stage: 'PENDING_RECONCILIATION', decision, preview });
     return reconcilePendingRefund(request, decision, preview, 0);
   }
   return { stage: 'REFUND_FAILED', decision, preview };
+}
+
+/**
+ * A provider webhook is the fast path. Gateway reconciliation is the recovery
+ * path when that webhook is delayed, duplicated, or unavailable.
+ */
+async function awaitProviderRefundOutcome(
+  request: RefundWorkflowRequest,
+  decision: RefundPolicyDecision,
+  preview: RefundPreview,
+  initialProviderRefundId: string | undefined,
+  setState: (nextState: RefundWorkflowState) => void,
+): Promise<RefundWorkflowState> {
+  let providerRefundId = initialProviderRefundId;
+  let providerOutcome: RefundProviderOutcome | undefined;
+
+  setHandler(recordProviderRefundOutcome, (received) => {
+    if (
+      providerOutcome === undefined
+      && providerRefundId !== undefined
+      && received.providerRefundId === providerRefundId
+    ) {
+      providerOutcome = received;
+    }
+  });
+
+  while (true) {
+    const reconciliation = await activities.reconcileRefund({
+      proposal: request.proposal,
+      preview,
+      workflowId: workflowInfo().workflowId,
+      access: request.access,
+    });
+    providerRefundId ??= reconciliation.providerRefundId;
+
+    if (reconciliation.status === 'SUCCEEDED' || providerOutcome?.outcome === 'COMPLETED') {
+      return providerRefundId === undefined
+        ? { stage: 'REFUND_SUCCEEDED', decision, preview }
+        : { stage: 'REFUND_SUCCEEDED', decision, preview, providerRefundId };
+    }
+    if (reconciliation.status === 'FAILED' || providerOutcome?.outcome === 'FAILED') {
+      return providerRefundId === undefined
+        ? { stage: 'REFUND_FAILED', decision, preview }
+        : { stage: 'REFUND_FAILED', decision, preview, providerRefundId };
+    }
+
+    setState(providerRefundId === undefined
+      ? { stage: 'REFUND_PROCESSING', decision, preview }
+      : { stage: 'REFUND_PROCESSING', decision, preview, providerRefundId });
+    await condition(() => providerOutcome !== undefined, RECONCILIATION_INTERVAL);
+  }
 }
 
 /** Keeps recovery durable. Continue-as-new prevents an unbounded Temporal history. */
@@ -367,6 +488,11 @@ async function reconcilePendingRefund(
     return reconciliation.providerRefundId === undefined
       ? { stage: 'REFUND_SUCCEEDED', decision, preview }
       : { stage: 'REFUND_SUCCEEDED', decision, preview, providerRefundId: reconciliation.providerRefundId };
+  }
+  if (reconciliation.status === 'FAILED') {
+    return reconciliation.providerRefundId === undefined
+      ? { stage: 'REFUND_FAILED', decision, preview }
+      : { stage: 'REFUND_FAILED', decision, preview, providerRefundId: reconciliation.providerRefundId };
   }
   await sleep(RECONCILIATION_INTERVAL);
   if (attemptsInRun + 1 >= MAX_RECONCILIATION_ATTEMPTS_PER_RUN) {

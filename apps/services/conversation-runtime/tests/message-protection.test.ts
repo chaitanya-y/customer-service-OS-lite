@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { createDecipheriv } from 'node:crypto';
 import { test } from 'node:test';
 
-import { createAesGcmMessageProtector } from '../src/message-protection.js';
+import {
+  createAesGcmMessageProtector,
+  createAesGcmMessageUnprotector,
+} from '../src/message-protection.js';
 
 test('encrypts customer text with AES-256-GCM and records evidence metadata', () => {
   const key = Buffer.alloc(32, 7);
@@ -32,6 +35,12 @@ test('encrypts customer text with AES-256-GCM and records evidence metadata', ()
   assert.match(protectedMessage.plaintextSha256, /^[a-f0-9]{64}$/);
   assert.equal(protectedMessage.plaintextByteLength, 17);
   assert.equal(protectedMessage.encryptionKeyVersion, 'test-v1');
+
+  const unprotect = createAesGcmMessageUnprotector({
+    key,
+    keyVersion: 'test-v1',
+  });
+  assert.equal(unprotect(protectedMessage), 'Please refund me.');
 });
 
 test('rejects an invalid AES key length', () => {

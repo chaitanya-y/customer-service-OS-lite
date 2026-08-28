@@ -8,6 +8,7 @@ import { registerOrderRoutes } from './order-routes.js';
 import { registerRefundContextRoutes } from './refund-context-routes.js';
 import { registerRefundExecutionRoutes } from './refund-execution-routes.js';
 import { registerRefundReconciliationRoutes } from './refund-reconciliation-routes.js';
+import { registerProviderRefundEventRoutes, type VerifyProviderRefundEventSignature } from './provider-refund-event-routes.js';
 import { InMemoryRefundExecutionRepository, type RefundExecutionRepository } from './refund-execution-repository.js';
 import type { VerifyContextAssertion } from './trusted-context.js';
 import type { VerifyWorkflowAccessAssertion } from './workflow-access.js';
@@ -19,6 +20,7 @@ type BuildAppOptions = {
   verifyWorkflowRefundExecutionAssertion?: VerifyWorkflowAccessAssertion;
   verifyWorkflowRefundReconciliationAssertion?: VerifyWorkflowAccessAssertion;
   refundExecutionRepository?: RefundExecutionRepository;
+  verifyProviderRefundEventSignature?: VerifyProviderRefundEventSignature;
   logger?: boolean;
 };
 
@@ -55,6 +57,7 @@ export function buildApp(
   const refundExecutionRepository = options.refundExecutionRepository ?? new InMemoryRefundExecutionRepository();
   registerRefundExecutionRoutes(app, options.commerceProvider, refundExecutionRepository, options.verifyWorkflowRefundExecutionAssertion);
   registerRefundReconciliationRoutes(app, options.commerceProvider, refundExecutionRepository, options.verifyWorkflowRefundReconciliationAssertion);
+  registerProviderRefundEventRoutes(app, refundExecutionRepository, options.verifyProviderRefundEventSignature);
   registerMcpRoutes(
     app,
     getOrderContext,

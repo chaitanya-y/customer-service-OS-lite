@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const configSchema = z.object({
   HOST: z.string().min(1).default('127.0.0.1'),
-  PORT: z.coerce.number().int().min(1).max(65_535).default(3003),
+  PORT: z.coerce.number().int().min(1).max(65_535).default(3004),
   DATABASE_URL: z.string().min(1),
   TENANT_ID: z.string().min(1),
   ENVIRONMENT_ID: z.string().min(1),
@@ -15,8 +15,28 @@ const configSchema = z.object({
     .string()
     .min(1)
     .default('conversation-runtime'),
+  EDGE_SERVICE_ASSERTION_HMAC_SECRET: z.string().min(32),
+  EDGE_SERVICE_ASSERTION_ISSUER: z
+    .string()
+    .min(1)
+    .default('customer-service-os-edge'),
+  EDGE_SERVICE_ASSERTION_AUDIENCE: z
+    .string()
+    .min(1)
+    .default('conversation-runtime'),
   MESSAGE_ENCRYPTION_KEY_BASE64: z.string().min(1),
   MESSAGE_ENCRYPTION_KEY_VERSION: z.string().min(1).default('local-v1'),
+}).superRefine((config, context) => {
+  if (
+    config.CONTEXT_ASSERTION_HMAC_SECRET ===
+    config.EDGE_SERVICE_ASSERTION_HMAC_SECRET
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Customer and Edge service assertions require separate keys',
+      path: ['EDGE_SERVICE_ASSERTION_HMAC_SECRET'],
+    });
+  }
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

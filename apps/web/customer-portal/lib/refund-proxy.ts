@@ -11,6 +11,7 @@ type LocalCustomerAuthorization = {
 };
 
 const EDGE_API_BASE_URL = process.env.EDGE_API_BASE_URL ?? "http://127.0.0.1:3000";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function errorResponse(status: number, code: string, message: string) {
   return NextResponse.json(
@@ -103,9 +104,26 @@ export async function readJsonObject(
   }
 }
 
+export function readIdempotencyKey(
+  request: NextRequest,
+): string | NextResponse {
+  const idempotencyKey = request.headers.get("idempotency-key");
+
+  if (!idempotencyKey || !UUID_PATTERN.test(idempotencyKey)) {
+    return errorResponse(
+      400,
+      "invalid_idempotency_key",
+      "Requests must include a valid idempotency key.",
+    );
+  }
+
+  return idempotencyKey;
+}
+
 export async function proxyEdgeApi(input: {
   authorization: LocalCustomerAuthorization;
   body?: string;
+  headers?: Readonly<Record<string, string>>;
   method: "GET" | "POST";
   path: string;
 }): Promise<NextResponse> {
@@ -130,6 +148,7 @@ export async function proxyEdgeApi(input: {
         accept: "application/json",
         authorization: input.authorization.authorization,
         ...(input.body ? { "content-type": "application/json" } : {}),
+        ...input.headers,
       },
     });
     const responseBody = await upstreamResponse.text();
@@ -140,6 +159,76 @@ export async function proxyEdgeApi(input: {
       headers: {
         "cache-control": "no-store",
         ...(contentType ? { "content-type": contentType } : {}),
+      },
+    });
+  } catch {
+    return errorResponse(
+      502,
+      "edge_api_unavailable",
+      "The support service is temporarily unavailable.",
+    );
+  }
+}
+
+/**
+ * Streams a customer-authorized Edge event feed without ever exposing the
+ * server-held local customer token to the browser.
+ */
+export async function proxyEdgeEventStream(input: {
+  authorization: LocalCustomerAuthorization;
+  lastEventId?: string;
+  path: string;
+}): Promise<NextResponse> {
+  let endpoint: URL;
+
+  try {
+    endpoint = new URL(input.path, EDGE_API_BASE_URL);
+  } catch {
+    return errorResponse(
+      500,
+      "edge_api_configuration_invalid",
+      "The support service is not configured.",
+    );
+  }
+
+  try {
+    const upstreamResponse = await fetch(endpoint, {
+      cache: "no-store",
+      headers: {
+        accept: "text/event-stream",
+        authorization: input.authorization.authorization,
+        ...(input.lastEventId ? { "last-event-id": input.lastEventId } : {}),
+      },
+    });
+
+    if (!upstreamResponse.ok || !upstreamResponse.body) {
+      const responseBody = await upstreamResponse.text();
+      const contentType = upstreamResponse.headers.get("content-type");
+
+      return new NextResponse(responseBody, {
+        status: upstreamResponse.status,
+        headers: {
+          "cache-control": "no-store",
+          ...(contentType ? { "content-type": contentType } : {}),
+        },
+      });
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().startsWith("text/event-stream")) {
+      return errorResponse(
+        502,
+        "edge_api_event_stream_invalid",
+        "The support service returned an invalid update stream.",
+      );
+    }
+
+    return new NextResponse(upstreamResponse.body, {
+      headers: {
+        "cache-control": "no-cache, no-store, must-revalidate",
+        connection: "keep-alive",
+        "content-type": "text/event-stream",
+        "x-accel-buffering": "no",
       },
     });
   } catch {

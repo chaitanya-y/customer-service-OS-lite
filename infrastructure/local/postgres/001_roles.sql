@@ -15,3 +15,12 @@ CREATE ROLE cso_integration_app
   NOCREATEROLE
   NOINHERIT
   NOREPLICATION;
+
+CREATE ROLE cso_human_operations_app
+  LOGIN
+  PASSWORD 'cso_human_operations_local'
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOINHERIT
+  NOREPLICATION;

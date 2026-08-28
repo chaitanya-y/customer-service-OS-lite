@@ -324,8 +324,8 @@ export function createVendureCommerceProvider(
       const result = payload.data.refundOrder;
       if (result.__typename !== 'Refund') return { status: 'FAILED' as const };
       return result.id === undefined
-        ? { status: 'SUCCEEDED' as const }
-        : { status: 'SUCCEEDED' as const, providerRefundId: result.id };
+        ? { status: 'SUBMITTED' as const }
+        : { status: 'SUBMITTED' as const, providerRefundId: result.id };
     },
   };
 }

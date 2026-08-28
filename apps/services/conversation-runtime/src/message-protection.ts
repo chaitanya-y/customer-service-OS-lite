@@ -1,4 +1,9 @@
-import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from 'node:crypto';
 
 export type ProtectedMessage = {
   ciphertext: Buffer;
@@ -10,6 +15,7 @@ export type ProtectedMessage = {
 };
 
 export type ProtectMessage = (plaintext: string) => ProtectedMessage;
+export type UnprotectMessage = (protectedMessage: ProtectedMessage) => string;
 
 type MessageProtectorOptions = {
   key: Buffer;
@@ -58,5 +64,36 @@ export function createAesGcmMessageProtector({
       plaintextByteLength: plaintextBytes.byteLength,
       encryptionKeyVersion: keyVersion,
     };
+  };
+}
+
+export function createAesGcmMessageUnprotector({
+  key,
+  keyVersion,
+}: Pick<MessageProtectorOptions, 'key' | 'keyVersion'>): UnprotectMessage {
+  if (key.byteLength !== 32) {
+    throw new Error('AES-256-GCM requires a 32-byte encryption key');
+  }
+
+  if (!keyVersion.trim()) {
+    throw new Error('Message encryption key version is required');
+  }
+
+  return (protectedMessage) => {
+    if (protectedMessage.encryptionKeyVersion !== keyVersion) {
+      throw new Error('Message encryption key version is unavailable');
+    }
+
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      key,
+      protectedMessage.initializationVector,
+    );
+    decipher.setAuthTag(protectedMessage.authenticationTag);
+
+    return Buffer.concat([
+      decipher.update(protectedMessage.ciphertext),
+      decipher.final(),
+    ]).toString('utf8');
   };
 }

@@ -51,13 +51,19 @@ The local secrets have three required relationships:
 
 | Secret | Services that must share it | Purpose |
 |---|---|---|
-| `CONTEXT_ASSERTION_HMAC_SECRET` | Edge API, Integration Gateway, Agent Runtime, Knowledge/RAG | Edge-issued audience-specific customer context |
+| `CONTEXT_ASSERTION_HMAC_SECRET` | Edge API, Conversation Runtime, Integration Gateway, Agent Runtime, Knowledge/RAG | Edge-issued audience-specific customer context |
+| `EDGE_SERVICE_ASSERTION_HMAC_SECRET` | Edge API, Conversation Runtime | Edge-only assistant-message commits; this must differ from every other secret |
 | `WORKFLOW_ACCESS_HMAC_SECRET` | Workflow Workers, Integration Gateway | Worker-only fact refresh, refund execution, and reconciliation |
 | `HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET` | Workflow Workers, Human Operations | Worker-only case open and close |
+| `PROVIDER_WEBHOOK_HMAC_SECRET` | Integration Gateway only | Local signed provider outcome event verification |
 
 `LOCAL_AUTH_HMAC_SECRET` belongs only to Edge API.
 `HUMAN_ACCESS_HMAC_SECRET` belongs only to Human Operations. Keep every secret at
 least 32 bytes and use different values for different purposes.
+
+Conversation Runtime also requires `MESSAGE_ENCRYPTION_KEY_BASE64`: exactly 32
+random bytes encoded as base64. It encrypts persisted chat text. Never reuse it
+as an HMAC secret.
 
 The two browser applications also need local development tokens:
 
@@ -86,6 +92,9 @@ docker compose -f infrastructure/local/compose.yaml up -d postgres
 
 cd apps/services/integration-gateway
 pnpm migrate
+
+cd ../conversation-runtime
+DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os pnpm migrate
 ```
 
 ### 2. Temporal
@@ -132,14 +141,25 @@ cd apps/services/agent-runtime
 uv run uvicorn agent_runtime.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 7. Human Operations
+### 7. Conversation Runtime
+
+```bash
+cd apps/services/conversation-runtime
+pnpm dev
+```
+
+It listens on `http://127.0.0.1:3004`. Edge API signs short-lived customer
+context for customer reads/writes and a separate Edge-only assertion for
+assistant-message commits.
+
+### 8. Human Operations
 
 ```bash
 cd apps/services/human-operations
 pnpm dev
 ```
 
-### 8. Temporal Workflow Workers
+### 9. Temporal Workflow Workers
 
 ```bash
 cd apps/services/workflow-workers
@@ -235,6 +255,18 @@ Use a disposable local order for this test. Check the resulting refund in the
 Vendure Dashboard, then inspect the workflow in Temporal UI. Do not use an
 unknown real order or production credentials.
 
+The customer journey first shows **Refund initiated**. This means the refund was
+accepted by the commerce or payment boundary, but the system is waiting for an
+authoritative final result. It moves to **Refund completed** only when Vendure
+reconciliation finds a settled refund or a signed provider outcome event reports
+completion. A failed provider event moves it to **Refund needs attention**.
+
+The local Vendure simulator normally settles the refund quickly. A real payment
+provider may take days, so its signed webhook is accepted at
+`POST /internal/v1/provider-refund-events`. The Gateway records each event before
+retrying delivery to Temporal. This endpoint is for a provider adapter, never a
+browser client.
+
 ## Current browser behavior
 
 - The Customer Portal owns only same-origin BFF routes. It does not call internal
@@ -243,9 +275,9 @@ unknown real order or production credentials.
   citations before rendering.
 - The Operations Console supplies an idempotency key for claim and decision
   mutations and displays the review packet plus audit trail.
-- The initial UI refreshes status after customer confirmation. It does **not** yet
-  provide live SSE updates or background polling, so manually refresh after a
-  human decision.
+- The Customer Portal listens to a same origin SSE wake up stream and refetches
+  the authoritative journey view. If that stream disconnects, it falls back to a
+  ten second polling interval.
 
 ## Troubleshooting
 
@@ -259,9 +291,11 @@ unknown real order or production credentials.
 | RAG request fails | Verify OpenSearch, the configured published index, and `OPENAI_API_KEY` in Knowledge/RAG. |
 | Grounded answer falls back to a generic message | Verify `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS=30` in Agent Runtime or use its default, then restart Agent Runtime. The answer call gets one bounded 30-second attempt rather than repeated timeouts. |
 | Existing case disappeared after restart | Expected today. Human Operations uses an in-memory local repository. |
+| Provider event endpoint returns `503` | Set `PROVIDER_WEBHOOK_HMAC_SECRET` in the Integration Gateway `.env` and restart the Gateway. |
 
 ## What this does not prove yet
 
-This local test does not prove production authentication, durable human-case
-storage, Kafka delivery, distributed tracing, workload scaling, or AWS deployment.
+This local test does not prove production authentication, real bank settlement,
+durable human-case storage, Kafka delivery, distributed tracing, workload scaling,
+or AWS deployment.
 Those are the next hardening and deployment milestones.

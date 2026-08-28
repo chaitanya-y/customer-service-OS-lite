@@ -2,7 +2,11 @@ import { createAgentRuntimeClient } from './agent-runtime-client.js';
 import { Connection, WorkflowClient } from '@temporalio/client';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
-import { createHmacContextAssertionSigner } from './context-assertion.js';
+import { createConversationRuntimeClient } from './conversation-runtime-client.js';
+import {
+  createHmacContextAssertionSigner,
+  createHmacServiceAssertionSigner,
+} from './context-assertion.js';
 import { createLocalCustomerIdentityVerifier } from './local-customer-auth.js';
 import { createTemporalRefundClient } from './temporal-refund-client.js';
 
@@ -44,9 +48,29 @@ const signKnowledgeRagContextAssertion = createHmacContextAssertionSigner({
     routingEpoch: config.ROUTING_EPOCH,
   },
 });
+const signConversationRuntimeContextAssertion = createHmacContextAssertionSigner({
+  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+  issuer: config.CONTEXT_ASSERTION_ISSUER,
+  audience: config.CONVERSATION_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
+  route: {
+    homeRegion: config.HOME_REGION,
+    homeCell: config.HOME_CELL,
+    routingEpoch: config.ROUTING_EPOCH,
+  },
+});
+const signEdgeServiceAssertion = createHmacServiceAssertionSigner({
+  secret: config.EDGE_SERVICE_ASSERTION_HMAC_SECRET,
+  issuer: config.EDGE_SERVICE_ASSERTION_ISSUER,
+  audience: config.EDGE_SERVICE_ASSERTION_AUDIENCE,
+  routingEpoch: config.ROUTING_EPOCH,
+});
 const agentRuntimeClient = createAgentRuntimeClient({
   baseUrl: config.AGENT_RUNTIME_BASE_URL,
   timeoutMilliseconds: config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS,
+});
+const conversationRuntimeClient = createConversationRuntimeClient({
+  baseUrl: config.CONVERSATION_RUNTIME_BASE_URL,
+  timeoutMilliseconds: config.CONVERSATION_RUNTIME_TIMEOUT_MILLISECONDS,
 });
 const temporalConnection = await Connection.connect({
   address: config.TEMPORAL_ADDRESS,
@@ -60,7 +84,14 @@ const app = buildApp({
   signContextAssertion,
   signAgentRuntimeContextAssertion,
   signKnowledgeRagContextAssertion,
+  signConversationRuntimeContextAssertion,
+  signEdgeServiceAssertion,
   intakeRefund: agentRuntimeClient.intakeRefund,
+  createConversation: conversationRuntimeClient.createConversation,
+  getConversation: conversationRuntimeClient.getConversation,
+  acceptCustomerMessage: conversationRuntimeClient.acceptCustomerMessage,
+  appendAssistantMessage: conversationRuntimeClient.appendAssistantMessage,
+  linkRefundWorkflow: conversationRuntimeClient.linkRefundWorkflow,
   startRefundWorkflow: temporalRefundClient.startRefundWorkflow,
   getRefundWorkflow: temporalRefundClient.getRefundWorkflow,
   confirmRefundWorkflow: temporalRefundClient.confirmRefundWorkflow,

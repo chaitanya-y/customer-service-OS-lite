@@ -15,6 +15,15 @@ const configSchema = z
       .min(1_000)
       .max(120_000)
       .default(60_000),
+    CONVERSATION_RUNTIME_BASE_URL: z
+      .url()
+      .default('http://127.0.0.1:3004'),
+    CONVERSATION_RUNTIME_TIMEOUT_MILLISECONDS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(120_000)
+      .default(15_000),
     TEMPORAL_ADDRESS: z.string().min(1).default('127.0.0.1:7233'),
     TEMPORAL_TASK_QUEUE: z.string().min(1).default('refund-workflows'),
     REFUND_POLICY_VERSION: z.string().min(1).default('refund-policy-v1'),
@@ -49,6 +58,19 @@ const configSchema = z
       .string()
       .min(1)
       .default('knowledge-rag'),
+    CONVERSATION_RUNTIME_CONTEXT_ASSERTION_AUDIENCE: z
+      .string()
+      .min(1)
+      .default('conversation-runtime'),
+    EDGE_SERVICE_ASSERTION_HMAC_SECRET: z.string().min(32),
+    EDGE_SERVICE_ASSERTION_ISSUER: z
+      .string()
+      .min(1)
+      .default('customer-service-os-edge'),
+    EDGE_SERVICE_ASSERTION_AUDIENCE: z
+      .string()
+      .min(1)
+      .default('conversation-runtime'),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'local') {
@@ -67,6 +89,20 @@ const configSchema = z
         code: 'custom',
         message: 'Local authentication and context signing require separate keys',
         path: ['CONTEXT_ASSERTION_HMAC_SECRET'],
+      });
+    }
+
+    if (
+      config.EDGE_SERVICE_ASSERTION_HMAC_SECRET ===
+        config.LOCAL_AUTH_HMAC_SECRET ||
+      config.EDGE_SERVICE_ASSERTION_HMAC_SECRET ===
+        config.CONTEXT_ASSERTION_HMAC_SECRET
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Edge service assertions require a separate key from customer authentication and context signing',
+        path: ['EDGE_SERVICE_ASSERTION_HMAC_SECRET'],
       });
     }
   });

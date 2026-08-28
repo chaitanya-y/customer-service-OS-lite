@@ -10,11 +10,13 @@ import type { RefundPolicyDecision } from "../src/refund-policy.js";
 import {
   confirmRefund,
   decideRefund,
+  recordProviderRefundOutcome,
   refundWorkflow,
   type RefundWorkflowRequest,
 } from "../src/refund-workflow.js";
 import type {
   CloseHumanCaseInput,
+  CreateRefundPreviewActivityInput,
   ExecuteRefundResult,
   OpenHumanCaseInput,
   OpenHumanCaseResult,
@@ -71,6 +73,7 @@ type ActivityOptions = Readonly<{
   reconcileRefundResult?: ReconcileRefundResult;
   refreshedAmounts?: readonly number[];
   onExecute?: () => void;
+  onCreatePreview?: (input: CreateRefundPreviewActivityInput) => void;
   openHumanCase?: (input: OpenHumanCaseInput) => Promise<void> | void;
   closeHumanCase?: (input: CloseHumanCaseInput) => Promise<void> | void;
 }>;
@@ -110,7 +113,8 @@ function makeActivities(
     async evaluateRefundPolicy() {
       return decision;
     },
-    async createRefundPreview() {
+    async createRefundPreview(input) {
+      options.onCreatePreview?.(input);
       return {
         previewId: 'preview-001',
         createdAt: '2026-08-08T12:00:00.000Z',
@@ -218,6 +222,57 @@ test('a human takeover resolves to its final state', async () => {
   });
 });
 
+test('a supervisor exceptional approval creates a trusted preview, then waits for customer confirmation', async () => {
+  let receivedCase: OpenHumanCaseInput | undefined;
+  let closedCase: CloseHumanCaseInput | undefined;
+  let previewInput: CreateRefundPreviewActivityInput | undefined;
+  let executions = 0;
+
+  await withWorker(
+    makeActivities(makeDecision('TAKEOVER_REQUIRED'), {
+      openHumanCase(input) { receivedCase = input; },
+      closeHumanCase(input) { closedCase = input; },
+      onCreatePreview(input) { previewInput = input; },
+      onExecute() { executions += 1; },
+    }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      await handle.signal(decideRefund, {
+        decision: 'APPROVE_EXCEPTIONAL_REFUND',
+        decidedBy: 'supervisor-001',
+        decidedAt: '2026-08-08T12:02:00.000Z',
+        reasonCode: 'SUPERVISOR_EXCEPTION_APPROVED',
+      });
+
+      await handle.signal(confirmRefund, {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:03:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REFUND_SUCCEEDED');
+      assert.equal(executions, 1);
+      assert.deepEqual(receivedCase?.allowedActions, [
+        'APPROVE_EXCEPTIONAL_REFUND',
+        'RESOLVE_TAKEOVER',
+        'REJECT',
+      ]);
+      assert.equal(closedCase?.outcome, 'APPROVED');
+      assert.equal(closedCase?.decision.action, 'APPROVE_EXCEPTIONAL_REFUND');
+      assert.equal(closedCase?.decision.reasonCode, 'SUPERVISOR_EXCEPTION_APPROVED');
+      assert.equal(previewInput?.authorization?.kind, 'HUMAN_EXCEPTIONAL_APPROVAL');
+      assert.equal(previewInput?.authorization?.caseId, closedCase?.caseId);
+      assert.deepEqual(previewInput?.proposal, proposal);
+    },
+  );
+});
+
 test('opens a takeover case before entering the human wait state, with only takeover actions', async () => {
   let releaseOpenCase: (() => void) | undefined;
   const caseOpenStarted = new Promise<void>((resolve) => {
@@ -258,7 +313,11 @@ test('opens a takeover case before entering the human wait state, with only take
 
       const result = await handle.result();
       assert.equal(result.stage, 'TAKEOVER_RESOLVED');
-      assert.deepEqual(receivedCase?.allowedActions, ['RESOLVE_TAKEOVER', 'REJECT']);
+      assert.deepEqual(receivedCase?.allowedActions, [
+        'APPROVE_EXCEPTIONAL_REFUND',
+        'RESOLVE_TAKEOVER',
+        'REJECT',
+      ]);
       assert.equal(receivedCase?.caseType, 'REFUND_TAKEOVER');
       assert.equal(receivedCase?.caseId, `case:${workflowId}`);
       assert.equal(receivedCase?.reviewPacket.orderReference, 'ORDER-001');
@@ -441,6 +500,69 @@ test('a pending provider result is resolved by reconciliation', async () => {
       const result = await handle.result();
       assert.equal(result.stage, 'REFUND_SUCCEEDED');
       assert.equal(result.providerRefundId, 'vendure-refund-reconciled');
+    },
+  );
+});
+
+test('a submitted refund remains in processing until a matching provider event confirms completion', async () => {
+  await withWorker(
+    makeActivities(makeDecision('ALLOW'), {
+      executeRefundResult: { status: 'SUBMITTED', providerRefundId: 'provider-refund-001' },
+      reconcileRefundResult: { status: 'PROCESSING', providerRefundId: 'provider-refund-001' },
+    }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      await handle.signal(confirmRefund, {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:01:00.000Z',
+      });
+      await handle.signal(recordProviderRefundOutcome, {
+        eventId: 'provider-event-001',
+        providerRefundId: 'provider-refund-001',
+        outcome: 'COMPLETED',
+        occurredAt: '2026-08-08T12:02:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REFUND_SUCCEEDED');
+      assert.equal(result.providerRefundId, 'provider-refund-001');
+    },
+  );
+});
+
+test('a submitted refund becomes failed when its provider reports failure', async () => {
+  await withWorker(
+    makeActivities(makeDecision('ALLOW'), {
+      executeRefundResult: { status: 'SUBMITTED', providerRefundId: 'provider-refund-002' },
+      reconcileRefundResult: { status: 'PROCESSING', providerRefundId: 'provider-refund-002' },
+    }),
+    async (environment, taskQueue) => {
+      const handle = await environment.workflowClient.start(refundWorkflow, {
+        taskQueue,
+        workflowId: `refund-${crypto.randomUUID()}`,
+        args: [request],
+      });
+
+      await handle.signal(confirmRefund, {
+        previewId: 'preview-001',
+        accepted: true,
+        confirmedAt: '2026-08-08T12:01:00.000Z',
+      });
+      await handle.signal(recordProviderRefundOutcome, {
+        eventId: 'provider-event-002',
+        providerRefundId: 'provider-refund-002',
+        outcome: 'FAILED',
+        occurredAt: '2026-08-08T12:02:00.000Z',
+      });
+
+      const result = await handle.result();
+      assert.equal(result.stage, 'REFUND_FAILED');
     },
   );
 });

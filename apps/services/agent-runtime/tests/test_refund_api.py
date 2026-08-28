@@ -17,6 +17,7 @@ from agent_runtime.integrations.trusted_context import (
     VerifiedAgentRuntimeContext,
 )
 from agent_runtime.main import app
+from agent_runtime.refund.graph import MISSING_ORDER_REFERENCE_MESSAGE
 from agent_runtime.refund.intent import RefundIntentExtraction
 from agent_runtime.refund.proposal import RefundProposalBuilder, RefundProposalVersions
 from agent_runtime.refund.router import (
@@ -171,6 +172,33 @@ def test_refund_intake_rejects_empty_message() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_refund_intake_returns_a_safe_answer_when_order_reference_is_missing() -> None:
+    response = client.post(
+        "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
+        },
+        json={"customer_message": "I want a refund."},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "customer_message": "I want a refund.",
+        "customer_answer": {
+            "message": MISSING_ORDER_REFERENCE_MESSAGE,
+            "citations": [],
+        },
+        "journey": "refund",
+        "status": "awaiting_order_reference",
+    }
 
 
 def test_refund_intake_requires_trusted_context() -> None:

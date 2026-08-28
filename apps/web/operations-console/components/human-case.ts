@@ -1,4 +1,8 @@
-export type HumanCaseAction = "APPROVE" | "REJECT" | "RESOLVE_TAKEOVER";
+export type HumanCaseAction =
+  | "APPROVE"
+  | "REJECT"
+  | "RESOLVE_TAKEOVER"
+  | "APPROVE_EXCEPTIONAL_REFUND";
 
 export type ReviewPacket = Readonly<{
   evidenceIds: string[];
@@ -14,6 +18,7 @@ export type ReviewPacket = Readonly<{
 export type HumanCase = Readonly<{
   allowedActions: HumanCaseAction[];
   assignedStaffId?: string;
+  canClaim: boolean;
   caseId: string;
   caseType: "REFUND_APPROVAL" | "REFUND_TAKEOVER";
   caseVersion: number;
@@ -51,7 +56,8 @@ function asStringArray(value: unknown): string[] {
 
 function asActionArray(value: unknown): HumanCaseAction[] {
   return asStringArray(value).filter((entry): entry is HumanCaseAction =>
-    entry === "APPROVE" || entry === "REJECT" || entry === "RESOLVE_TAKEOVER",
+    entry === "APPROVE" || entry === "REJECT" || entry === "RESOLVE_TAKEOVER" ||
+    entry === "APPROVE_EXCEPTIONAL_REFUND",
   );
 }
 
@@ -94,6 +100,7 @@ export function normalizeHumanCase(value: unknown): HumanCase | undefined {
   return {
     allowedActions: asActionArray(record.allowed_actions),
     ...(asString(record.assigned_staff_id) ? { assignedStaffId: asString(record.assigned_staff_id) } : {}),
+    canClaim: record.can_claim === true,
     caseId,
     caseType,
     caseVersion,
@@ -161,6 +168,8 @@ export function formatDate(value: string) {
 export function actionLabel(action: HumanCaseAction) {
   return action === "APPROVE"
     ? "Approve refund"
+    : action === "APPROVE_EXCEPTIONAL_REFUND"
+      ? "Approve exceptional refund plan"
     : action === "REJECT"
       ? "Reject request"
       : "Resolve manual takeover";

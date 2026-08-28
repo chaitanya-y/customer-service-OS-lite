@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -8,14 +8,31 @@ import type {
   IntakeRefund,
   RefundIntakeRequest,
 } from './agent-runtime-client.js';
-import type { SignContextAssertion } from './context-assertion.js';
+import type {
+  AcceptCustomerMessage,
+  AppendAssistantMessage,
+  CreateConversation,
+  GetConversation,
+  LinkRefundWorkflow,
+} from './conversation-runtime-client.js';
+import type {
+  SignContextAssertion,
+  SignServiceAssertion,
+} from './context-assertion.js';
 import type { VerifyCustomerIdentity } from './customer-identity.js';
 import {
   RefundWorkflowNotFoundError,
   type ConfirmRefundWorkflow,
   type GetRefundWorkflow,
+  type RefundWorkflowView,
   type StartRefundWorkflow,
 } from './temporal-refund-client.js';
+import {
+  createRefundJourneyUpdateEvent,
+  formatSseEvent,
+  toRefundJourneyView,
+} from './refund-journey-view.js';
+import { resolveOrderReference } from './order-reference.js';
 
 const refundIntakeRequestSchema = z
   .object({
@@ -23,6 +40,85 @@ const refundIntakeRequestSchema = z
     order_reference: z.string().trim().min(1).max(100).optional(),
   })
   .strict();
+
+const idempotencyKeySchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+const conversationIdSchema = z.uuid();
+const conversationParamsSchema = z
+  .object({ conversationId: conversationIdSchema })
+  .strict();
+const createConversationRequestSchema = z.object({}).strict();
+const chatMessageRequestSchema = z
+  .object({
+    client_message_id: z
+      .string()
+      .min(1)
+      .max(160)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    content: z
+      .object({
+        type: z.literal('text'),
+        text: z.string().trim().min(1).max(2_000),
+      })
+      .strict(),
+    order_reference: z.string().trim().min(1).max(100).optional(),
+  })
+  .strict();
+const conversationDataSchema = z
+  .object({
+    conversationId: conversationIdSchema,
+    status: z.string().min(1).max(80),
+    controlMode: z.string().min(1).max(80),
+  })
+  .passthrough();
+const conversationRuntimeResponseSchema = z
+  .object({ data: conversationDataSchema })
+  .passthrough();
+const conversationTranscriptResponseSchema = z
+  .object({
+    data: conversationDataSchema.extend({
+      messages: z.array(
+        z
+          .object({
+            messageId: z.string().min(1).max(160),
+            sequenceNumber: z.number().int().positive(),
+            senderKind: z.string().min(1).max(80),
+            text: z.string().min(1).max(32_768),
+            createdAt: z.string().min(1).max(80),
+            refundWorkflowId: z.string().min(1).max(200).optional(),
+          })
+          .strict(),
+      ),
+    }),
+  })
+  .passthrough();
+const acceptedMessageResponseSchema = z
+  .object({
+    data: z
+      .object({
+        conversationId: conversationIdSchema,
+        messageId: z.string().min(1).max(160),
+        sequenceNumber: z.number().int().positive(),
+        status: z.literal('ACCEPTED'),
+      })
+      .strict(),
+  })
+  .passthrough();
+const customerAnswerAgentResponseSchema = z
+  .object({
+    status: z.enum([
+      'awaiting_order_reference',
+      'awaiting_refund_details',
+      'refund_proposal_ready',
+    ]),
+    customer_answer: z
+      .object({ message: z.string().trim().min(1).max(2_000) })
+      .passthrough(),
+  })
+  .passthrough();
 
 const readyRefundProposalSchema = z.object({
   proposalId: z.string().min(1),
@@ -53,11 +149,20 @@ type BuildAppOptions = {
   signAgentRuntimeContextAssertion: SignContextAssertion;
   signKnowledgeRagContextAssertion: SignContextAssertion;
   intakeRefund: IntakeRefund;
+  signConversationRuntimeContextAssertion?: SignContextAssertion;
+  signEdgeServiceAssertion?: SignServiceAssertion;
+  createConversation?: CreateConversation;
+  getConversation?: GetConversation;
+  acceptCustomerMessage?: AcceptCustomerMessage;
+  appendAssistantMessage?: AppendAssistantMessage;
+  linkRefundWorkflow?: LinkRefundWorkflow;
   startRefundWorkflow?: StartRefundWorkflow;
   getRefundWorkflow?: GetRefundWorkflow;
   confirmRefundWorkflow?: ConfirmRefundWorkflow;
   refundPolicyVersion?: string;
   createCorrelationId?: () => string;
+  now?: () => Date;
+  refundJourneyPollIntervalMilliseconds?: number;
   logger?: boolean;
 };
 
@@ -86,12 +191,115 @@ function sendAgentResponse(
   return reply.code(response.statusCode).send(response.body);
 }
 
+function sendAgentUnavailable(reply: FastifyReply) {
+  return reply.code(502).send({
+    error: {
+      code: 'agent_runtime_unavailable',
+      message: 'Agent Runtime request failed',
+    },
+  });
+}
+
+function sendConversationRuntimeFailure(
+  reply: FastifyReply,
+  statusCode: number,
+) {
+  if (statusCode === 404) {
+    return reply.code(404).send({
+      error: {
+        code: 'conversation_not_found',
+        message: 'Conversation was not found',
+      },
+    });
+  }
+
+  if (statusCode === 409) {
+    return reply.code(409).send({
+      error: {
+        code: 'idempotency_conflict',
+        message: 'Conversation request conflicts with a previous request',
+      },
+    });
+  }
+
+  return reply.code(502).send({
+    error: {
+      code: 'conversation_runtime_unavailable',
+      message: 'Conversation service is temporarily unavailable',
+    },
+  });
+}
+
+function sendConversationRuntimeUnavailable(reply: FastifyReply) {
+  return reply.code(503).send({
+    error: {
+      code: 'conversation_runtime_unavailable',
+      message: 'Conversation service is temporarily unavailable',
+    },
+  });
+}
+
+function readIdempotencyKey(value: string | string[] | undefined) {
+  return idempotencyKeySchema.safeParse(value);
+}
+
+function createScopedIdempotencyKey(
+  scope: string,
+  ...values: readonly string[]
+) {
+  const identity = [scope, ...values].join('\0');
+  return `cso-${createHash('sha256').update(identity).digest('hex')}`;
+}
+
+function buildWorkflowStartInput({
+  response,
+  orderReference,
+  refundPolicyVersion,
+  identity,
+  requestId,
+  traceId,
+}: {
+  response: z.infer<typeof readyAgentResponseSchema>;
+  orderReference: string | undefined;
+  refundPolicyVersion: string;
+  identity: Awaited<ReturnType<VerifyCustomerIdentity>>;
+  requestId: string;
+  traceId: string;
+}): Parameters<StartRefundWorkflow>[0] {
+  return {
+    workflowId: `refund-${response.refund_proposal.proposalId}`,
+    ...(orderReference === undefined ? {} : { orderReference }),
+    proposal: {
+      proposalId: response.refund_proposal.proposalId,
+      journeyType: 'REFUND',
+      intent: {
+        orderId: response.refund_proposal.intent.orderId,
+        reasonCode: response.refund_proposal.intent.reasonCode,
+        scope: response.refund_proposal.intent.scope,
+        itemIds: response.refund_proposal.intent.itemIds,
+        requestedAmount: response.refund_proposal.intent.requestedAmount,
+      },
+    },
+    policyVersion: refundPolicyVersion,
+    access: {
+      tenantId: identity.tenantId,
+      environmentId: identity.environmentId,
+      subjectCustomerId: identity.customerId,
+      requestId,
+      traceId,
+    },
+  };
+}
+
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: options.logger ?? false,
   });
   const createCorrelationId = options.createCorrelationId ?? randomUUID;
   const refundPolicyVersion = options.refundPolicyVersion ?? 'refund-policy-v1';
+  const now = options.now ?? (() => new Date());
+  const refundJourneyPollIntervalMilliseconds =
+    options.refundJourneyPollIntervalMilliseconds ?? 5_000;
 
   app.get('/health', async () => ({
     service: 'edge-api',
@@ -101,6 +309,618 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   async function verifyRequestIdentity(authorization: string | undefined) {
     return options.verifyCustomerIdentity(extractBearerToken(authorization));
   }
+
+  app.post('/v1/conversations', async (request, reply) => {
+    const body = createConversationRequestSchema.safeParse(request.body ?? {});
+    const idempotencyKey = readIdempotencyKey(
+      request.headers['idempotency-key'],
+    );
+
+    if (!body.success || !idempotencyKey.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'invalid_conversation_request',
+          message: 'Conversation request is invalid',
+        },
+      });
+    }
+
+    if (
+      !options.createConversation ||
+      !options.signConversationRuntimeContextAssertion
+    ) {
+      return sendConversationRuntimeUnavailable(reply);
+    }
+
+    let identity;
+    try {
+      identity = await verifyRequestIdentity(request.headers.authorization);
+    } catch {
+      return reply.code(401).send({
+        error: {
+          code: 'customer_unauthorized',
+          message: 'Customer authentication is required',
+        },
+      });
+    }
+
+    const requestId = createCorrelationId();
+    const traceId = createCorrelationId();
+    let contextAssertion: string;
+    try {
+      contextAssertion = await options.signConversationRuntimeContextAssertion({
+        identity,
+        requestId,
+        traceId,
+        channelId: 'web',
+      });
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Conversation context signing failed');
+      return reply.code(500).send({
+        error: {
+          code: 'internal_error',
+          message: 'Request could not be authorized',
+        },
+      });
+    }
+
+    try {
+      const response = await options.createConversation({
+        contextAssertion,
+        idempotencyKey: createScopedIdempotencyKey(
+          'conversation-create-v1',
+          identity.tenantId,
+          identity.environmentId,
+          identity.customerId,
+          idempotencyKey.data,
+        ),
+      });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return sendConversationRuntimeFailure(reply, response.statusCode);
+      }
+
+      const created = conversationRuntimeResponseSchema.safeParse(response.body);
+      if (!created.success) {
+        request.log.error({ requestId }, 'Conversation Runtime returned an invalid create response');
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+
+      return reply.code(response.statusCode).send({
+        conversation_id: created.data.data.conversationId,
+        status: created.data.data.status,
+        control_mode: created.data.data.controlMode,
+      });
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Conversation creation failed');
+      return sendConversationRuntimeFailure(reply, 500);
+    }
+  });
+
+  app.get('/v1/conversations/:conversationId', async (request, reply) => {
+    const params = conversationParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'invalid_conversation_id',
+          message: 'Conversation ID is invalid',
+        },
+      });
+    }
+
+    if (
+      !options.getConversation ||
+      !options.signConversationRuntimeContextAssertion
+    ) {
+      return sendConversationRuntimeUnavailable(reply);
+    }
+
+    let identity;
+    try {
+      identity = await verifyRequestIdentity(request.headers.authorization);
+    } catch {
+      return reply.code(401).send({
+        error: {
+          code: 'customer_unauthorized',
+          message: 'Customer authentication is required',
+        },
+      });
+    }
+
+    const requestId = createCorrelationId();
+    const traceId = createCorrelationId();
+    let contextAssertion: string;
+    try {
+      contextAssertion = await options.signConversationRuntimeContextAssertion({
+        identity,
+        requestId,
+        traceId,
+        channelId: 'web',
+      });
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Conversation context signing failed');
+      return reply.code(500).send({
+        error: {
+          code: 'internal_error',
+          message: 'Request could not be authorized',
+        },
+      });
+    }
+
+    try {
+      const response = await options.getConversation({
+        conversationId: params.data.conversationId,
+        contextAssertion,
+      });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return sendConversationRuntimeFailure(reply, response.statusCode);
+      }
+
+      const transcript = conversationTranscriptResponseSchema.safeParse(
+        response.body,
+      );
+      if (!transcript.success) {
+        request.log.error({ requestId }, 'Conversation Runtime returned an invalid transcript response');
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+
+      if (transcript.data.data.conversationId !== params.data.conversationId) {
+        request.log.error({ requestId }, 'Conversation Runtime returned a mismatched conversation');
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+
+      return reply.code(response.statusCode).send({
+        conversation_id: transcript.data.data.conversationId,
+        status: transcript.data.data.status,
+        control_mode: transcript.data.data.controlMode,
+        messages: transcript.data.data.messages.map((message) => ({
+          message_id: message.messageId,
+          sequence_number: message.sequenceNumber,
+          sender_kind: message.senderKind,
+          content: { type: 'text', text: message.text },
+          created_at: message.createdAt,
+          ...(message.refundWorkflowId === undefined
+            ? {}
+            : {
+                refund_workflow: {
+                  workflow_id: message.refundWorkflowId,
+                  status: 'started' as const,
+                },
+              }),
+        })),
+      });
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Conversation query failed');
+      return sendConversationRuntimeFailure(reply, 500);
+    }
+  });
+
+  app.post('/v1/conversations/:conversationId/messages', async (
+    request,
+    reply,
+  ) => {
+    const params = conversationParamsSchema.safeParse(request.params);
+    const body = chatMessageRequestSchema.safeParse(request.body);
+    const idempotencyKey = readIdempotencyKey(
+      request.headers['idempotency-key'],
+    );
+
+    if (!params.success || !body.success || !idempotencyKey.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'invalid_conversation_message',
+          message: 'Conversation message is invalid',
+        },
+      });
+    }
+
+    if (
+      !options.acceptCustomerMessage ||
+      !options.appendAssistantMessage ||
+      !options.signConversationRuntimeContextAssertion ||
+      !options.signEdgeServiceAssertion
+    ) {
+      return sendConversationRuntimeUnavailable(reply);
+    }
+
+    let identity;
+    try {
+      identity = await verifyRequestIdentity(request.headers.authorization);
+    } catch {
+      return reply.code(401).send({
+        error: {
+          code: 'customer_unauthorized',
+          message: 'Customer authentication is required',
+        },
+      });
+    }
+
+    const requestId = createCorrelationId();
+    const traceId = createCorrelationId();
+    const conversationId = params.data.conversationId;
+    const customerMessageText = body.data.content.text;
+    const customerMessageIdempotencyKey = createScopedIdempotencyKey(
+      'conversation-customer-message-v1',
+      identity.tenantId,
+      identity.environmentId,
+      identity.customerId,
+      conversationId,
+      idempotencyKey.data,
+    );
+
+    let conversationContextAssertion: string;
+    try {
+      conversationContextAssertion =
+        await options.signConversationRuntimeContextAssertion({
+          identity,
+          requestId,
+          traceId,
+          channelId: 'web',
+        });
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Conversation context signing failed');
+      return reply.code(500).send({
+        error: {
+          code: 'internal_error',
+          message: 'Request could not be authorized',
+        },
+      });
+    }
+
+    let customerMessage;
+    try {
+      const response = await options.acceptCustomerMessage({
+        conversationId,
+        contextAssertion: conversationContextAssertion,
+        idempotencyKey: customerMessageIdempotencyKey,
+        clientMessageId: body.data.client_message_id,
+        text: customerMessageText,
+      });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return sendConversationRuntimeFailure(reply, response.statusCode);
+      }
+
+      const accepted = acceptedMessageResponseSchema.safeParse(response.body);
+      if (!accepted.success || accepted.data.data.conversationId !== conversationId) {
+        request.log.error({ requestId }, 'Conversation Runtime returned an invalid customer message response');
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+      customerMessage = accepted.data.data;
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Customer message persistence failed');
+      return sendConversationRuntimeFailure(reply, 500);
+    }
+
+    let agentRuntimeContextAssertion: string;
+    let integrationGatewayContextAssertion: string;
+    let knowledgeRagContextAssertion: string;
+    try {
+      const assertionInput = {
+        identity,
+        requestId,
+        traceId,
+        channelId: 'web',
+      };
+      [
+        integrationGatewayContextAssertion,
+        agentRuntimeContextAssertion,
+        knowledgeRagContextAssertion,
+      ] = await Promise.all([
+        options.signContextAssertion(assertionInput),
+        options.signAgentRuntimeContextAssertion(assertionInput),
+        options.signKnowledgeRagContextAssertion(assertionInput),
+      ]);
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Agent context signing failed');
+      return sendAgentUnavailable(reply);
+    }
+
+    let agentResponse: AgentRuntimeResponse;
+    const orderReference = resolveOrderReference({
+      customerMessage: customerMessageText,
+      explicitOrderReference: body.data.order_reference,
+    });
+    try {
+      agentResponse = await options.intakeRefund(
+        {
+          customer_message: customerMessageText,
+          ...(orderReference === undefined
+            ? {}
+            : { order_reference: orderReference }),
+        },
+        {
+          agentRuntime: agentRuntimeContextAssertion,
+          integrationGateway: integrationGatewayContextAssertion,
+          knowledgeRag: knowledgeRagContextAssertion,
+        },
+      );
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Agent Runtime request failed after customer message acceptance');
+      return sendAgentUnavailable(reply);
+    }
+
+    if (
+      agentResponse.statusCode < 200 ||
+      agentResponse.statusCode >= 300
+    ) {
+      return sendAgentUnavailable(reply);
+    }
+
+    const customerAnswer = customerAnswerAgentResponseSchema.safeParse(
+      agentResponse.body,
+    );
+    if (!customerAnswer.success) {
+      request.log.error({ requestId }, 'Agent Runtime returned an unsafe chat response');
+      return sendAgentUnavailable(reply);
+    }
+
+    const assistantClientMessageId = createScopedIdempotencyKey(
+      'conversation-assistant-client-message-v1',
+      conversationId,
+      body.data.client_message_id,
+    );
+    let serviceAssertion: string;
+    try {
+      serviceAssertion = await options.signEdgeServiceAssertion({
+        identity,
+        requestId,
+        traceId,
+      });
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Assistant service assertion signing failed');
+      return reply.code(500).send({
+        error: {
+          code: 'internal_error',
+          message: 'Request could not be authorized',
+        },
+      });
+    }
+
+    let assistantMessage;
+    try {
+      const response = await options.appendAssistantMessage({
+        conversationId,
+        serviceAssertion,
+        idempotencyKey: createScopedIdempotencyKey(
+          'conversation-assistant-message-v1',
+          identity.tenantId,
+          identity.environmentId,
+          identity.customerId,
+          conversationId,
+          idempotencyKey.data,
+        ),
+        clientMessageId: assistantClientMessageId,
+        text: customerAnswer.data.customer_answer.message,
+      });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return sendConversationRuntimeFailure(reply, response.statusCode);
+      }
+
+      const accepted = acceptedMessageResponseSchema.safeParse(response.body);
+      if (!accepted.success || accepted.data.data.conversationId !== conversationId) {
+        request.log.error({ requestId }, 'Conversation Runtime returned an invalid assistant message response');
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+      assistantMessage = accepted.data.data;
+    } catch (error) {
+      request.log.error({ err: error, requestId }, 'Assistant message persistence failed');
+      return sendConversationRuntimeFailure(reply, 500);
+    }
+
+    let refundWorkflow: { workflow_id: string; status: 'started' } | undefined;
+    const readyResponse = readyAgentResponseSchema.safeParse(agentResponse.body);
+    if (readyResponse.success) {
+      if (!options.startRefundWorkflow || !options.linkRefundWorkflow) {
+        request.log.error({ requestId }, 'Refund workflow starter is not configured');
+        return reply.code(503).send({
+          error: {
+            code: 'workflow_unavailable',
+            message: 'Refund workflow is unavailable',
+          },
+        });
+      }
+
+      try {
+        const workflow = await options.startRefundWorkflow(
+          buildWorkflowStartInput({
+            response: readyResponse.data,
+            orderReference,
+            refundPolicyVersion,
+            identity,
+            requestId,
+            traceId,
+          }),
+        );
+        refundWorkflow = { workflow_id: workflow.workflowId, status: 'started' };
+
+        const reference = await options.linkRefundWorkflow({
+          conversationId,
+          messageId: assistantMessage.messageId,
+          workflowId: workflow.workflowId,
+          serviceAssertion,
+          idempotencyKey: createScopedIdempotencyKey(
+            'conversation-refund-workflow-reference-v1',
+            identity.tenantId,
+            identity.environmentId,
+            identity.customerId,
+            conversationId,
+            assistantMessage.messageId,
+            workflow.workflowId,
+          ),
+        });
+        if (reference.statusCode < 200 || reference.statusCode >= 300) {
+          return sendConversationRuntimeFailure(reply, reference.statusCode);
+        }
+      } catch (error) {
+        request.log.error({ err: error, requestId }, 'Refund workflow start failed');
+        return reply.code(502).send({
+          error: {
+            code: 'workflow_unavailable',
+            message: 'Refund workflow is temporarily unavailable',
+          },
+        });
+      }
+    }
+
+    return reply.code(202).send({
+      conversation_id: conversationId,
+      customer_message_id: customerMessage.messageId,
+      assistant_message: {
+        message_id: assistantMessage.messageId,
+        content: {
+          type: 'text',
+          text: customerAnswer.data.customer_answer.message,
+        },
+      },
+      ...(refundWorkflow === undefined ? {} : { refund_workflow: refundWorkflow }),
+    });
+  });
+
+  async function loadOwnedRefundWorkflow(
+    workflowId: string,
+    authorization: string | undefined,
+  ): Promise<
+    | Readonly<{ workflow: RefundWorkflowView }>
+    | Readonly<{ error: 'customer_unauthorized' | 'refund_workflow_not_found' | 'workflow_unavailable' }>
+  > {
+    if (!options.getRefundWorkflow) {
+      return { error: 'workflow_unavailable' };
+    }
+
+    let identity;
+    try {
+      identity = await verifyRequestIdentity(authorization);
+    } catch {
+      return { error: 'customer_unauthorized' };
+    }
+
+    try {
+      const workflow = await options.getRefundWorkflow({
+        workflowId,
+        access: {
+          tenantId: identity.tenantId,
+          environmentId: identity.environmentId,
+          subjectCustomerId: identity.customerId,
+          requestId: createCorrelationId(),
+          traceId: createCorrelationId(),
+        },
+      });
+      return { workflow };
+    } catch (error) {
+      if (error instanceof RefundWorkflowNotFoundError) {
+        return { error: 'refund_workflow_not_found' };
+      }
+      return { error: 'workflow_unavailable' };
+    }
+  }
+
+  function sendRefundJourneyLoadFailure(
+    reply: FastifyReply,
+    error: 'customer_unauthorized' | 'refund_workflow_not_found' | 'workflow_unavailable',
+  ) {
+    switch (error) {
+      case 'customer_unauthorized':
+        return reply.code(401).send({
+          error: {
+            code: 'customer_unauthorized',
+            message: 'Customer authentication is required',
+          },
+        });
+      case 'refund_workflow_not_found':
+        return reply.code(404).send({
+          error: {
+            code: 'refund_workflow_not_found',
+            message: 'Refund workflow was not found',
+          },
+        });
+      case 'workflow_unavailable':
+        return reply.code(502).send({
+          error: {
+            code: 'workflow_unavailable',
+            message: 'Refund workflow is temporarily unavailable',
+          },
+        });
+    }
+  }
+
+  app.get('/v1/refunds/:workflowId/journey', async (request, reply) => {
+    const params = workflowParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({
+        error: { code: 'invalid_workflow_id', message: 'Workflow ID is invalid' },
+      });
+    }
+
+    const result = await loadOwnedRefundWorkflow(
+      params.data.workflowId,
+      request.headers.authorization,
+    );
+    if ('error' in result) {
+      return sendRefundJourneyLoadFailure(reply, result.error);
+    }
+
+    return reply.send(toRefundJourneyView(params.data.workflowId, result.workflow));
+  });
+
+  app.get('/v1/refunds/:workflowId/events', async (request, reply) => {
+    const params = workflowParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({
+        error: { code: 'invalid_workflow_id', message: 'Workflow ID is invalid' },
+      });
+    }
+
+    const workflowId = params.data.workflowId;
+    const initial = await loadOwnedRefundWorkflow(
+      workflowId,
+      request.headers.authorization,
+    );
+    if ('error' in initial) {
+      return sendRefundJourneyLoadFailure(reply, initial.error);
+    }
+
+    let fingerprint = JSON.stringify(toRefundJourneyView(workflowId, initial.workflow));
+    let eventSequence = 0;
+    const writeUpdate = () => {
+      eventSequence += 1;
+      reply.raw.write(formatSseEvent(createRefundJourneyUpdateEvent(
+        workflowId,
+        `${workflowId}:${eventSequence}`,
+        now().toISOString(),
+      )));
+    };
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'content-type': 'text/event-stream; charset=utf-8',
+      'x-accel-buffering': 'no',
+    });
+    reply.raw.write(`retry: ${refundJourneyPollIntervalMilliseconds}\n\n`);
+    writeUpdate();
+
+    const interval = setInterval(async () => {
+      const next = await loadOwnedRefundWorkflow(
+        workflowId,
+        request.headers.authorization,
+      );
+      if ('error' in next) {
+        return;
+      }
+
+      const nextFingerprint = JSON.stringify(
+        toRefundJourneyView(workflowId, next.workflow),
+      );
+      if (nextFingerprint !== fingerprint) {
+        fingerprint = nextFingerprint;
+        writeUpdate();
+      }
+    }, refundJourneyPollIntervalMilliseconds);
+
+    request.raw.once('close', () => {
+      clearInterval(interval);
+    });
+  });
 
   app.get('/v1/refunds/:workflowId', async (request, reply) => {
     const params = workflowParamsSchema.safeParse(request.params);
@@ -206,11 +1026,15 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
 
     try {
+      const orderReference = resolveOrderReference({
+        customerMessage: parsedRequest.data.customer_message,
+        explicitOrderReference: parsedRequest.data.order_reference,
+      });
       const refundRequest: RefundIntakeRequest = {
         customer_message: parsedRequest.data.customer_message,
-        ...(parsedRequest.data.order_reference === undefined
+        ...(orderReference === undefined
           ? {}
-          : { order_reference: parsedRequest.data.order_reference }),
+          : { order_reference: orderReference }),
       };
       const agentResponse = await options.intakeRefund(
         refundRequest,
@@ -233,32 +1057,16 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         throw new Error('WORKFLOW_STARTER_NOT_CONFIGURED');
       }
 
-      const workflow = await options.startRefundWorkflow({
-        workflowId: `refund-${readyResponse.data.refund_proposal.proposalId}`,
-        ...(parsedRequest.data.order_reference === undefined
-          ? {}
-          : { orderReference: parsedRequest.data.order_reference }),
-        proposal: {
-          proposalId: readyResponse.data.refund_proposal.proposalId,
-          journeyType: 'REFUND',
-          intent: {
-            orderId: readyResponse.data.refund_proposal.intent.orderId,
-            reasonCode: readyResponse.data.refund_proposal.intent.reasonCode,
-            scope: readyResponse.data.refund_proposal.intent.scope,
-            itemIds: readyResponse.data.refund_proposal.intent.itemIds,
-            requestedAmount:
-              readyResponse.data.refund_proposal.intent.requestedAmount,
-          },
-        },
-        policyVersion: refundPolicyVersion,
-        access: {
-          tenantId: identity.tenantId,
-          environmentId: identity.environmentId,
-          subjectCustomerId: identity.customerId,
+      const workflow = await options.startRefundWorkflow(
+        buildWorkflowStartInput({
+          response: readyResponse.data,
+          orderReference,
+          refundPolicyVersion,
+          identity,
           requestId,
           traceId,
-        },
-      });
+        }),
+      );
 
       return reply.code(agentResponse.statusCode).send({
         ...readyResponse.data,

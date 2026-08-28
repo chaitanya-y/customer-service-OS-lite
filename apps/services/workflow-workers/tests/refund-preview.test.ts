@@ -81,3 +81,33 @@ test('does not create a preview for a decision that is not allowed', () => {
     /REFUND_PREVIEW_REQUIRES_ALLOWED_DECISION/,
   );
 });
+
+test('requires an explicit supervisor authorization for a takeover preview', () => {
+  const takeoverDecision = { ...decision, effect: 'TAKEOVER_REQUIRED' as const };
+
+  assert.throws(
+    () => createRefundPreview({
+      proposal,
+      refundContext,
+      decision: takeoverDecision,
+      previewId: 'preview-001',
+      createdAt: '2026-08-08T12:00:00.000Z',
+    }),
+    /REFUND_PREVIEW_REQUIRES_ALLOWED_DECISION/,
+  );
+
+  const preview = createRefundPreview({
+    proposal,
+    refundContext,
+    decision: takeoverDecision,
+    authorization: {
+      kind: 'HUMAN_EXCEPTIONAL_APPROVAL',
+      caseId: 'case-001',
+      decision: 'APPROVE_EXCEPTIONAL_REFUND',
+    },
+    previewId: 'preview-001',
+    createdAt: '2026-08-08T12:00:00.000Z',
+  });
+
+  assert.deepEqual(preview.requestedAmount, { amountMinor: 5_000, currency: 'USD' });
+});

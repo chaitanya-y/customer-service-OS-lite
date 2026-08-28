@@ -10,10 +10,11 @@ import type { WorkflowJourneyAccess } from './workflow-access-assertion.js';
 import {
   createRefundPreview,
   type RefundPreview,
+  type RefundPreviewAuthorization,
 } from './refund-preview.js';
 
 export type HumanCaseType = 'REFUND_APPROVAL' | 'REFUND_TAKEOVER';
-export type HumanCaseAction = 'APPROVE' | 'REJECT' | 'RESOLVE_TAKEOVER';
+export type HumanCaseAction = 'APPROVE' | 'APPROVE_EXCEPTIONAL_REFUND' | 'REJECT' | 'RESOLVE_TAKEOVER';
 
 /**
  * A minimized review packet. It intentionally excludes raw customer messages,
@@ -85,6 +86,7 @@ export type CreateRefundPreviewActivityInput = Readonly<{
   proposal: RefundProposal;
   refundContext: RefundContext;
   decision: RefundPolicyDecision;
+  authorization?: RefundPreviewAuthorization;
 }>;
 export type ExecuteRefundInput = Readonly<{
   proposal: RefundProposal;
@@ -93,11 +95,11 @@ export type ExecuteRefundInput = Readonly<{
   access: WorkflowJourneyAccess;
 }>;
 export type ExecuteRefundResult = Readonly<{
-  status: 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION';
+  status: 'SUBMITTED' | 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION';
   providerRefundId?: string;
 }>;
 export type ReconcileRefundInput = Readonly<{ proposal: RefundProposal; preview: RefundPreview; workflowId: string; access: WorkflowJourneyAccess }>;
-export type ReconcileRefundResult = Readonly<{ status: 'SUCCEEDED' | 'NOT_FOUND'; providerRefundId?: string }>;
+export type ReconcileRefundResult = Readonly<{ status: 'SUCCEEDED' | 'FAILED' | 'PROCESSING' | 'NOT_FOUND'; providerRefundId?: string }>;
 
 export type RefundWorkflowActivities = Readonly<{
   refreshRefundContext(

@@ -8,7 +8,10 @@ import {
   createConversationService,
   IdempotencyConflictError,
 } from '../src/conversation-service.js';
-import { createAesGcmMessageProtector } from '../src/message-protection.js';
+import {
+  createAesGcmMessageProtector,
+  createAesGcmMessageUnprotector,
+} from '../src/message-protection.js';
 import { PostgresConversationRepository } from '../src/postgres-conversation-repository.js';
 import type { ConversationAccessContext } from '../src/trusted-context.js';
 
@@ -20,11 +23,18 @@ test(
   async () => {
     assert.ok(databaseUrl);
     const pool = new Pool({ connectionString: databaseUrl });
-    const repository = new PostgresConversationRepository(pool);
+    const encryptionKey = Buffer.alloc(32, 5);
+    const repository = new PostgresConversationRepository(
+      pool,
+      createAesGcmMessageUnprotector({
+        key: encryptionKey,
+        keyVersion: 'integration-test-v1',
+      }),
+    );
     const service = createConversationService({
       repository,
       protectMessage: createAesGcmMessageProtector({
-        key: Buffer.alloc(32, 5),
+        key: encryptionKey,
         keyVersion: 'integration-test-v1',
       }),
     });
@@ -62,6 +72,48 @@ test(
 
       assert.equal(duplicate.messageId, accepted.messageId);
       assert.equal(duplicate.sequenceNumber, accepted.sequenceNumber);
+      const assistantContext = {
+        tenantId: context.tenantId,
+        environmentId: context.environmentId,
+        subjectCustomerId: context.subjectCustomerId,
+        routingEpoch: context.routingEpoch,
+        requestId: `edge-${unique}`,
+        traceId: `edge-trace-${unique}`,
+      };
+      const assistant = await service.appendAssistantMessage({
+        context: assistantContext,
+        conversationId: conversation.conversationId,
+        idempotencyKey: `assistant-${unique}`,
+        clientMessageId: `agent-turn-${unique}`,
+        text: 'I can help with that.',
+      });
+      const duplicateAssistant = await service.appendAssistantMessage({
+        context: assistantContext,
+        conversationId: conversation.conversationId,
+        idempotencyKey: `assistant-${unique}`,
+        clientMessageId: `agent-turn-${unique}`,
+        text: 'I can help with that.',
+      });
+
+      assert.equal(assistant.sequenceNumber, accepted.sequenceNumber + 1);
+      assert.equal(duplicateAssistant.messageId, assistant.messageId);
+      assert.equal(duplicateAssistant.sequenceNumber, assistant.sequenceNumber);
+      const workflowLink = await service.linkRefundWorkflow({
+        context: assistantContext,
+        conversationId: conversation.conversationId,
+        messageId: assistant.messageId,
+        workflowId: `refund-${unique}`,
+        idempotencyKey: `assistant-workflow-${unique}`,
+      });
+      const duplicateWorkflowLink = await service.linkRefundWorkflow({
+        context: assistantContext,
+        conversationId: conversation.conversationId,
+        messageId: assistant.messageId,
+        workflowId: `refund-${unique}`,
+        idempotencyKey: `assistant-workflow-${unique}`,
+      });
+      assert.equal(workflowLink.workflowId, `refund-${unique}`);
+      assert.equal(duplicateWorkflowLink.workflowId, `refund-${unique}`);
       await assert.rejects(
         () =>
           service.acceptMessage({
@@ -107,8 +159,9 @@ test(
              AND outbox.aggregate_id = message.conversation_id
              AND outbox.aggregate_sequence = message.sequence_number
             WHERE message.conversation_id = $1
+              AND message.sequence_number = $2
           `,
-          [conversation.conversationId],
+          [conversation.conversationId, accepted.sequenceNumber],
         );
         assert.equal(stored.rowCount, 1);
         assert.equal(
@@ -129,6 +182,28 @@ test(
         client.release();
       }
 
+      const transcript = await service.getConversation({
+        context,
+        conversationId: conversation.conversationId,
+      });
+      assert.deepEqual(
+        transcript.messages.map((message) => ({
+          senderKind: message.senderKind,
+          text: message.text,
+          ...(message.refundWorkflowId === undefined
+            ? {}
+            : { refundWorkflowId: message.refundWorkflowId }),
+        })),
+        [
+          { senderKind: 'END_CUSTOMER', text: 'Please refund my order.' },
+          {
+            senderKind: 'ASSISTANT',
+            text: 'I can help with that.',
+            refundWorkflowId: `refund-${unique}`,
+          },
+        ],
+      );
+
       await assert.rejects(
         () =>
           service.acceptMessage({
@@ -137,6 +212,14 @@ test(
             idempotencyKey: `other-${unique}`,
             clientMessageId: `other-${unique}`,
             text: 'Cross-tenant attempt.',
+          }),
+        ConversationUnavailableError,
+      );
+      await assert.rejects(
+        () =>
+          service.getConversation({
+            context: { ...context, subjectCustomerId: `other-${unique}` },
+            conversationId: conversation.conversationId,
           }),
         ConversationUnavailableError,
       );

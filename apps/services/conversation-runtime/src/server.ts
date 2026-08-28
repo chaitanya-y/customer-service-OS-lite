@@ -3,17 +3,30 @@ import { Pool } from 'pg';
 import { buildApp } from './app.js';
 import { decodeMessageEncryptionKey, loadConfig } from './config.js';
 import { createConversationService } from './conversation-service.js';
-import { createAesGcmMessageProtector } from './message-protection.js';
+import {
+  createAesGcmMessageProtector,
+  createAesGcmMessageUnprotector,
+} from './message-protection.js';
 import { PostgresConversationRepository } from './postgres-conversation-repository.js';
+import { createHmacServiceAssertionVerifier } from './service-assertion.js';
 import { createHmacContextAssertionVerifier } from './trusted-context.js';
 
 const config = loadConfig();
 const pool = new Pool({ connectionString: config.DATABASE_URL });
-const repository = new PostgresConversationRepository(pool);
+const messageEncryptionKey = decodeMessageEncryptionKey(
+  config.MESSAGE_ENCRYPTION_KEY_BASE64,
+);
+const repository = new PostgresConversationRepository(
+  pool,
+  createAesGcmMessageUnprotector({
+    key: messageEncryptionKey,
+    keyVersion: config.MESSAGE_ENCRYPTION_KEY_VERSION,
+  }),
+);
 const conversationService = createConversationService({
   repository,
   protectMessage: createAesGcmMessageProtector({
-    key: decodeMessageEncryptionKey(config.MESSAGE_ENCRYPTION_KEY_BASE64),
+    key: messageEncryptionKey,
     keyVersion: config.MESSAGE_ENCRYPTION_KEY_VERSION,
   }),
 });
@@ -24,8 +37,16 @@ const verifyContextAssertion = createHmacContextAssertionVerifier({
   expectedTenantId: config.TENANT_ID,
   expectedEnvironmentId: config.ENVIRONMENT_ID,
 });
+const verifyServiceAssertion = createHmacServiceAssertionVerifier({
+  secret: config.EDGE_SERVICE_ASSERTION_HMAC_SECRET,
+  expectedIssuer: config.EDGE_SERVICE_ASSERTION_ISSUER,
+  expectedAudience: config.EDGE_SERVICE_ASSERTION_AUDIENCE,
+  expectedTenantId: config.TENANT_ID,
+  expectedEnvironmentId: config.ENVIRONMENT_ID,
+});
 const app = buildApp({
   verifyContextAssertion,
+  verifyServiceAssertion,
   conversationService,
   checkHealth: () => repository.checkHealth(),
   logger: true,

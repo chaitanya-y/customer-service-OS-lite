@@ -56,7 +56,13 @@ function DecisionForm({ onComplete, refundCase }: Readonly<{ onComplete: () => P
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
-  const actionRequiresNote = selectedAction === "REJECT" || selectedAction === "RESOLVE_TAKEOVER";
+  const actionRequiresNote = selectedAction === "REJECT" || selectedAction === "RESOLVE_TAKEOVER" || selectedAction === "APPROVE_EXCEPTIONAL_REFUND";
+  const canMakeDecision = refundCase.allowedActions.length > 0;
+  const notePlaceholder = selectedAction === "APPROVE_EXCEPTIONAL_REFUND"
+    ? "Explain why the trusted evidence supports this exceptional refund plan."
+    : actionRequiresNote
+      ? "Explain the rejection or manual resolution."
+      : "Optional rationale for the audit trail.";
 
   async function claimCase() {
     setSubmitting(true); setError(undefined);
@@ -76,7 +82,7 @@ function DecisionForm({ onComplete, refundCase }: Readonly<{ onComplete: () => P
     try {
       await postConsoleData(`/api/refund-cases/${encodeURIComponent(refundCase.caseId)}/decision`, {
         decision: selectedAction,
-        reason_code: selectedAction === "APPROVE" ? "HUMAN_APPROVED" : selectedAction === "REJECT" ? "HUMAN_REJECTED" : "MANUAL_TAKEOVER_RESOLVED",
+        reason_code: decisionReasonCode(selectedAction),
         ...(note.trim() ? { note: note.trim() } : {}),
         expected_case_version: refundCase.caseVersion,
       });
@@ -89,28 +95,35 @@ function DecisionForm({ onComplete, refundCase }: Readonly<{ onComplete: () => P
   return (
     <aside className={styles.decisionPanel} aria-labelledby="decision-heading">
       <span className="cso-eyebrow">Governed action</span>
-      <h2 id="decision-heading">Make a decision</h2>
-      <p>This action is recorded with your staff identity and sent once to the refund workflow.</p>
+      <h2 id="decision-heading">{canMakeDecision ? "Make a decision" : refundCase.canClaim ? "Claim this case" : "Case status"}</h2>
+      <p>{canMakeDecision ? "This action is recorded with your staff identity and sent once to the refund workflow." : refundCase.canClaim ? "Claim the case before a decision action becomes available." : "No action is available for this case in its current state."}</p>
       <dl className={styles.caseSummary}>
         <div><dt>Case status</dt><dd>{refundCase.status.replaceAll("_", " ")}</dd></div>
         <div><dt>Assigned to</dt><dd>{refundCase.assignedStaffId ?? "Unassigned"}</dd></div>
         <div><dt>Case version</dt><dd>{refundCase.caseVersion}</dd></div>
       </dl>
-      {!refundCase.assignedStaffId && refundCase.status === "OPEN" ? <button className="cso-primary-button" disabled={submitting} onClick={claimCase} type="button">{submitting ? "Claiming…" : "Claim this case"}</button> : null}
-      {refundCase.allowedActions.length ? (
+      {refundCase.canClaim ? <button className="cso-primary-button" disabled={submitting} onClick={claimCase} type="button">{submitting ? "Claiming…" : "Claim this case"}</button> : null}
+      {canMakeDecision ? (
         <form className={styles.decisionForm} onSubmit={submitDecision}>
           <fieldset disabled={submitting}>
             <legend>Permitted actions</legend>
             {refundCase.allowedActions.map((action) => <label className={styles.actionOption} key={action}><input checked={selectedAction === action} name="decision" onChange={() => setSelectedAction(action)} type="radio" value={action} />{actionLabel(action)}</label>)}
           </fieldset>
           <label htmlFor="decision-note">Decision note{actionRequiresNote ? " (required)" : " (optional)"}</label>
-          <textarea id="decision-note" maxLength={2_000} onChange={(event) => setNote(event.target.value)} placeholder={actionRequiresNote ? "Explain the rejection or manual resolution." : "Optional rationale for the audit trail."} rows={5} value={note} />
+          <textarea id="decision-note" maxLength={2_000} onChange={(event) => setNote(event.target.value)} placeholder={notePlaceholder} rows={5} value={note} />
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
-          <button className="cso-primary-button" disabled={submitting || !selectedAction} type="submit">{submitting ? "Recording decision…" : selectedAction ? actionLabel(selectedAction) : "Choose an action"}</button>
+          <button className="cso-primary-button" disabled={submitting || !selectedAction} type="submit">{submitting ? "Recording decision…" : "Record decision"}</button>
         </form>
-      ) : <p className={styles.statusNote}>No action is available for this case in its current state.</p>}
+      ) : null}
     </aside>
   );
+}
+
+function decisionReasonCode(action: HumanCaseAction): string {
+  if (action === "APPROVE") return "HUMAN_APPROVED";
+  if (action === "APPROVE_EXCEPTIONAL_REFUND") return "EXCEPTIONAL_REFUND_PLAN_APPROVED";
+  if (action === "REJECT") return "HUMAN_REJECTED";
+  return "MANUAL_TAKEOVER_RESOLVED";
 }
 
 export function RefundCaseDetail({ caseId }: Readonly<{ caseId: string }>) {
