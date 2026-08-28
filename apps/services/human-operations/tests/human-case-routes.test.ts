@@ -8,6 +8,7 @@ import { WORKFLOW_ASSERTION_HEADER } from '../src/workflow-access.js';
 
 const approver = { staffId: 'approver-001', tenantId: 'tenant-local', environmentId: 'local', role: 'REFUND_APPROVER' as const, iss: 'human-operations', aud: 'human-operations' };
 const supervisor = { staffId: 'supervisor-001', tenantId: 'tenant-local', environmentId: 'local', role: 'REFUND_SUPERVISOR' as const, iss: 'human-operations', aud: 'human-operations' };
+const otherSupervisor = { staffId: 'supervisor-002', tenantId: 'tenant-local', environmentId: 'local', role: 'REFUND_SUPERVISOR' as const, iss: 'human-operations', aud: 'human-operations' };
 
 function createApp() {
   let identifier = 0;
@@ -21,6 +22,7 @@ function createApp() {
     async verifyHuman(assertion) {
       if (assertion === 'approver') return approver;
       if (assertion === 'supervisor') return supervisor;
+      if (assertion === 'other-supervisor') return otherSupervisor;
       throw new Error('unauthorized');
     },
     async verifyWorkflowCaseAccess(assertion, purpose) {
@@ -87,6 +89,43 @@ test('an approver cannot access or decide a takeover case', async (context) => {
   assert.equal(detail.statusCode, 404);
   const claim = await app.inject({ method: 'POST', url: `/v1/refund-cases/${humanCase.case_id}/claim`, headers: { [HUMAN_ASSERTION_HEADER]: 'approver', 'idempotency-key': 'claim-case-002' }, payload: { expected_case_version: 1 } });
   assert.equal(claim.statusCode, 403);
+});
+
+test('the service computes actions from the staff member, claim state, and role', async (context) => {
+  const { app, sent } = createApp();
+  context.after(() => app.close());
+  const humanCase = await openCase(app, 'REFUND_TAKEOVER');
+
+  const openDetail = await app.inject({ method: 'GET', url: `/v1/refund-cases/${humanCase.case_id}`, headers: { [HUMAN_ASSERTION_HEADER]: 'supervisor' } });
+  assert.equal(openDetail.statusCode, 200);
+  assert.deepEqual(JSON.parse(openDetail.body).refund_case.allowed_actions, []);
+  assert.equal(JSON.parse(openDetail.body).refund_case.can_claim, true);
+
+  const claimed = await app.inject({ method: 'POST', url: `/v1/refund-cases/${humanCase.case_id}/claim`, headers: { [HUMAN_ASSERTION_HEADER]: 'supervisor', 'idempotency-key': 'claim-takeover-001' }, payload: { expected_case_version: 1 } });
+  assert.equal(claimed.statusCode, 200);
+  assert.deepEqual(JSON.parse(claimed.body).refund_case.allowed_actions, ['APPROVE_EXCEPTIONAL_REFUND', 'RESOLVE_TAKEOVER', 'REJECT']);
+  assert.equal(JSON.parse(claimed.body).refund_case.can_claim, false);
+
+  const otherStaffDetail = await app.inject({ method: 'GET', url: `/v1/refund-cases/${humanCase.case_id}`, headers: { [HUMAN_ASSERTION_HEADER]: 'other-supervisor' } });
+  assert.equal(otherStaffDetail.statusCode, 200);
+  assert.deepEqual(JSON.parse(otherStaffDetail.body).refund_case.allowed_actions, []);
+  assert.equal(JSON.parse(otherStaffDetail.body).refund_case.can_claim, false);
+
+  const otherStaffDecision = await app.inject({ method: 'POST', url: `/v1/refund-cases/${humanCase.case_id}/decision`, headers: { [HUMAN_ASSERTION_HEADER]: 'other-supervisor', 'idempotency-key': 'other-decision-001' }, payload: { decision: 'APPROVE_EXCEPTIONAL_REFUND', reason_code: 'EXCEPTIONAL_REFUND_PLAN_APPROVED', note: 'The damage evidence supports an exceptional refund plan.', expected_case_version: 2 } });
+  assert.equal(otherStaffDecision.statusCode, 403);
+
+  const missingNote = await app.inject({ method: 'POST', url: `/v1/refund-cases/${humanCase.case_id}/decision`, headers: { [HUMAN_ASSERTION_HEADER]: 'supervisor', 'idempotency-key': 'exceptional-decision-001' }, payload: { decision: 'APPROVE_EXCEPTIONAL_REFUND', reason_code: 'EXCEPTIONAL_REFUND_PLAN_APPROVED', expected_case_version: 2 } });
+  assert.equal(missingNote.statusCode, 400);
+
+  const decision = await app.inject({ method: 'POST', url: `/v1/refund-cases/${humanCase.case_id}/decision`, headers: { [HUMAN_ASSERTION_HEADER]: 'supervisor', 'idempotency-key': 'exceptional-decision-002' }, payload: { decision: 'APPROVE_EXCEPTIONAL_REFUND', reason_code: 'EXCEPTIONAL_REFUND_PLAN_APPROVED', note: 'The damage evidence supports an exceptional refund plan.', expected_case_version: 2 } });
+  assert.equal(decision.statusCode, 202);
+  assert.deepEqual(JSON.parse(decision.body).refund_case.allowed_actions, []);
+  assert.equal(JSON.parse(decision.body).refund_case.can_claim, false);
+  assert.deepEqual(sent, [{ workflowId: 'refund-001', access: { staffId: supervisor.staffId, tenantId: supervisor.tenantId, environmentId: supervisor.environmentId }, decision: 'APPROVE_EXCEPTIONAL_REFUND', decidedAt: '2026-08-22T12:00:00.000Z', reasonCode: 'EXCEPTIONAL_REFUND_PLAN_APPROVED' }]);
+
+  const freshPendingDecision = await app.inject({ method: 'POST', url: `/v1/refund-cases/${humanCase.case_id}/decision`, headers: { [HUMAN_ASSERTION_HEADER]: 'supervisor', 'idempotency-key': 'exceptional-decision-003' }, payload: { decision: 'RESOLVE_TAKEOVER', reason_code: 'MANUAL_TAKEOVER_RESOLVED', note: 'This must not replace the pending decision.', expected_case_version: 3 } });
+  assert.equal(freshPendingDecision.statusCode, 409);
+  assert.equal(sent.length, 1);
 });
 
 test('workflow calls must be authorized and match the signed workflow identity', async (context) => {

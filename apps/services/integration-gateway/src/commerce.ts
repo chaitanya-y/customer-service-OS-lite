@@ -54,5 +54,5 @@ export interface CommerceProvider {
     paymentId: string;
     amount: Money;
     reason: string;
-  }): Promise<{ status: 'SUCCEEDED' | 'FAILED'; providerRefundId?: string }>;
+  }): Promise<{ status: 'SUBMITTED' | 'SUCCEEDED' | 'FAILED'; providerRefundId?: string }>;
 }

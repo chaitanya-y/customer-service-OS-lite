@@ -1,9 +1,9 @@
 # Customer Service OS Lite
 
-Customer Service OS Lite is a production-shaped learning project for building
-governed customer-service agents. Its first vertical slice is a locally runnable
+Customer Service OS Lite is a production oriented learning project for building
+governed customer support agents. Its first vertical slice is a locally runnable
 refund journey that combines a customer interface, a Python LangGraph agent,
-customer-safe RAG, read-only MCP commerce tools, deterministic policy, Temporal,
+customer safe RAG, safe read only MCP commerce tools, deterministic policy, Temporal,
 human operations, and a local Vendure commerce simulator.
 
 The project is deliberately designed so that the model can understand and propose
@@ -20,7 +20,8 @@ customer and Human Operations browser interfaces.
 | LangGraph proposal generation, read-only order lookup, and grounded answer | Implemented |
 | Customer-safe RAG over OpenSearch | Implemented |
 | Versioned deterministic refund policy | Implemented |
-| Temporal confirmation, approval, takeover, execution, and reconciliation paths | Implemented |
+| Temporal confirmation, approval, takeover, provider processing, and reconciliation paths | Implemented |
+| Signed provider outcome events, replay protection, and retry delivery to Temporal | Implemented |
 | Human case queue, claim, decision, and audit trail | Implemented locally |
 | Customer and Human Operations interfaces with light, dark, and system themes | Implemented |
 | Admin Console | Visual foundation only |
@@ -35,11 +36,11 @@ implementation.
 ```text
 Customer UI
   -> Edge API: authenticates the local customer and signs service-specific context
-  -> Python Agent Runtime: LangGraph, customer-safe RAG, read-only MCP lookup
+  -> Python Agent Runtime: LangGraph, customer safe RAG, safe read only MCP lookup
   -> Temporal Workflow Workers: facts refresh, policy, preview, confirmation
   -> Human Operations when policy requires a person
-  -> Integration Gateway: authorized, idempotent Vendure refund action
-  -> Vendure simulator
+  -> Integration Gateway: authorized Vendure refund action and provider event intake
+  -> Vendure simulator or payment provider
 ```
 
 The principal rules are:
@@ -53,7 +54,8 @@ The principal rules are:
   refund action.
 - A human decision is recorded with staff identity, case version, and an audit
   event.
-- An uncertain provider outcome stays in reconciliation. It is never presented
+- A submitted refund remains in processing until an authoritative provider event
+  or reconciliation confirms completion. An uncertain outcome is never presented
   as a successful refund.
 
 ## Local development

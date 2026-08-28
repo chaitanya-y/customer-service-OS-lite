@@ -1,8 +1,8 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-08-24
+Last updated: 2026-08-27
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
-Active implementation branch: `dev`
+Active implementation branch: `main`
 
 ## 1. Why this file exists
 
@@ -77,6 +77,7 @@ The three browser surfaces are:
 ```mermaid
 flowchart TD
     UI["Customer Chat UI"] --> EDGE["Edge API"]
+    EDGE --> CONV["Conversation Runtime\nencrypted transcript"]
     EDGE --> AGENT["Python LangGraph Agent Runtime"]
     AGENT --> RAG["Retrieval Gateway / OpenSearch evidence"]
     CONTROL["Control and Knowledge"] -->|"published knowledge release"| RAG
@@ -87,7 +88,6 @@ flowchart TD
     WF -->|"approval when required"| HUMAN["Human Operations"]
     WF -->|"narrow authorized activity"| GATEWAY["Integration Gateway"]
     GATEWAY -->|"idempotent refund request"| PROVIDER["Refund provider"]
-    CONV["Conversation Runtime\n(not yet on the browser request path)"]
     WF --> AUDIT["Gateway and Human Operations audit evidence"]
 ```
 
@@ -255,6 +255,8 @@ It also contains the protected refund action boundary:
   `refund_execute` purpose;
 - `POST /internal/v1/refund-reconciliations`, a read-only recovery lookup with
   the separate `refund_reconcile` purpose;
+- `POST /internal/v1/provider-refund-events`, a signed provider adapter endpoint
+  that records replay-safe terminal outcomes before they are delivered to Temporal;
 - a Vendure `refundOrder` adapter, which the Agent Runtime cannot access;
 - PostgreSQL-backed idempotency and append-only refund audit events;
 - a migration runner and the limited `cso_integration_app` database role.
@@ -372,10 +374,14 @@ and a local `OPENAI_API_KEY`.
 
 The Node.js/TypeScript Conversation Runtime contains:
 
-- durable conversation and message acceptance APIs;
-- encrypted message persistence interfaces;
+- customer-scoped conversation creation, message acceptance, and ordered
+  transcript-read APIs;
+- an Edge-only assistant-message commit API guarded by a distinct short-lived
+  service assertion, not by customer context;
+- encrypted customer and assistant message persistence with AES-256-GCM;
 - idempotent mutation handling;
-- PostgreSQL migrations for conversation records and the outbox;
+- PostgreSQL migrations for conversation records and the transactional outbox;
+- customer-message and assistant-message outbox events;
 - trusted context verification and tenant/customer scoping;
 - unit and route tests.
 
@@ -411,15 +417,20 @@ The Node.js/TypeScript Workflow Workers package contains:
 - `refund.human-decision` signals for approve, reject, and takeover resolution;
 - a narrow authorized refund activity, which refreshes facts immediately before
   execution;
-- durable reconciliation every five minutes after an ambiguous provider outcome;
+- a `REFUND_PROCESSING` state after a provider accepts a refund, before final
+  settlement is known;
+- `refund.provider-outcome` signals for signed provider completion or failure
+  events, with Gateway persistence and delivery retry before the signal;
+- durable reconciliation every five minutes after an ambiguous or pending provider
+  outcome;
 - `continueAsNew()` after 288 reconciliation checks, roughly one day, to bound
   Temporal workflow history while recovery continues;
 - local Temporal integration tests covering confirmation, denial, and approval.
 
-The workflow never retries an uncertain provider write. It first asks the Gateway
-to find authoritative Vendure refund evidence. A found provider refund becomes
-`REFUND_SUCCEEDED`; otherwise the workflow remains
-`PENDING_RECONCILIATION` and retries safely.
+The workflow never retries an uncertain provider write. A provider acceptance first
+becomes `REFUND_PROCESSING`, not success. A signed provider event or authoritative
+Vendure reconciliation can move it to `REFUND_SUCCEEDED` or `REFUND_FAILED`.
+Otherwise it remains in processing or reconciliation and retries safely.
 
 ### Human Operations: local functional slice
 
@@ -452,10 +463,16 @@ repository and durable outbox dispatcher are required before deployment.
 The Node.js/TypeScript Edge API contains:
 
 - `POST /v1/refunds/intake` on port `3000`;
+- conversation create, read, and chat-turn routes on `/v1/conversations`;
+- chat-turn orchestration that persists the customer message, calls the Agent
+  Runtime, commits only the safe customer answer, and starts a workflow only for
+  a ready refund proposal;
 - strict customer-supplied refund input validation;
 - signed local customer tokens for development only;
 - server-derived tenant, environment, and customer identity;
 - a separate, short-lived trusted context assertion for internal calls;
+- a separately keyed Edge-only service assertion for Conversation Runtime
+  assistant-message commits;
 - forwarding to the Agent Runtime without exposing the customer token;
 - stable authentication and downstream-failure responses;
 - starts the Temporal refund workflow after a schema-valid proposal, and exposes
@@ -1052,8 +1069,7 @@ parts remain:
 - durable Human Operations storage, durable outbox delivery, and workforce
   delegation beyond the local role model;
 - Edge streaming, rate limiting, and an Edge-owned customer journey projection;
-- SSE or polling for live customer and staff updates;
-- connection of Conversation Runtime persistence to the browser request path;
+- end to end browser coverage for live customer and staff updates;
 - broader answer-grounding, citation, specialist, supervisor, tool-selection,
   trajectory, and guardrail evaluations;
 - live model evaluation and release gating for the refund specialist;

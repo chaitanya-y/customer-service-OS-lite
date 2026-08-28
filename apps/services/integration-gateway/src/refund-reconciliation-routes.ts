@@ -19,10 +19,18 @@ export function registerRefundReconciliationRoutes(app: FastifyInstance, commerc
     } catch { return reply.code(401).send({ error: { code: 'workflow_unauthorized' } }); }
     const order = await commerceProvider.getOrderById(parsed.data.orderId);
     if (!order || order.customer?.id !== access.subjectCustomerId) return reply.code(404).send({ error: { code: 'order_not_found' } });
-    const refund = order.payments.flatMap((payment) => payment.refunds).find((candidate) => candidate.amount.amountMinor === parsed.data.amount.amountMinor && candidate.amount.currency === parsed.data.amount.currency && !['FAILED', 'CANCELLED'].includes(candidate.status.toUpperCase()));
+    const refund = order.payments.flatMap((payment) => payment.refunds).find((candidate) => candidate.amount.amountMinor === parsed.data.amount.amountMinor && candidate.amount.currency === parsed.data.amount.currency);
     if (!refund) return { status: 'NOT_FOUND' };
     const execution = await repository.findByWorkflowAndPreview(access.tenantId, access.environmentId, access.contextId, parsed.data.previewId);
-    if (execution && execution.status !== 'SUCCEEDED') await repository.recordOutcome(execution.executionId, 'SUCCEEDED', refund.id);
-    return { status: 'SUCCEEDED', providerRefundId: refund.id };
+    const status = refund.status.toUpperCase();
+    if (['SETTLED', 'COMPLETED'].includes(status)) {
+      if (execution && execution.status !== 'SUCCEEDED') await repository.recordOutcome(execution.executionId, 'SUCCEEDED', refund.id);
+      return { status: 'SUCCEEDED', providerRefundId: refund.id };
+    }
+    if (['FAILED', 'CANCELLED'].includes(status)) {
+      if (execution && execution.status !== 'FAILED') await repository.recordOutcome(execution.executionId, 'FAILED', refund.id);
+      return { status: 'FAILED', providerRefundId: refund.id };
+    }
+    return { status: 'PROCESSING', providerRefundId: refund.id };
   });
 }

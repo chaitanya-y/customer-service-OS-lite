@@ -7,7 +7,7 @@ export type LocalHumanIdentity = Readonly<{
   role: 'REFUND_APPROVER' | 'REFUND_SUPERVISOR';
 }>;
 
-/** Creates a short-lived local-only assertion for exercising Human Operations. */
+/** Creates a time-limited local-only assertion for exercising Human Operations. */
 export async function signLocalHumanAccessAssertion(input: Readonly<{
   secret: string;
   issuer: string;

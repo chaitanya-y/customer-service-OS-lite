@@ -3,7 +3,7 @@ import { ThemeControl } from "@cso/ui";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { SupportRequestForm } from "../../components/support-request-form";
+import { SupportChat } from "../../components/support-chat";
 
 export default async function SupportPage() {
   const cookieStore = await cookies();
@@ -18,18 +18,10 @@ export default async function SupportPage() {
         <span className="cso-brand">Customer Service OS</span>
         <ThemeControl />
       </header>
-      <section className="cso-panel cso-support-panel" aria-labelledby="support-heading">
-        <span className="cso-eyebrow">Support</span>
-        <h1 id="support-heading">Tell us what happened.</h1>
-        <p>
-          We will review your request and show the exact amount before anything
-          is submitted.
-        </p>
-        <SupportRequestForm />
-        <p className="cso-status-note">
-          You are using a development-only local customer session.
-        </p>
-      </section>
+      <SupportChat />
+      <p className="cso-status-note">
+        You are using a development-only local customer session.
+      </p>
     </main>
   );
 }

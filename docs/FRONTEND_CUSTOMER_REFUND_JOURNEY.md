@@ -16,7 +16,7 @@ internal service directly.
 
 ### In scope
 
-- customer support entry and refund request;
+- persisted customer support chat and refund request;
 - typed refund proposal and exact refund preview;
 - customer confirmation or decline;
 - authoritative workflow status and a current-state progress display;
@@ -28,7 +28,6 @@ internal service directly.
 
 ### Out of scope
 
-- a generic chat platform or historical conversation inbox;
 - an embedded merchant-site widget;
 - customer account registration and password recovery UX;
 - production OIDC/Cognito UI, although the route boundary is designed to support it;
@@ -40,29 +39,33 @@ internal service directly.
 | Route | Purpose | Authentication |
 |---|---|---|
 | `/sign-in` | Development-only local customer session | local token configured on the server |
-| `/support` | Request support or a refund | customer session required |
+| `/support` | Customer-safe chat transcript, support request, and refund entry | customer session required |
 | `/refunds/[workflowId]` | Review a refund journey and its live status | customer must own the journey |
 
-`/support` is the entry route. When Edge API creates a refund workflow, the
-application navigates to `/refunds/[workflowId]`. The BFF forwards the server-held
-local customer token to Edge API, which verifies workflow ownership against the
-trusted tenant, environment, and customer identity. The browser never receives
-that token.
+`/support` is the conversation entry route. It stores only the current
+conversation identifier in browser session storage; Conversation Runtime remains
+the encrypted transcript authority. When Edge API starts a refund workflow, the
+assistant message includes a link to `/refunds/[workflowId]`. The BFF forwards the
+server-held local customer token to Edge API, which verifies customer ownership.
+The browser never receives that token or an internal service assertion.
 
 ## Journey flow
 
 ```text
-1. Customer enters a request
+1. Customer sends a chat message
        "Order QXB4NEW2EPG6YJ7Q arrived damaged. I want a refund."
 
-2. Customer Widget submits through its same-origin BFF
-       POST /api/refunds/intake
+2. Customer Portal lazily creates a conversation, then submits through its
+   same-origin BFF
+       POST /api/conversations
+       POST /api/conversations/:conversationId/messages
 
-3. Edge API authenticates the customer and invokes the governed runtime
-       → Agent Runtime, RAG, read-only order lookup, Temporal workflow
+3. Edge API authenticates the customer, persists the customer message, invokes
+   the governed runtime, and commits its customer-safe answer
+       → Conversation Runtime, Agent Runtime, RAG, read-only order lookup
 
-4. Widget receives either a clarification state or a workflow identifier
-       → navigate to /refunds/:workflowId when workflow starts
+4. The chat shows the persisted assistant answer. A ready proposal starts a
+   Temporal workflow and adds a refund-journey link to that answer.
 
 5. Widget loads current workflow state through its BFF
        GET /api/refunds/:workflowId
@@ -208,8 +211,8 @@ The customer does not need to understand `APPROVAL_REQUIRED`,
 |---|---|---|---|
 | `APPROVAL_REQUIRED` | Under review | A specialist is reviewing your request. | View progress |
 | `TAKEOVER_REQUIRED` | A specialist is helping | Your request needs personal support. | View progress / support contact |
-| `PENDING_RECONCILIATION` | We are confirming the refund | We received your request and are confirming its final status. | View progress |
-| `REFUND_SUCCEEDED` | Refund submitted | Your refund has been submitted. Your payment provider may take time to display it. | View receipt/details |
+| `REFUND_PROCESSING` or `PENDING_RECONCILIATION` | Refund initiated | Your refund was sent to the payment provider. We will update this page when its final status is confirmed. | View progress |
+| `REFUND_SUCCEEDED` | Refund completed | The payment provider confirmed the refund. The customer bank may still need a few business days to show it. | View receipt/details |
 | `DENY` | Refund request could not be approved | Explain the customer-safe reason and provide a support path. | Start new request / contact support |
 
 The UI must not infer success from a button click, an accepted confirmation, or a
@@ -231,6 +234,7 @@ type RefundWorkflowView = {
     | "AWAITING_CUSTOMER_CONFIRMATION"
     | "AWAITING_APPROVAL"
     | "HUMAN_TAKEOVER_REQUIRED"
+    | "REFUND_PROCESSING"
     | "REFUND_SUCCEEDED"
     | "PENDING_RECONCILIATION"
     | "DENIED"
@@ -250,27 +254,23 @@ type RefundWorkflowView = {
 plain-language labels shown to the customer. It also rejects citations with
 `INTERNAL` or `INTERNAL_ONLY` classification before rendering.
 
-An Edge-owned, versioned `RefundJourneyView` projection remains the next contract
-hardening step. It will add a durable timeline, safe citations, API versioning,
-and a stable browser shape without exposing raw workflow state.
+The Edge-owned, versioned `RefundJourneyView` projection provides the stable
+browser shape, customer safe timeline, API versioning, and no raw workflow state.
 
 ## Real-time behavior
 
-The initial implementation performs a load when the journey page opens and after
-a customer submits confirmation or decline. A human decision occurs in a separate
-browser surface, so the customer should refresh to see the final state today.
-
-The next increment is a same-origin SSE endpoint that emits only a journey ID,
-event ID, type, and timestamp. Each event should refresh the authoritative journey
-view. It must never carry raw tool calls, payment data, policy facts, or RAG
-passages. If SSE disconnects, the browser should poll the journey view every ten
-seconds with a quiet reconnecting status.
+The journey uses a same origin SSE endpoint that emits only a journey ID, event
+ID, type, and timestamp. Each event causes a refetch of the authoritative journey
+view. It never carries raw tool calls, payment data, policy facts, or RAG passages.
+If SSE disconnects, the browser polls the journey view every ten seconds with a
+quiet reconnecting status.
 
 ## Component inventory
 
 | Component | Responsibility |
 |---|---|
-| `SupportRequestForm` | implemented customer message, optional order reference, submit state, and clarification display |
+| `SupportChat` | implemented encrypted transcript view, customer composer, optional order reference, pending/error state, and inline workflow link |
+| `conversation-api.ts` | defensive mapping of customer-safe conversation and turn responses |
 | `RefundJourney` | implemented customer-safe status, exact preview, confirmation, optional future citations, and fallback timeline |
 | `customer-api.ts` | implemented conversion of untrusted API JSON into customer display data and safe status copy |
 | Customer BFF route handlers | implemented local-session authorization and Edge API proxying |
@@ -296,7 +296,8 @@ server-held development token to Edge API.
 
 | Requirement | Current status |
 |---|---|
-| Submit an authenticated request and reach the workflow route | Implemented |
+| Persist a customer/assistant chat turn and reload the transcript | Implemented |
+| Submit an authenticated refund request and reach the workflow route | Implemented |
 | Restrict reads to the customer who owns the workflow | Implemented at Edge API |
 | Show an exact amount before confirmation | Implemented when the workflow creates a preview |
 | Bind confirm/decline to the exact `preview_id` | Implemented |
@@ -304,7 +305,7 @@ server-held development token to Edge API.
 | Light, dark, and system themes | Implemented |
 | Keyboard focus and basic accessible status/error regions | Implemented foundation, needs formal accessibility testing |
 | Duplicate confirmation protection | Enforced by workflow semantics, needs browser end-to-end coverage |
-| Live SSE updates without losing scroll or draft state | Planned |
+| Live SSE updates with polling fallback | Implemented |
 | Browser telemetry without sensitive content | Planned |
 
 ## Delivery sequence
@@ -319,7 +320,6 @@ Completed:
 
 Next hardening increment:
 
-1. Add the Edge-owned `RefundJourneyView` projection and a persistent timeline.
-2. Add SSE and a polling fallback.
-3. Add component, accessibility, and browser end-to-end tests.
-4. Replace local sessions with Cognito while preserving the BFF boundaries.
+1. Add component, accessibility, and browser end-to-end tests.
+2. Add a visible customer receipt or provider reference where appropriate.
+3. Replace local sessions with Cognito while preserving the BFF boundaries.

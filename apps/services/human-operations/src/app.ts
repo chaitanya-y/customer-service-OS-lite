@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { z } from 'zod';
 
-import { humanCaseStatusSchema, humanCaseTypeSchema, humanDecisionSchema, refundReviewPacketSchema, type HumanCase, type HumanCaseAuditEvent, type HumanDecisionOutboxEvent } from './human-case.js';
+import { humanCaseStatusSchema, humanCaseTypeSchema, humanDecisionSchema, refundReviewPacketSchema, type HumanCase, type HumanCaseAuditEvent, type HumanDecision, type HumanDecisionOutboxEvent } from './human-case.js';
 import { HumanCaseRepositoryError, InMemoryHumanCaseRepository, type HumanCaseRepository } from './human-case-repository.js';
 import { HUMAN_ASSERTION_HEADER, type HumanAccess } from './human-access.js';
 import { WORKFLOW_ASSERTION_HEADER, type VerifyWorkflowCaseAccess } from './workflow-access.js';
@@ -17,11 +17,23 @@ const workerCloseCaseSchema = z.object({ workflow_id: opaqueId }).strict();
 const claimBodySchema = z.object({ expected_case_version: expectedVersionSchema }).strict();
 const reassignBodySchema = z.object({ assigned_staff_id: opaqueId, expected_case_version: expectedVersionSchema }).strict();
 const decisionBodySchema = z.object({ decision: humanDecisionSchema, reason_code: z.string().min(1).max(100).optional(), note: z.string().min(1).max(2_000).optional(), expected_case_version: expectedVersionSchema }).strict().superRefine((value, context) => {
-  if ((value.decision === 'REJECT' || value.decision === 'RESOLVE_TAKEOVER') && !value.note) context.addIssue({ code: 'custom', path: ['note'], message: 'A note is required for this decision' });
+  if ((value.decision === 'REJECT' || value.decision === 'RESOLVE_TAKEOVER' || value.decision === 'APPROVE_EXCEPTIONAL_REFUND') && !value.note) context.addIssue({ code: 'custom', path: ['note'], message: 'A note is required for this decision' });
 });
 const listQuerySchema = z.object({ status: humanCaseStatusSchema.optional(), assignee: z.enum(['me', 'unassigned']).optional() }).strict();
 
-export type SendDecision = (input: { workflowId: string; access: HumanAccess; decision: 'APPROVE' | 'REJECT' | 'RESOLVE_TAKEOVER'; reasonCode?: string }) => Promise<void>;
+type WorkflowDecisionActor = Readonly<{
+  staffId: string;
+  tenantId: string;
+  environmentId: string;
+}>;
+
+export type SendDecision = (input: {
+  workflowId: string;
+  access: WorkflowDecisionActor;
+  decision: HumanDecision;
+  decidedAt?: string;
+  reasonCode?: string;
+}) => Promise<void>;
 
 type AppOptions = Readonly<{
   verifyHuman: (value: string | undefined) => Promise<HumanAccess>;
@@ -73,7 +85,7 @@ export function buildApp(options: AppOptions) {
       ...(query.data.status === undefined ? {} : { status: query.data.status }),
       ...(query.data.assignee === undefined ? {} : { assignee: query.data.assignee }),
     });
-    return reply.send({ refund_cases: humanCases.filter((humanCase) => canViewCase(access, humanCase)).map(toHumanCaseResponse) });
+    return reply.send({ refund_cases: humanCases.filter((humanCase) => canViewCase(access, humanCase)).map((humanCase) => toHumanCaseResponse(humanCase, access)) });
   });
 
   app.get('/v1/refund-cases/:caseId', async (request, reply) => {
@@ -85,7 +97,7 @@ export function buildApp(options: AppOptions) {
       const humanCase = await repository.get({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
       if (!canViewCase(access, humanCase)) return notFound(reply);
       const auditEvents = await repository.auditEvents({ caseId: humanCase.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
-      return reply.send({ refund_case: toHumanCaseResponse(humanCase), audit_events: auditEvents.map(toAuditEventResponse) });
+      return reply.send({ refund_case: toHumanCaseResponse(humanCase, access), audit_events: auditEvents.map(toAuditEventResponse) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -96,9 +108,9 @@ export function buildApp(options: AppOptions) {
     if (!access) return reply;
     try {
       const current = await repository.get({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
-      if (!canViewCase(access, current)) return forbidden(reply, 'human_action_forbidden', 'This staff role cannot claim the refund case');
+      if (!canSubmitClaim(access, current)) return forbidden(reply, 'human_action_forbidden', 'This staff member cannot claim the refund case');
       const humanCase = await repository.claim({ caseId: current.caseId, tenantId: access.tenantId, environmentId: access.environmentId, staffId: access.staffId, expectedCaseVersion: body.data.expected_case_version, idempotencyKey });
-      return reply.send({ refund_case: toHumanCaseResponse(humanCase) });
+      return reply.send({ refund_case: toHumanCaseResponse(humanCase, access) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -110,7 +122,7 @@ export function buildApp(options: AppOptions) {
     if (access.role !== 'REFUND_SUPERVISOR') return forbidden(reply, 'human_action_forbidden', 'Only supervisors may reassign a refund case');
     try {
       const humanCase = await repository.reassign({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId, assignedStaffId: body.data.assigned_staff_id, expectedCaseVersion: body.data.expected_case_version, idempotencyKey });
-      return reply.send({ refund_case: toHumanCaseResponse(humanCase) });
+      return reply.send({ refund_case: toHumanCaseResponse(humanCase, access) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -121,12 +133,12 @@ export function buildApp(options: AppOptions) {
     if (!access) return reply;
     try {
       const current = await repository.get({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
-      if (!canMakeDecision(access, current, body.data.decision)) return forbidden(reply, 'human_action_forbidden', 'This staff role cannot make the requested decision');
+      if (!canSubmitDecision(access, current, body.data.decision)) return forbidden(reply, 'human_action_forbidden', 'This staff role cannot make the requested decision');
       const result = await repository.decide({ caseId: current.caseId, tenantId: access.tenantId, environmentId: access.environmentId, staffId: access.staffId, decision: body.data.decision, ...(body.data.reason_code === undefined ? {} : { reasonCode: body.data.reason_code }), ...(body.data.note === undefined ? {} : { note: body.data.note }), expectedCaseVersion: body.data.expected_case_version, idempotencyKey });
-      if (await repository.isOutboxPending(result.outboxEvent.eventId)) {
-        await deliverOutbox(options.sendDecision, repository, result.outboxEvent, access);
+      if (await repository.isOutboxPending({ eventId: result.outboxEvent.eventId, tenantId: access.tenantId, environmentId: access.environmentId })) {
+        await deliverOutbox(options.sendDecision, repository, result.outboxEvent);
       }
-      return reply.code(202).send({ refund_case: toHumanCaseResponse(result.case) });
+      return reply.code(202).send({ refund_case: toHumanCaseResponse(result.case, access) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -160,17 +172,58 @@ function canViewCase(access: HumanAccess, humanCase: HumanCase): boolean {
   return access.role === 'REFUND_SUPERVISOR' || humanCase.caseType === 'REFUND_APPROVAL';
 }
 
-function canMakeDecision(access: HumanAccess, humanCase: HumanCase, decision: string): boolean {
-  if (humanCase.caseType === 'REFUND_APPROVAL') return access.role === 'REFUND_APPROVER' && (decision === 'APPROVE' || decision === 'REJECT');
-  return access.role === 'REFUND_SUPERVISOR' && (decision === 'RESOLVE_TAKEOVER' || decision === 'REJECT');
+function canClaimCase(access: HumanAccess, humanCase: HumanCase): boolean {
+  return humanCase.status === 'OPEN' && humanCase.assignedStaffId === undefined && hasCaseRole(access, humanCase);
 }
 
-async function deliverOutbox(sendDecision: SendDecision, repository: HumanCaseRepository, event: HumanDecisionOutboxEvent, access: HumanAccess): Promise<void> {
+function canSubmitClaim(access: HumanAccess, humanCase: HumanCase): boolean {
+  // Permit a same-staff retry to reach the repository's idempotency check, while
+  // keeping the UI affordance limited to a genuinely open, unassigned case.
+  return hasCaseRole(access, humanCase) && (canClaimCase(access, humanCase) || humanCase.assignedStaffId === access.staffId);
+}
+
+function allowedActionsForHuman(access: HumanAccess, humanCase: HumanCase): readonly HumanDecision[] {
+  if (humanCase.status !== 'CLAIMED' || humanCase.assignedStaffId !== access.staffId || !hasCaseRole(access, humanCase)) return [];
+  return humanCase.caseType === 'REFUND_APPROVAL'
+    ? ['APPROVE', 'REJECT']
+    : ['APPROVE_EXCEPTIONAL_REFUND', 'RESOLVE_TAKEOVER', 'REJECT'];
+}
+
+function hasCaseRole(access: HumanAccess, humanCase: HumanCase): boolean {
+  return humanCase.caseType === 'REFUND_APPROVAL'
+    ? access.role === 'REFUND_APPROVER'
+    : access.role === 'REFUND_SUPERVISOR';
+}
+
+function canSubmitDecision(access: HumanAccess, humanCase: HumanCase, decision: HumanDecision): boolean {
+  if (allowedActionsForHuman(access, humanCase).includes(decision)) return true;
+  return canRetryPendingDecision(access, humanCase, decision);
+}
+
+function canRetryPendingDecision(access: HumanAccess, humanCase: HumanCase, decision: HumanDecision): boolean {
+  // A pending case never grants a fresh decision permission. This narrow path
+  // reaches the repository only for an eligible assignee's idempotent retry;
+  // the repository verifies the key and full request fingerprint before replay.
+  return humanCase.status === 'DECISION_PENDING' && humanCase.assignedStaffId === access.staffId && hasCaseRole(access, humanCase) && humanCase.allowedActions.includes(decision);
+}
+
+export async function deliverOutbox(sendDecision: SendDecision, repository: HumanCaseRepository, event: HumanDecisionOutboxEvent): Promise<boolean> {
   try {
-    await sendDecision({ workflowId: event.workflowId, access, decision: event.decision, ...(event.reasonCode === undefined ? {} : { reasonCode: event.reasonCode }) });
-    await repository.markOutboxDelivered(event.eventId);
+    await sendDecision({
+      workflowId: event.workflowId,
+      access: {
+        staffId: event.decidedBy,
+        tenantId: event.tenantId,
+        environmentId: event.environmentId,
+      },
+      decision: event.decision,
+      decidedAt: event.decidedAt,
+      ...(event.reasonCode === undefined ? {} : { reasonCode: event.reasonCode }),
+    });
+    await repository.markOutboxDelivered({ eventId: event.eventId, tenantId: event.tenantId, environmentId: event.environmentId });
+    return true;
   } catch {
-    // The event remains available for an outbox dispatcher when Kafka delivery is introduced.
+    return false;
   }
 }
 
@@ -188,13 +241,14 @@ function repositoryFailure(reply: { code: (statusCode: number) => { send: (paylo
   return reply.code(409).send({ error: { code: error.code.toLowerCase(), message: 'The refund case cannot be changed' } });
 }
 
-function toHumanCaseResponse(humanCase: HumanCase) {
+function toHumanCaseResponse(humanCase: HumanCase, access?: HumanAccess) {
   return {
     case_id: humanCase.caseId,
     workflow_id: humanCase.workflowId,
     case_type: humanCase.caseType,
     status: humanCase.status,
-    allowed_actions: humanCase.allowedActions,
+    allowed_actions: access === undefined ? humanCase.allowedActions : allowedActionsForHuman(access, humanCase),
+    ...(access === undefined ? {} : { can_claim: canClaimCase(access, humanCase) }),
     ...(humanCase.assignedStaffId === undefined ? {} : { assigned_staff_id: humanCase.assignedStaffId }),
     case_version: humanCase.caseVersion,
     review_packet: humanCase.reviewPacket,

@@ -3,12 +3,13 @@ import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 
 import type { ProtectMessage, ProtectedMessage } from './message-protection.js';
+import type { ConversationServiceAccessContext } from './service-assertion.js';
 import type { ConversationAccessContext } from './trusted-context.js';
 
 export type Conversation = {
   conversationId: string;
-  status: 'OPEN';
-  controlMode: 'AI';
+  status: 'OPEN' | 'CLOSED';
+  controlMode: 'AI' | 'QUEUED' | 'HUMAN';
 };
 
 export type AcceptedMessage = {
@@ -18,9 +19,24 @@ export type AcceptedMessage = {
   status: 'ACCEPTED';
 };
 
+export type ConversationTranscriptMessage = {
+  messageId: string;
+  sequenceNumber: number;
+  senderKind: 'END_CUSTOMER' | 'ASSISTANT';
+  text: string;
+  createdAt: string;
+  refundWorkflowId?: string;
+};
+
+export type ConversationTranscript = Conversation & {
+  messages: ConversationTranscriptMessage[];
+};
+
 export type OutboxEvent = {
   eventId: string;
-  eventType: 'conversation.message.received.v1';
+  eventType:
+    | 'conversation.message.received.v1'
+    | 'conversation.assistant-message.committed.v1';
   occurredAt: Date;
   producer: 'conversation-runtime';
   tenantId: string;
@@ -58,6 +74,30 @@ type AcceptMessageRecord = {
   occurredAt: Date;
 };
 
+type AppendAssistantMessageRecord = {
+  context: ConversationServiceAccessContext;
+  conversationId: string;
+  messageId: string;
+  payloadId: string;
+  eventId: string;
+  idempotencyKey: string;
+  canonicalRequestHash: string;
+  clientMessageId: string;
+  protectedMessage: ProtectedMessage;
+  occurredAt: Date;
+};
+
+type LinkRefundWorkflowRecord = {
+  context: ConversationServiceAccessContext;
+  conversationId: string;
+  messageId: string;
+  workflowId: string;
+  eventId: string;
+  idempotencyKey: string;
+  canonicalRequestHash: string;
+  occurredAt: Date;
+};
+
 export type CreateConversationPersistenceResult = {
   status: 'created' | 'duplicate';
   conversationId: string;
@@ -69,6 +109,11 @@ export type AcceptMessagePersistenceResult = {
   sequenceNumber: number;
 };
 
+export type RefundWorkflowLinkPersistenceResult = {
+  status: 'linked' | 'duplicate';
+  workflowId: string;
+};
+
 export interface ConversationRepository {
   createConversation(
     record: CreateConversationRecord,
@@ -76,6 +121,16 @@ export interface ConversationRepository {
   acceptMessage(
     record: AcceptMessageRecord,
   ): Promise<AcceptMessagePersistenceResult>;
+  appendAssistantMessage(
+    record: AppendAssistantMessageRecord,
+  ): Promise<AcceptMessagePersistenceResult>;
+  linkRefundWorkflow(
+    record: LinkRefundWorkflowRecord,
+  ): Promise<RefundWorkflowLinkPersistenceResult>;
+  readConversation(
+    context: ConversationAccessContext,
+    conversationId: string,
+  ): Promise<ConversationTranscript>;
 }
 
 export class IdempotencyConflictError extends Error {
@@ -172,6 +227,68 @@ export function createConversationService({
         sequenceNumber: result.sequenceNumber,
         status: 'ACCEPTED',
       };
+    },
+
+    async appendAssistantMessage(input: {
+      context: ConversationServiceAccessContext;
+      conversationId: string;
+      idempotencyKey: string;
+      clientMessageId: string;
+      text: string;
+    }): Promise<AcceptedMessage> {
+      if (Buffer.byteLength(input.text, 'utf8') > 32 * 1_024) {
+        throw new MessageTooLargeError();
+      }
+
+      const occurredAt = now();
+      const result = await repository.appendAssistantMessage({
+        context: input.context,
+        conversationId: input.conversationId,
+        messageId: createId(),
+        payloadId: createId(),
+        eventId: createId(),
+        idempotencyKey: input.idempotencyKey,
+        canonicalRequestHash: hashCanonicalRequest({
+          clientMessageId: input.clientMessageId,
+          text: input.text,
+        }),
+        clientMessageId: input.clientMessageId,
+        protectedMessage: protectMessage(input.text),
+        occurredAt,
+      });
+
+      return {
+        conversationId: input.conversationId,
+        messageId: result.messageId,
+        sequenceNumber: result.sequenceNumber,
+        status: 'ACCEPTED',
+      };
+    },
+
+    async linkRefundWorkflow(input: {
+      context: ConversationServiceAccessContext;
+      conversationId: string;
+      messageId: string;
+      workflowId: string;
+      idempotencyKey: string;
+    }): Promise<RefundWorkflowLinkPersistenceResult> {
+      const occurredAt = now();
+      return repository.linkRefundWorkflow({
+        ...input,
+        eventId: createId(),
+        canonicalRequestHash: hashCanonicalRequest({
+          messageId: input.messageId,
+          workflowId: input.workflowId,
+        }),
+        occurredAt,
+      });
+    },
+
+    async getConversation(input: {
+      context: ConversationAccessContext;
+      conversationId: string;
+    }): Promise<ConversationTranscript> {
+      return repository.readConversation(input.context, input.conversationId);
     },
   };
 }

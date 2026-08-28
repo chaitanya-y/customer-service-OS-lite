@@ -4,10 +4,11 @@ from pathlib import Path
 from knowledge_rag.models import SourceContentType
 from knowledge_rag.parsers import parse_source
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 FIXTURE_DIRECTORY = (
     REPOSITORY_ROOT
-    / "deployables"
+    / "apps"
+    / "services"
     / "control-knowledge"
     / "fixtures"
     / "source-documents"

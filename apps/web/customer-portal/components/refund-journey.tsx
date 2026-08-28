@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   formatDateTime,
@@ -10,19 +10,49 @@ import {
   type RefundJourney,
 } from "./customer-api";
 import styles from "./customer-widget.module.css";
+import {
+  useRefundJourneyUpdates,
+  type RefundJourneyUpdateConnection,
+} from "./use-refund-journey-updates";
+
+function updateConnectionLabel(connection: RefundJourneyUpdateConnection): string {
+  switch (connection) {
+    case "live":
+      return "Live updates active";
+    case "polling":
+      return "Checking for updates every 10 seconds";
+    case "reconnecting":
+      return "Reconnecting to live updates. We are checking every 10 seconds.";
+    case "connecting":
+      return "Connecting to live updates…";
+  }
+}
+
+function timelineStatusLabel(status: "COMPLETED" | "CURRENT" | "PENDING" | "SKIPPED"): string {
+  if (status === "CURRENT") return "Current step";
+  if (status === "COMPLETED") return "Completed";
+  if (status === "SKIPPED") return "Not required";
+  return "Upcoming";
+}
 
 export function RefundJourney({ workflowId }: { workflowId: string }) {
   const [journey, setJourney] = useState<RefundJourney>();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirming, setIsConfirming] = useState(false);
+  const journeyRefreshInFlight = useRef(false);
 
-  const loadJourney = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(undefined);
+  const loadJourney = useCallback(async (background = false) => {
+    if (journeyRefreshInFlight.current) return;
+    journeyRefreshInFlight.current = true;
+
+    if (!background) {
+      setIsLoading(true);
+      setErrorMessage(undefined);
+    }
 
     try {
-      const response = await fetch(`/api/refunds/${encodeURIComponent(workflowId)}`, {
+      const response = await fetch(`/api/refunds/${encodeURIComponent(workflowId)}/journey`, {
         cache: "no-store",
       });
       const body: unknown = await response.json().catch(() => undefined);
@@ -31,11 +61,19 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
       }
       setJourney(normalizeRefundJourney(workflowId, body));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "We could not load your refund status.");
+      if (!background) {
+        setErrorMessage(error instanceof Error ? error.message : "We could not load your refund status.");
+      }
     } finally {
-      setIsLoading(false);
+      if (!background) setIsLoading(false);
+      journeyRefreshInFlight.current = false;
     }
   }, [workflowId]);
+
+  const refreshJourneyFromUpdate = useCallback(() => {
+    void loadJourney(true);
+  }, [loadJourney]);
+  const updateConnection = useRefundJourneyUpdates(workflowId, refreshJourneyFromUpdate);
 
   useEffect(() => {
     void loadJourney();
@@ -80,7 +118,7 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
 
   const timeline = journey.timeline.length > 0
     ? journey.timeline
-    : [{ eventId: "current", occurredAt: journey.updatedAt ?? "", label: journey.statusLabel, detail: journey.statusDetail }];
+    : [{ eventId: "current", label: journey.statusLabel, status: "CURRENT" as const }];
 
   return (
     <div className={styles.journeyLayout} aria-live="polite">
@@ -88,13 +126,16 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
         <span className="cso-eyebrow">Refund request</span>
         <h1 id="refund-status-heading">{journey.statusLabel}</h1>
         <p className={styles.journeyDetail}>{journey.statusDetail}</p>
+        {journey.nextActionLabel ? <p className={styles.nextAction}>{journey.nextActionLabel}</p> : null}
+        <p aria-live="polite" className={styles.updateConnection}>
+          {updateConnectionLabel(updateConnection)}
+        </p>
 
         {journey.preview ? (
           <div className={styles.preview}>
             <p className={styles.previewLabel}>Refund amount</p>
             <p className={styles.previewAmount}>{formatRefundAmount(journey.preview.amount)}</p>
-            {journey.preview.reasonLabel ? <p className={styles.previewReason}>{journey.preview.reasonLabel}</p> : null}
-            {journey.preview.orderReference ? <p className={styles.previewLabel}>Order {journey.preview.orderReference}</p> : null}
+            <p className={styles.previewReason}>Returned to {journey.preview.refundDestination}</p>
             {journey.preview.expiresAt ? <p className={styles.previewLabel}>Review by {formatDateTime(journey.preview.expiresAt)}</p> : null}
             {journey.nextAction === "CONFIRM_OR_DECLINE" ? (
               <div className={styles.actions}>
@@ -107,28 +148,15 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
 
         {errorMessage ? <p className={styles.error} role="alert">{errorMessage}</p> : null}
 
-        {journey.citations.length > 0 ? (
-          <section className={styles.citations} aria-labelledby="policy-sources-heading">
-            <h2 id="policy-sources-heading">Based on</h2>
-            {journey.citations.map((citation) => (
-              <article className={styles.citation} key={`${citation.documentTitle}-${citation.effectiveAt ?? ""}`}>
-                <strong>{citation.documentTitle}</strong>
-                {citation.effectiveAt ? <span>Effective {formatDateTime(citation.effectiveAt)}</span> : null}
-                {citation.excerpt ? <p>{citation.excerpt}</p> : null}
-              </article>
-            ))}
-          </section>
-        ) : null}
       </section>
 
       <aside className={styles.timelinePanel} aria-labelledby="progress-heading">
         <h2 id="progress-heading">Progress</h2>
         <ol className={styles.timeline}>
           {timeline.map((event) => (
-            <li key={event.eventId}>
+            <li aria-current={event.status === "CURRENT" ? "step" : undefined} key={event.eventId}>
               <strong>{event.label}</strong>
-              {event.occurredAt ? <time dateTime={event.occurredAt}>{formatDateTime(event.occurredAt)}</time> : null}
-              {event.detail ? <span>{event.detail}</span> : null}
+              <span>{timelineStatusLabel(event.status)}</span>
             </li>
           ))}
         </ol>

@@ -17,7 +17,10 @@ from agent_runtime.refund.answer import (
     CustomerAnswer,
     RefundAnswerCompositionError,
 )
-from agent_runtime.refund.graph import build_refund_graph
+from agent_runtime.refund.graph import (
+    MISSING_ORDER_REFERENCE_MESSAGE,
+    build_refund_graph,
+)
 from agent_runtime.refund.intent import (
     RefundIntentExtraction,
     RefundIntentExtractionError,
@@ -205,6 +208,10 @@ async def test_refund_graph_requests_missing_order_reference() -> None:
     assert result == {
         "customer_message": "I want a refund.",
         "order_reference": None,
+        "customer_answer": CustomerAnswer(
+            message=MISSING_ORDER_REFERENCE_MESSAGE,
+            citations=[],
+        ),
         "journey": "refund",
         "status": "awaiting_order_reference",
     }

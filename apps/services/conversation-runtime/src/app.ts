@@ -16,6 +16,11 @@ import {
   ContextAssertionError,
   type VerifyContextAssertion,
 } from './trusted-context.js';
+import {
+  SERVICE_ASSERTION_HEADER,
+  ServiceAssertionError,
+  type VerifyServiceAssertion,
+} from './service-assertion.js';
 
 const idempotencyKeySchema = z
   .string()
@@ -42,12 +47,40 @@ const acceptMessageSchema = z
       .strict(),
   })
   .strict();
+const appendAssistantMessageSchema = z
+  .object({
+    client_message_id: z
+      .string()
+      .min(1)
+      .max(160)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    content: z
+      .object({
+        type: z.literal('text'),
+        text: z.string().trim().min(1).max(32_768),
+      })
+      .strict(),
+  })
+  .strict();
+const linkRefundWorkflowSchema = z
+  .object({
+    workflow_id: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+  })
+  .strict();
 const conversationParametersSchema = z.object({
   conversationId: z.uuid(),
+});
+const assistantMessageParametersSchema = conversationParametersSchema.extend({
+  messageId: z.uuid(),
 });
 
 type BuildAppOptions = {
   verifyContextAssertion: VerifyContextAssertion;
+  verifyServiceAssertion: VerifyServiceAssertion;
   conversationService: ConversationService;
   checkHealth: () => Promise<void>;
   logger?: boolean;
@@ -106,6 +139,40 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
   });
 
+  app.get('/v1/conversations/:conversationId', async (request, reply) => {
+    const parameters = conversationParametersSchema.safeParse(request.params);
+
+    if (!parameters.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'INVALID_CONVERSATION_REQUEST',
+          message: 'Conversation request is invalid',
+          retryable: false,
+        },
+      });
+    }
+
+    try {
+      const context = await options.verifyContextAssertion(
+        readContextAssertion(request.headers[CONTEXT_ASSERTION_HEADER]),
+      );
+      const conversation = await options.conversationService.getConversation({
+        context,
+        conversationId: parameters.data.conversationId,
+      });
+
+      return {
+        data: conversation,
+        meta: {
+          requestId: context.requestId,
+          apiVersion: '2026-08-05',
+        },
+      };
+    } catch (error) {
+      return sendStableError(reply, error, request.log);
+    }
+  });
+
   app.post('/v1/conversations/:conversationId/messages', async (
     request,
     reply,
@@ -150,6 +217,99 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
   });
 
+  app.post('/v1/internal/conversations/:conversationId/assistant-messages', async (
+    request,
+    reply,
+  ) => {
+    const parameters = conversationParametersSchema.safeParse(request.params);
+    const body = appendAssistantMessageSchema.safeParse(request.body);
+    const idempotencyKey = idempotencyKeySchema.safeParse(
+      request.headers['idempotency-key'],
+    );
+
+    if (!parameters.success || !body.success || !idempotencyKey.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'INVALID_ASSISTANT_MESSAGE_REQUEST',
+          message: 'Assistant message request is invalid',
+          retryable: false,
+        },
+      });
+    }
+
+    try {
+      const context = await options.verifyServiceAssertion(
+        readContextAssertion(request.headers[SERVICE_ASSERTION_HEADER]),
+      );
+      const accepted = await options.conversationService.appendAssistantMessage({
+        context,
+        conversationId: parameters.data.conversationId,
+        idempotencyKey: idempotencyKey.data,
+        clientMessageId: body.data.client_message_id,
+        text: body.data.content.text,
+      });
+
+      return reply.code(202).send({
+        data: accepted,
+        meta: {
+          requestId: context.requestId,
+          apiVersion: '2026-08-05',
+        },
+      });
+    } catch (error) {
+      return sendStableError(reply, error, request.log);
+    }
+  });
+
+  app.post('/v1/internal/conversations/:conversationId/messages/:messageId/refund-workflow', async (
+    request,
+    reply,
+  ) => {
+    const parameters = assistantMessageParametersSchema.safeParse(request.params);
+    const body = linkRefundWorkflowSchema.safeParse(request.body);
+    const idempotencyKey = idempotencyKeySchema.safeParse(
+      request.headers['idempotency-key'],
+    );
+
+    if (!parameters.success || !body.success || !idempotencyKey.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'INVALID_REFUND_WORKFLOW_REFERENCE',
+          message: 'Refund workflow reference is invalid',
+          retryable: false,
+        },
+      });
+    }
+
+    try {
+      const context = await options.verifyServiceAssertion(
+        readContextAssertion(request.headers[SERVICE_ASSERTION_HEADER]),
+      );
+      const linked = await options.conversationService.linkRefundWorkflow({
+        context,
+        conversationId: parameters.data.conversationId,
+        messageId: parameters.data.messageId,
+        workflowId: body.data.workflow_id,
+        idempotencyKey: idempotencyKey.data,
+      });
+
+      return reply.code(202).send({
+        data: {
+          conversationId: parameters.data.conversationId,
+          messageId: parameters.data.messageId,
+          workflowId: linked.workflowId,
+          status: 'LINKED',
+        },
+        meta: {
+          requestId: context.requestId,
+          apiVersion: '2026-08-05',
+        },
+      });
+    } catch (error) {
+      return sendStableError(reply, error, request.log);
+    }
+  });
+
   return app;
 }
 
@@ -167,6 +327,16 @@ function sendStableError(
       error: {
         code: 'CONTEXT_UNAUTHORIZED',
         message: 'Trusted context is required',
+        retryable: false,
+      },
+    });
+  }
+
+  if (error instanceof ServiceAssertionError) {
+    return reply.code(401).send({
+      error: {
+        code: 'SERVICE_UNAUTHORIZED',
+        message: 'Trusted service assertion is required',
         retryable: false,
       },
     });

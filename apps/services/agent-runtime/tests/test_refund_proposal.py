@@ -139,7 +139,7 @@ def test_generated_proposal_matches_the_canonical_json_schema(
         ),
         order_context,
     )
-    repository_root = Path(__file__).resolve().parents[3]
+    repository_root = Path(__file__).resolve().parents[4]
     proposal_schema = json.loads(
         (
             repository_root

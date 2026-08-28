@@ -89,6 +89,18 @@
   margin: 0;
 }
 
+.nextAction {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 12px 0 0;
+}
+
+.updateConnection {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
 .preview {
   background: var(--surface-subtle);
   border-radius: 10px;

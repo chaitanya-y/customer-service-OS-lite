@@ -14,6 +14,7 @@ from agent_runtime.integrations.order_lookup import (
     OrderNotFoundError,
 )
 from agent_runtime.refund.answer import (
+    CustomerAnswer,
     RefundAnswerComposer,
     RefundAnswerCompositionError,
     build_fallback_customer_answer,
@@ -24,6 +25,10 @@ from agent_runtime.refund.intent import (
 )
 from agent_runtime.refund.proposal import RefundProposalBuilder
 from agent_runtime.refund.state import RefundState
+
+MISSING_ORDER_REFERENCE_MESSAGE = (
+    "Please share your order reference so I can look into this refund request."
+)
 
 
 def initialize_refund_request(state: RefundState) -> RefundState:
@@ -65,6 +70,9 @@ def record_order_reference(state: RefundState) -> RefundState:
 def request_order_reference(_: RefundState) -> RefundState:
     return {
         "order_reference": None,
+        "customer_answer": CustomerAnswer(
+            message=MISSING_ORDER_REFERENCE_MESSAGE,
+        ),
         "status": "awaiting_order_reference",
     }
 

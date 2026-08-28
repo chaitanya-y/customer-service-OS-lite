@@ -2,7 +2,12 @@ import { z } from 'zod';
 
 export const humanCaseTypeSchema = z.enum(['REFUND_APPROVAL', 'REFUND_TAKEOVER']);
 export const humanCaseStatusSchema = z.enum(['OPEN', 'CLAIMED', 'DECISION_PENDING', 'CLOSED']);
-export const humanDecisionSchema = z.enum(['APPROVE', 'REJECT', 'RESOLVE_TAKEOVER']);
+export const humanDecisionSchema = z.enum([
+  'APPROVE',
+  'REJECT',
+  'RESOLVE_TAKEOVER',
+  'APPROVE_EXCEPTIONAL_REFUND',
+]);
 
 export type HumanCaseType = z.infer<typeof humanCaseTypeSchema>;
 export type HumanCaseStatus = z.infer<typeof humanCaseStatusSchema>;
@@ -73,7 +78,7 @@ export type HumanDecisionOutboxEvent = Readonly<{
 export function allowedActionsForCaseType(caseType: HumanCaseType): readonly HumanDecision[] {
   return caseType === 'REFUND_APPROVAL'
     ? ['APPROVE', 'REJECT']
-    : ['RESOLVE_TAKEOVER', 'REJECT'];
+    : ['APPROVE_EXCEPTIONAL_REFUND', 'RESOLVE_TAKEOVER', 'REJECT'];
 }
 
 export function isAllowedDecisionForCaseType(caseType: HumanCaseType, decision: HumanDecision): boolean {

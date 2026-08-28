@@ -23,7 +23,7 @@ const refundContextSchema = z.object({
   }).strict(),
 }).strict();
 const refundExecutionSchema = z.object({
-  status: z.enum(['SUCCEEDED', 'FAILED', 'PENDING_RECONCILIATION']),
+  status: z.enum(['SUBMITTED', 'SUCCEEDED', 'FAILED', 'PENDING_RECONCILIATION']),
   providerRefundId: z.string().optional(),
 }).strict();
 
@@ -54,8 +54,8 @@ export function createIntegrationGatewayRefundContextClient({
   fetchImpl = fetch,
 }: IntegrationGatewayRefundContextClientOptions): {
   fetchRefundContext(input: RefreshRefundContextInput): Promise<RefundContext>;
-  executeRefund(input: ExecuteRefundInput): Promise<{ status: 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION'; providerRefundId?: string }>;
-  reconcileRefund(input: ReconcileRefundInput): Promise<{ status: 'SUCCEEDED' | 'NOT_FOUND'; providerRefundId?: string }>;
+  executeRefund(input: ExecuteRefundInput): Promise<{ status: 'SUBMITTED' | 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION'; providerRefundId?: string }>;
+  reconcileRefund(input: ReconcileRefundInput): Promise<{ status: 'SUCCEEDED' | 'FAILED' | 'PROCESSING' | 'NOT_FOUND'; providerRefundId?: string }>;
 } {
   const endpoint = new URL('/internal/v1/refund-contexts', baseUrl);
   const executionEndpoint = new URL('/internal/v1/refunds', baseUrl);
@@ -128,7 +128,7 @@ export function createIntegrationGatewayRefundContextClient({
       let response: Response;
       try { response = await fetchImpl(reconciliationEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', [WORKFLOW_ACCESS_ASSERTION_HEADER]: assertion }, body: JSON.stringify({ orderId: input.proposal.intent.orderId, previewId: input.preview.previewId, amount: input.preview.requestedAmount }), signal: AbortSignal.timeout(timeoutMilliseconds) }); } catch { return { status: 'NOT_FOUND' }; }
       if (!response.ok) return { status: 'NOT_FOUND' };
-      const result = z.object({ status: z.enum(['SUCCEEDED', 'NOT_FOUND']), providerRefundId: z.string().optional() }).strict().parse(await response.json());
+      const result = z.object({ status: z.enum(['SUCCEEDED', 'FAILED', 'PROCESSING', 'NOT_FOUND']), providerRefundId: z.string().optional() }).strict().parse(await response.json());
       return result.providerRefundId === undefined ? { status: result.status } : { status: result.status, providerRefundId: result.providerRefundId };
     },
   };

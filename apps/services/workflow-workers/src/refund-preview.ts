@@ -22,8 +22,20 @@ export type CreateRefundPreviewInput = Readonly<{
   proposal: RefundProposal;
   refundContext: RefundContext;
   decision: RefundPolicyDecision;
+  /**
+   * A takeover decision normally cannot produce a customer refund offer. The
+   * workflow supplies this only after the assigned supervisor has recorded an
+   * exceptional approval on the linked human case.
+   */
+  authorization?: RefundPreviewAuthorization;
   previewId: string;
   createdAt: string;
+}>;
+
+export type RefundPreviewAuthorization = Readonly<{
+  kind: 'HUMAN_EXCEPTIONAL_APPROVAL';
+  caseId: string;
+  decision: 'APPROVE_EXCEPTIONAL_REFUND';
 }>;
 
 /** Builds the exact customer-visible offer from trusted facts and a policy decision. */
@@ -31,11 +43,20 @@ export function createRefundPreview({
   proposal,
   refundContext,
   decision,
+  authorization,
   previewId,
   createdAt,
 }: CreateRefundPreviewInput): RefundPreview {
   const requestedAmount = proposal.intent.requestedAmount;
-  if ((decision.effect !== 'ALLOW' && decision.effect !== 'APPROVAL_REQUIRED') || requestedAmount === undefined) {
+  const policyAllowsPreview =
+    decision.effect === 'ALLOW' || decision.effect === 'APPROVAL_REQUIRED';
+  const exceptionalApprovalAllowsPreview =
+    decision.effect === 'TAKEOVER_REQUIRED' &&
+    authorization?.kind === 'HUMAN_EXCEPTIONAL_APPROVAL' &&
+    authorization.decision === 'APPROVE_EXCEPTIONAL_REFUND' &&
+    authorization.caseId.length > 0;
+
+  if ((!policyAllowsPreview && !exceptionalApprovalAllowsPreview) || requestedAmount === undefined) {
     throw new Error('REFUND_PREVIEW_REQUIRES_ALLOWED_DECISION');
   }
   if (proposal.intent.orderId !== refundContext.source.orderId) {

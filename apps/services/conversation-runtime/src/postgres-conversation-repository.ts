@@ -5,8 +5,10 @@ import {
   IdempotencyConflictError,
   type AcceptMessagePersistenceResult,
   type ConversationRepository,
+  type ConversationTranscript,
   type CreateConversationPersistenceResult,
 } from './conversation-service.js';
+import type { ProtectedMessage, UnprotectMessage } from './message-protection.js';
 
 type IdempotencyRow = QueryResultRow & {
   canonical_request_hash: string;
@@ -22,10 +24,44 @@ type MessageResult = {
   sequenceNumber: number;
 };
 
+type StoredMessageRow = QueryResultRow & {
+  message_id: string;
+  sequence_number: string;
+  sender_kind: 'END_CUSTOMER' | 'ASSISTANT';
+  content_length: number;
+  content_sha256: string;
+  created_at: Date;
+  refund_workflow_id: string | null;
+  ciphertext: Buffer;
+  initialization_vector: Buffer;
+  authentication_tag: Buffer;
+  encryption_key_version: string;
+};
+
+type AppendMessageRecord =
+  | Parameters<ConversationRepository['acceptMessage']>[0]
+  | Parameters<ConversationRepository['appendAssistantMessage']>[0];
+
+type AppendMessageOptions = {
+  operation: 'conversation.accept-message' | 'conversation.append-assistant-message';
+  eventType:
+    | 'conversation.message.received.v1'
+    | 'conversation.assistant-message.committed.v1';
+  senderKind: 'END_CUSTOMER' | 'ASSISTANT';
+  storedClientMessageId: string;
+};
+
+type RefundWorkflowLinkResult = {
+  workflowId: string;
+};
+
 export class PostgresConversationRepository
   implements ConversationRepository
 {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly unprotectMessage: UnprotectMessage,
+  ) {}
 
   async checkHealth(): Promise<void> {
     await this.pool.query('SELECT 1');
@@ -121,6 +157,202 @@ export class PostgresConversationRepository
   async acceptMessage(
     record: Parameters<ConversationRepository['acceptMessage']>[0],
   ): Promise<AcceptMessagePersistenceResult> {
+    return this.appendMessage(record, {
+      operation: 'conversation.accept-message',
+      eventType: 'conversation.message.received.v1',
+      senderKind: 'END_CUSTOMER',
+      storedClientMessageId: record.clientMessageId,
+    });
+  }
+
+  async appendAssistantMessage(
+    record: Parameters<ConversationRepository['appendAssistantMessage']>[0],
+  ): Promise<AcceptMessagePersistenceResult> {
+    return this.appendMessage(record, {
+      operation: 'conversation.append-assistant-message',
+      eventType: 'conversation.assistant-message.committed.v1',
+      senderKind: 'ASSISTANT',
+      storedClientMessageId: `assistant:${record.clientMessageId}`,
+    });
+  }
+
+  async readConversation(
+    context: Parameters<ConversationRepository['readConversation']>[0],
+    conversationId: string,
+  ): Promise<ConversationTranscript> {
+    return this.inTransaction(context, async (client) => {
+      const conversation = await client.query<{
+        status: 'OPEN';
+        control_mode: 'AI' | 'QUEUED' | 'HUMAN';
+      }>(
+        `
+          SELECT status, control_mode
+          FROM conversation.conversations
+          WHERE tenant_id = $1
+            AND environment_id = $2
+            AND conversation_id = $3
+            AND subject_customer_id = $4
+        `,
+        [
+          context.tenantId,
+          context.environmentId,
+          conversationId,
+          context.subjectCustomerId,
+        ],
+      );
+
+      if (conversation.rowCount !== 1 || !conversation.rows[0]) {
+        throw new ConversationUnavailableError();
+      }
+
+      const messages = await client.query<StoredMessageRow>(
+        `
+          SELECT message.message_id,
+                 message.sequence_number,
+                 message.sender_kind,
+                 message.content_length,
+                 message.content_sha256,
+                 message.created_at,
+                 message.refund_workflow_id,
+                 payload.ciphertext,
+                 payload.initialization_vector,
+                 payload.authentication_tag,
+                 payload.encryption_key_version
+          FROM conversation.messages AS message
+          JOIN conversation.message_payloads AS payload
+            ON payload.tenant_id = message.tenant_id
+           AND payload.environment_id = message.environment_id
+           AND payload.payload_id = message.payload_id
+          WHERE message.tenant_id = $1
+            AND message.environment_id = $2
+            AND message.conversation_id = $3
+            AND message.status = 'COMMITTED'
+            AND message.sender_kind IN ('END_CUSTOMER', 'ASSISTANT')
+          ORDER BY message.sequence_number ASC
+        `,
+        [context.tenantId, context.environmentId, conversationId],
+      );
+
+      const storedConversation = conversation.rows[0];
+      return {
+        conversationId,
+        status: storedConversation.status,
+        controlMode: storedConversation.control_mode,
+        messages: messages.rows.map((message) => ({
+          messageId: message.message_id,
+          sequenceNumber: Number(message.sequence_number),
+          senderKind: message.sender_kind,
+          text: this.unprotectMessage(toProtectedMessage(message)),
+          createdAt: message.created_at.toISOString(),
+          ...(message.refund_workflow_id === null
+            ? {}
+            : { refundWorkflowId: message.refund_workflow_id }),
+        })),
+      };
+    });
+  }
+
+  async linkRefundWorkflow(
+    record: Parameters<ConversationRepository['linkRefundWorkflow']>[0],
+  ) {
+    return this.inTransaction(record.context, async (client) => {
+      const existingIdempotency = await this.findIdempotencyResult(
+        client,
+        record.context.tenantId,
+        record.context.environmentId,
+        'conversation.link-refund-workflow',
+        record.conversationId,
+        record.idempotencyKey,
+      );
+      if (existingIdempotency) {
+        ensureMatchingRequest(existingIdempotency, record.canonicalRequestHash);
+        const result = parseRefundWorkflowLinkResult(existingIdempotency.result_json);
+        return { status: 'duplicate' as const, workflowId: result.workflowId };
+      }
+
+      const message = await client.query<{
+        subject_customer_id: string;
+        refund_workflow_id: string | null;
+      }>(
+        `
+          SELECT conversation.subject_customer_id, message.refund_workflow_id
+          FROM conversation.messages AS message
+          JOIN conversation.conversations AS conversation
+            ON conversation.tenant_id = message.tenant_id
+           AND conversation.environment_id = message.environment_id
+           AND conversation.conversation_id = message.conversation_id
+          WHERE message.tenant_id = $1
+            AND message.environment_id = $2
+            AND message.conversation_id = $3
+            AND message.message_id = $4
+            AND message.sender_kind = 'ASSISTANT'
+            AND message.status = 'COMMITTED'
+          FOR UPDATE
+        `,
+        [
+          record.context.tenantId,
+          record.context.environmentId,
+          record.conversationId,
+          record.messageId,
+        ],
+      );
+
+      const storedMessage = message.rows[0];
+      if (
+        message.rowCount !== 1
+        || !storedMessage
+        || storedMessage.subject_customer_id !== record.context.subjectCustomerId
+      ) {
+        throw new ConversationUnavailableError();
+      }
+      if (
+        storedMessage.refund_workflow_id !== null
+        && storedMessage.refund_workflow_id !== record.workflowId
+      ) {
+        throw new IdempotencyConflictError();
+      }
+
+      if (storedMessage.refund_workflow_id === null) {
+        await client.query(
+          `
+            UPDATE conversation.messages
+            SET refund_workflow_id = $5
+            WHERE tenant_id = $1
+              AND environment_id = $2
+              AND conversation_id = $3
+              AND message_id = $4
+          `,
+          [
+            record.context.tenantId,
+            record.context.environmentId,
+            record.conversationId,
+            record.messageId,
+            record.workflowId,
+          ],
+        );
+      }
+
+      const result: RefundWorkflowLinkResult = { workflowId: record.workflowId };
+      await this.insertIdempotencyResult(
+        client,
+        record,
+        'conversation.link-refund-workflow',
+        result,
+      );
+
+      return {
+        status: storedMessage.refund_workflow_id === null
+          ? 'linked' as const
+          : 'duplicate' as const,
+        workflowId: record.workflowId,
+      };
+    });
+  }
+
+  private async appendMessage(
+    record: AppendMessageRecord,
+    options: AppendMessageOptions,
+  ): Promise<AcceptMessagePersistenceResult> {
     return this.inTransaction(record.context, async (client) => {
       const conversation = await client.query<{
         subject_customer_id: string;
@@ -153,7 +385,7 @@ export class PostgresConversationRepository
         client,
         record.context.tenantId,
         record.context.environmentId,
-        'conversation.accept-message',
+        options.operation,
         record.conversationId,
         record.idempotencyKey,
       );
@@ -185,7 +417,7 @@ export class PostgresConversationRepository
           record.context.tenantId,
           record.context.environmentId,
           record.conversationId,
-          record.clientMessageId,
+          options.storedClientMessageId,
         ],
       );
 
@@ -206,6 +438,7 @@ export class PostgresConversationRepository
         await this.insertIdempotencyResult(
           client,
           record,
+          options.operation,
           result,
         );
 
@@ -275,11 +508,12 @@ export class PostgresConversationRepository
             content_type,
             content_length,
             content_sha256,
+            refund_workflow_id,
             status,
             created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, 'END_CUSTOMER', $7,
-                  'text/plain', $8, $9, 'COMMITTED', $10)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                  'text/plain', $9, $10, NULL, 'COMMITTED', $11)
         `,
         [
           record.context.tenantId,
@@ -287,7 +521,8 @@ export class PostgresConversationRepository
           record.conversationId,
           sequenceNumber,
           record.messageId,
-          record.clientMessageId,
+          options.storedClientMessageId,
+          options.senderKind,
           record.payloadId,
           record.protectedMessage.plaintextByteLength,
           record.protectedMessage.plaintextSha256,
@@ -297,7 +532,7 @@ export class PostgresConversationRepository
 
       const eventPayload = {
         eventId: record.eventId,
-        eventType: 'conversation.message.received.v1',
+        eventType: options.eventType,
         occurredAt: record.occurredAt.toISOString(),
         producer: 'conversation-runtime',
         tenantId: record.context.tenantId,
@@ -335,7 +570,7 @@ export class PostgresConversationRepository
           record.context.tenantId,
           record.context.environmentId,
           record.eventId,
-          'conversation.message.received.v1',
+          options.eventType,
           record.conversationId,
           sequenceNumber,
           record.context.routingEpoch,
@@ -349,7 +584,12 @@ export class PostgresConversationRepository
         messageId: record.messageId,
         sequenceNumber,
       };
-      await this.insertIdempotencyResult(client, record, result);
+      await this.insertIdempotencyResult(
+        client,
+        record,
+        options.operation,
+        result,
+      );
 
       return { status: 'accepted', ...result };
     });
@@ -357,8 +597,9 @@ export class PostgresConversationRepository
 
   private async insertIdempotencyResult(
     client: PoolClient,
-    record: Parameters<ConversationRepository['acceptMessage']>[0],
-    result: MessageResult,
+    record: AppendMessageRecord | Parameters<ConversationRepository['linkRefundWorkflow']>[0],
+    operation: AppendMessageOptions['operation'] | 'conversation.link-refund-workflow',
+    result: MessageResult | RefundWorkflowLinkResult,
   ): Promise<void> {
     await client.query(
       `
@@ -372,12 +613,13 @@ export class PostgresConversationRepository
           result_json,
           created_at
         )
-        VALUES ($1, $2, 'conversation.accept-message', $3, $4, $5,
-                $6::jsonb, $7)
+        VALUES ($1, $2, $3, $4, $5, $6,
+                $7::jsonb, $8)
       `,
       [
         record.context.tenantId,
         record.context.environmentId,
+        operation,
         record.conversationId,
         record.idempotencyKey,
         record.canonicalRequestHash,
@@ -467,6 +709,17 @@ export class PostgresConversationRepository
   }
 }
 
+function toProtectedMessage(row: StoredMessageRow): ProtectedMessage {
+  return {
+    ciphertext: row.ciphertext,
+    initializationVector: row.initialization_vector,
+    authenticationTag: row.authentication_tag,
+    plaintextSha256: row.content_sha256,
+    plaintextByteLength: row.content_length,
+    encryptionKeyVersion: row.encryption_key_version,
+  };
+}
+
 function ensureMatchingRequest(
   existing: IdempotencyRow,
   canonicalRequestHash: string,
@@ -505,4 +758,17 @@ function parseMessageResult(value: unknown): MessageResult {
     messageId: value.messageId,
     sequenceNumber: value.sequenceNumber,
   };
+}
+
+function parseRefundWorkflowLinkResult(value: unknown): RefundWorkflowLinkResult {
+  if (
+    typeof value !== 'object'
+    || value === null
+    || !('workflowId' in value)
+    || typeof value.workflowId !== 'string'
+  ) {
+    throw new Error('Stored refund workflow link result is invalid');
+  }
+
+  return { workflowId: value.workflowId };
 }

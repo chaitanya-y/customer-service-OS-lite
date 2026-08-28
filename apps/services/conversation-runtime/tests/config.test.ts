@@ -9,14 +9,20 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   ENVIRONMENT_ID: 'local',
   CONTEXT_ASSERTION_HMAC_SECRET:
     'context-assertion-secret-at-least-32-bytes',
+  EDGE_SERVICE_ASSERTION_HMAC_SECRET:
+    'edge-service-assertion-secret-at-least-32-bytes',
   MESSAGE_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 1).toString('base64'),
 };
 
 test('loads safe Conversation Runtime defaults', () => {
   const config = loadConfig(BASE_ENV);
 
-  assert.equal(config.PORT, 3003);
+  assert.equal(config.PORT, 3004);
   assert.equal(config.CONTEXT_ASSERTION_AUDIENCE, 'conversation-runtime');
+  assert.equal(
+    config.EDGE_SERVICE_ASSERTION_AUDIENCE,
+    'conversation-runtime',
+  );
   assert.equal(config.MESSAGE_ENCRYPTION_KEY_VERSION, 'local-v1');
 });
 

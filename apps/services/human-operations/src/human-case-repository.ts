@@ -57,8 +57,9 @@ export interface HumanCaseRepository {
   claim(input: ClaimHumanCaseInput): Promise<HumanCase>;
   reassign(input: ReassignHumanCaseInput): Promise<HumanCase>;
   decide(input: DecideHumanCaseInput): Promise<Readonly<{ case: HumanCase; outboxEvent: HumanDecisionOutboxEvent }>>;
-  isOutboxPending(eventId: string): Promise<boolean>;
-  markOutboxDelivered(eventId: string): Promise<void>;
+  listPendingOutbox(input: Readonly<{ tenantId: string; environmentId: string; limit: number }>): Promise<readonly HumanDecisionOutboxEvent[]>;
+  isOutboxPending(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<boolean>;
+  markOutboxDelivered(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<void>;
 }
 
 type StoredIdempotency = Readonly<{ fingerprint: string; caseId: string; outboxEvent?: HumanDecisionOutboxEvent }>;
@@ -187,12 +188,21 @@ export class InMemoryHumanCaseRepository implements HumanCaseRepository {
     return { case: next, outboxEvent };
   }
 
-  async markOutboxDelivered(eventId: string): Promise<void> {
-    this.#outbox.delete(eventId);
+  async markOutboxDelivered(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<void> {
+    const event = this.#outbox.get(input.eventId);
+    if (event?.tenantId === input.tenantId && event.environmentId === input.environmentId) this.#outbox.delete(input.eventId);
   }
 
-  async isOutboxPending(eventId: string): Promise<boolean> {
-    return this.#outbox.has(eventId);
+  async isOutboxPending(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<boolean> {
+    const event = this.#outbox.get(input.eventId);
+    return event?.tenantId === input.tenantId && event.environmentId === input.environmentId;
+  }
+
+  async listPendingOutbox(input: Readonly<{ tenantId: string; environmentId: string; limit: number }>): Promise<readonly HumanDecisionOutboxEvent[]> {
+    return [...this.#outbox.values()]
+      .filter((event) => event.tenantId === input.tenantId && event.environmentId === input.environmentId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .slice(0, input.limit);
   }
 
   #requireCase(caseId: string, tenantId: string, environmentId: string): HumanCase {

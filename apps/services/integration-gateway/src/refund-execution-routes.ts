@@ -15,7 +15,7 @@ const requestSchema = z.object({
   previewId: z.string().trim().min(1).max(160),
 }).strict();
 
-type ExecutionResult = { status: 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION'; providerRefundId?: string };
+type ExecutionResult = { status: 'SUBMITTED' | 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION'; providerRefundId?: string };
 
 export function registerRefundExecutionRoutes(app: FastifyInstance, commerceProvider: CommerceProvider, repository: RefundExecutionRepository, verify?: VerifyWorkflowAccessAssertion): void {
   app.post('/internal/v1/refunds', async (request, reply) => {
@@ -39,11 +39,16 @@ export function registerRefundExecutionRoutes(app: FastifyInstance, commerceProv
     if (reservation.kind === 'existing') {
       if (reservation.execution.status === 'SUCCEEDED') return succeededResponse(reservation.execution.providerRefundId);
       if (reservation.execution.status === 'FAILED') return { status: 'FAILED' } satisfies ExecutionResult;
+      if (reservation.execution.status === 'SUBMITTED') return submittedResponse(reservation.execution.providerRefundId);
       return { status: 'PENDING_RECONCILIATION' } satisfies ExecutionResult;
     }
     try {
       const result = await commerceProvider.executeRefund({ paymentId: payment.id, amount: parsed.data.amount, reason: parsed.data.reasonCode });
-      const response: ExecutionResult = result.status === 'SUCCEEDED'
+      const response: ExecutionResult = result.status === 'SUBMITTED'
+        ? result.providerRefundId === undefined
+          ? { status: 'SUBMITTED' }
+          : { status: 'SUBMITTED', providerRefundId: result.providerRefundId }
+        : result.status === 'SUCCEEDED'
         ? result.providerRefundId === undefined
           ? { status: 'SUCCEEDED' }
           : { status: 'SUCCEEDED', providerRefundId: result.providerRefundId }
@@ -59,3 +64,4 @@ export function registerRefundExecutionRoutes(app: FastifyInstance, commerceProv
 }
 
 function succeededResponse(providerRefundId: string | undefined): ExecutionResult { return providerRefundId === undefined ? { status: 'SUCCEEDED' } : { status: 'SUCCEEDED', providerRefundId }; }
+function submittedResponse(providerRefundId: string | undefined): ExecutionResult { return providerRefundId === undefined ? { status: 'SUBMITTED' } : { status: 'SUBMITTED', providerRefundId }; }

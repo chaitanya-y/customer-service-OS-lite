@@ -9,6 +9,9 @@ const config = z.object({
   ENVIRONMENT_ID: z.string().min(1),
   LOCAL_HUMAN_STAFF_ID: z.string().min(1).default('local-refund-supervisor'),
   LOCAL_HUMAN_ROLE: z.enum(['REFUND_APPROVER', 'REFUND_SUPERVISOR']).default('REFUND_SUPERVISOR'),
+  // This CLI is development-only. A longer assertion lifetime prevents a local
+  // console session from outliving the static assertion it forwards upstream.
+  LOCAL_HUMAN_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).max(172_800).default(172_800),
 }).parse(process.env);
 
 const token = await signLocalHumanAccessAssertion({
@@ -21,6 +24,7 @@ const token = await signLocalHumanAccessAssertion({
     environmentId: config.ENVIRONMENT_ID,
     role: config.LOCAL_HUMAN_ROLE,
   },
+  expiresInSeconds: config.LOCAL_HUMAN_ACCESS_TTL_SECONDS,
 });
 
 process.stdout.write(`${token}\n`);
