@@ -25,11 +25,14 @@ customer and Human Operations browser interfaces.
 | Human case queue, claim, decision, and audit trail | Implemented locally |
 | Customer and Human Operations interfaces with light, dark, and system themes | Implemented |
 | Admin Console | Visual foundation only |
-| Cognito, Kafka, OpenTelemetry, persistent Human Operations storage, AWS deployment | Planned |
+| PostgreSQL Human Operations cases, audit history, idempotency, and decision outbox | Implemented locally |
+| Centralized Model Gateway for routing, budgets, fallback, and provider policy | Planned; Agent Runtime currently calls configured models directly |
+| Cognito, Kafka, OpenTelemetry, and AWS deployment | Planned |
 
-The Human Operations repository is deliberately in memory for local development.
-Restarting that service clears local cases. It is not a production persistence
-implementation.
+The running Human Operations service uses PostgreSQL. Case state, audit events,
+idempotency records, and pending decisions survive service restarts. Its in-memory
+repository remains only as a test and dependency-injection adapter. Production
+deployment, backup, high availability, and Kafka delivery are still future work.
 
 ## The governed refund boundary
 
@@ -85,6 +88,19 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 
 - [Project context and contributor handoff](docs/PROJECT_CONTEXT.md), the detailed
   architecture, contracts, environment, tests, and remaining work.
+- [Codex handoff](docs/CODEX_HANDOFF.md), the quickest safe entry point for a new
+  account or coding agent.
+- [Current HLD and LLD](docs/architecture/KLEEM_AI_ARCHITECTURE_V1_1.md), the
+  authoritative architecture amendment over the preserved original PDF.
+- [Final combined HLD and LLD PDF](docs/reference/architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture.pdf),
+  the current amendment followed by the complete version 1.0 baseline appendix.
+- [Reference document manifest](docs/reference/README.md), precedence, page counts,
+  checksums, and the included product PDFs.
+- [Local authentication and secrets](docs/LOCAL_AUTH_AND_SECRETS.md), a careful
+  explanation of signing secrets, login tokens, internal assertions, and rotation.
+- [Verification status](docs/VERIFICATION_STATUS.md), what is automated, what has
+  been proved manually, and the final positive refund test that remains.
+- [Decision log](docs/DECISION_LOG.md), accepted, implemented, and planned choices.
 - [Local refund runbook](docs/LOCAL_REFUND_RUNBOOK.md), start and test the full
   local stack safely.
 - [Frontend refund journey](docs/FRONTEND_CUSTOMER_REFUND_JOURNEY.md), implemented
@@ -101,7 +117,8 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 
 This repository is a local, production-shaped learning system. It is not yet a
 deployable production service. In particular, it does not yet include Cognito,
-Kafka delivery, OpenTelemetry observability, a persistent Human Operations store,
-reproducible Vendure seed data, or AWS infrastructure.
+Kafka delivery, OpenTelemetry observability, the centralized Model Gateway,
+reproducible Vendure seed data, production-grade Human Operations database
+operations, or AWS infrastructure.
 
 Never commit `.env` files, local signed tokens, API keys, or Vendure API keys.

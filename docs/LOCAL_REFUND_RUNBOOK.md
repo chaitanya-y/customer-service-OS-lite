@@ -47,7 +47,9 @@ evidence.
 
 Copy each service's `.env.example` to `.env`. Do not add any `.env` file to Git.
 
-The local secrets have three required relationships:
+The local secrets have the following required relationships. Read
+[Local Authentication and Secrets](LOCAL_AUTH_AND_SECRETS.md) before changing
+them; it explains which values must match and which values must be different.
 
 | Secret | Services that must share it | Purpose |
 |---|---|---|
@@ -95,6 +97,9 @@ pnpm migrate
 
 cd ../conversation-runtime
 DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os pnpm migrate
+
+cd ../human-operations
+MIGRATION_DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os pnpm migrate
 ```
 
 ### 2. Temporal
@@ -172,14 +177,14 @@ this terminal with Node `22.21.0`. The rest of the repository continues to use
 Node 24. This is a local Temporal compatibility workaround, not the deployment
 target.
 
-### 9. Edge API
+### 10. Edge API
 
 ```bash
 cd apps/services/edge-api
 pnpm dev
 ```
 
-### 10. Create fresh local browser tokens and start the interfaces
+### 11. Create fresh local browser tokens and start the interfaces
 
 ```bash
 cd apps/services/edge-api
@@ -244,6 +249,41 @@ test session.
 
 This path proves the human review and audit boundary without a commerce write.
 
+## Test multi-turn order-reference retention
+
+This is a regression test for conversational context. It may use the configured
+model and create a local review case, but it does not execute a refund unless the
+customer later confirms a preview.
+
+Start with a fresh browser conversation. The simplest option is a private window.
+Otherwise, open browser developer tools on the Customer Portal and run:
+
+```javascript
+sessionStorage.removeItem("cso.current-conversation-id");
+location.reload();
+```
+
+Then send these messages as two separate turns, leaving the optional order
+reference field empty:
+
+```text
+I need help with a refund. My order reference is AVV8JSZH8G6ZZDMX.
+```
+
+```text
+The item arrived damaged. I want a full refund for item 3.
+```
+
+Pass condition: the second response must not ask the customer to share the order
+reference again. It may request required evidence or create a high-value human
+review case. This test passed through the local BFF, Edge API, Conversation
+Runtime, Agent Runtime, MCP Gateway, Knowledge/RAG, and Temporal on 2026-09-04.
+
+For one local sample, the first and second Edge API turns took 20.68 and 18.82
+seconds respectively. Conversation persistence and transcript reads were under 50
+ms; model and RAG work inside Agent Runtime accounted for nearly all remaining
+time. These are local development observations, not performance targets.
+
 ## Test a refund execution path carefully
 
 For an order that policy allows or requires approval, the customer must review an
@@ -278,6 +318,9 @@ browser client.
 - The Customer Portal listens to a same origin SSE wake up stream and refetches
   the authoritative journey view. If that stream disconnects, it falls back to a
   ten second polling interval.
+- Conversation context sent to Agent Runtime includes only bounded end-customer
+  messages. Assistant messages are intentionally excluded, and RAG receives only
+  the latest customer message.
 
 ## Troubleshooting
 
@@ -290,12 +333,36 @@ browser client.
 | No human case appears | Verify Human Operations and Workflow Workers are running and connected to the same Temporal server. |
 | RAG request fails | Verify OpenSearch, the configured published index, and `OPENAI_API_KEY` in Knowledge/RAG. |
 | Grounded answer falls back to a generic message | Verify `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS=30` in Agent Runtime or use its default, then restart Agent Runtime. The answer call gets one bounded 30-second attempt rather than repeated timeouts. |
-| Existing case disappeared after restart | Expected today. Human Operations uses an in-memory local repository. |
+| Assistant asks for an order reference that was provided in an earlier turn | Start a fresh conversation and run the multi-turn retention test above. If it repeats, inspect Edge API conversation-context tests before changing prompt wording. |
+| Assistant calls an item number an order number | Known customer-copy defect. Do not treat it as a failed lookup; tighten the answer-composer contract and add the regression test before the final positive refund test. |
+| Existing case disappeared after restart | This is not expected now. Verify PostgreSQL is running, `DATABASE_URL` points to the same database, Human Operations migrations ran, and the tenant/environment values did not change. |
 | Provider event endpoint returns `503` | Set `PROVIDER_WEBHOOK_HMAC_SECRET` in the Integration Gateway `.env` and restart the Gateway. |
 
 ## What this does not prove yet
 
 This local test does not prove production authentication, real bank settlement,
-durable human-case storage, Kafka delivery, distributed tracing, workload scaling,
-or AWS deployment.
+managed PostgreSQL backup/high availability, Kafka delivery, distributed tracing,
+workload scaling, or AWS deployment.
 Those are the next hardening and deployment milestones.
+
+## Final positive refund test still pending
+
+The safe takeover path and focused automated execution tests have passed. One
+manual positive browser-to-provider proof remains before the refund journey can be
+called fully verified end to end:
+
+1. Create and fulfill a disposable order in Vendure.
+2. Submit a damaged-item refund from the Customer Portal.
+3. If policy creates a takeover case, claim it and approve an exceptional refund
+   plan in the Operations Console.
+4. Confirm the exact refund preview in the Customer Portal.
+5. Observe `REFUND_PROCESSING` after provider acceptance.
+6. Verify the refund record in Vendure.
+7. Verify a signed provider event or reconciliation moves Temporal to
+   `REFUND_SUCCEEDED`.
+8. Confirm the Customer Portal shows the truthful completed state.
+9. Inspect the Temporal history, Human Operations audit trail, Conversation
+   Runtime transcript, and Integration Gateway evidence.
+
+Use a fresh disposable order and do not repeat confirmation against an already
+refunded order.

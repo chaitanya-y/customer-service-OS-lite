@@ -1,8 +1,8 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-08-27
+Last updated: 2026-09-03
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
-Active implementation branch: `main`
+Active implementation branch: `dev`
 
 ## 1. Why this file exists
 
@@ -51,6 +51,13 @@ will initially be single-region.
 The accepted decision record is:
 
 - `docs/adr/ADR-001-polyglot-runtime-and-mcp-boundaries.md`
+
+The current architecture source is
+`docs/architecture/KLEEM_AI_ARCHITECTURE_V1_1.md`. The final combined PDF is
+`docs/reference/architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture.pdf`.
+That PDF places the authoritative version 1.1 amendment before the preserved
+version 1.0 baseline. Use the amendment and accepted ADR when an older page
+conflicts.
 
 The repository uses seven release and ownership boundaries. A boundary may contain
 more than one logical application, and multiple boundaries may initially be
@@ -133,12 +140,15 @@ Canonical contract:
 - `contracts/internal-api/trusted-context-assertion/v1/context-assertion-claims.schema.json`
 
 The Edge API authenticates a local customer token, derives the trusted customer
-identity from that token, and creates three separate short-lived assertions from
+identity from that token, and creates audience-specific short-lived assertions from
 that one trusted identity:
 
 - `x-cso-context-assertion` is for the Integration Gateway only;
 - `x-cso-agent-context-assertion` is for the Agent Runtime only;
-- `x-cso-knowledge-context-assertion` is for the Knowledge/RAG service only.
+- `x-cso-knowledge-context-assertion` is for the Knowledge/RAG service only;
+- the Conversation Runtime receives its own conversation-audience assertion for
+  customer transcript operations, plus a separately keyed Edge service assertion
+  for assistant-message commits.
 
 Each receiving service verifies signature, issuer, audience, tenant, lifetime,
 purpose, and self-service customer binding before using the assertion. The Agent
@@ -432,7 +442,7 @@ becomes `REFUND_PROCESSING`, not success. A signed provider event or authoritati
 Vendure reconciliation can move it to `REFUND_SUCCEEDED` or `REFUND_FAILED`.
 Otherwise it remains in processing or reconciliation and retries safely.
 
-### Human Operations: local functional slice
+### Human Operations: PostgreSQL-backed local functional slice
 
 The Node.js/TypeScript Human Operations service now owns a local refund review
 case lifecycle:
@@ -446,17 +456,23 @@ case lifecycle:
 - optimistic case-version checks and idempotency keys for staff mutations;
 - minimized review packets containing proposal, policy, preview, and evidence IDs,
   but not raw customer messages or payment credentials;
-- append-only local audit events for case opening, claim, decision, and close;
-- a decision outbox record. It is delivered directly to Temporal in the local
-  slice and is retained for a future durable Kafka/outbox dispatcher if delivery
-  fails;
-- Temporal signals for `APPROVE`, `REJECT`, and `RESOLVE_TAKEOVER` decisions;
+- PostgreSQL case, append-only audit, action-idempotency, and decision-outbox
+  tables with tenant and environment row-level security;
+- one database transaction for each case mutation, its audit event, and, for a
+  human decision, its durable outbox record;
+- direct Temporal delivery after the transaction plus a background retry loop for
+  pending outbox records;
+- Temporal signals for `APPROVE`, `REJECT`, `RESOLVE_TAKEOVER`, and
+  `APPROVE_EXCEPTIONAL_REFUND` decisions;
 - tests for authentication, tenant/role permissions, spoofed identity,
   idempotency, stale case versions, and valid decisions.
 
-`InMemoryHumanCaseRepository` is deliberately the current local adapter. A Human
-Operations restart clears all cases and audit history. A transactional PostgreSQL
-repository and durable outbox dispatcher are required before deployment.
+The running server constructs `PostgresHumanCaseRepository`; cases and audit
+history therefore survive a Human Operations restart when it reconnects to the
+same PostgreSQL database. `InMemoryHumanCaseRepository` remains only as a test and
+dependency-injection adapter. Production still requires managed PostgreSQL,
+backup/recovery, high availability, operational monitoring, and Kafka or another
+durable event transport beyond the local direct-to-Temporal dispatcher.
 
 ### Edge API: committed and pushed
 
@@ -483,7 +499,7 @@ The Node.js/TypeScript Edge API contains:
 
 The committed Edge-to-Agent-Runtime path uses audience-separated assertions:
 
-- Edge API creates three short-lived assertions from the same authenticated customer
+- Edge API creates audience-specific short-lived assertions from the same authenticated customer
   identity, request ID, and trace ID;
 - `x-cso-agent-context-assertion` is intended only for Agent Runtime, with
   audience `agent-runtime`;
@@ -688,6 +704,8 @@ HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET=<same-secret-as-workflow-workers>
 HUMAN_OPERATIONS_WORKFLOW_ISSUER=customer-service-os-workflow-workers
 LOCAL_HUMAN_STAFF_ID=local-refund-supervisor
 LOCAL_HUMAN_ROLE=REFUND_SUPERVISOR
+DATABASE_URL=postgresql://cso_human_operations_app:cso_human_operations_local@127.0.0.1:5432/customer_service_os
+MIGRATION_DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os
 ```
 
 `apps/services/agent-runtime/.env` needs these values before a real model-backed
@@ -780,6 +798,12 @@ Temporal serves gRPC on `127.0.0.1:7233` and the local UI on
 docker compose -f infrastructure/local/compose.yaml up -d postgres
 cd apps/services/integration-gateway
 pnpm migrate
+
+cd ../conversation-runtime
+DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os pnpm migrate
+
+cd ../human-operations
+MIGRATION_DATABASE_URL=postgresql://cso_local:cso_local@127.0.0.1:5432/customer_service_os pnpm migrate
 ```
 
 The migration command uses `MIGRATION_DATABASE_URL`. The running Gateway uses
@@ -1066,8 +1090,8 @@ Do not mistake directory names or schemas for completed functionality. These maj
 parts remain:
 
 - production customer authentication through Cognito;
-- durable Human Operations storage, durable outbox delivery, and workforce
-  delegation beyond the local role model;
+- production Human Operations database operations, Kafka outbox delivery, and
+  workforce delegation beyond the local role model;
 - Edge streaming, rate limiting, and an Edge-owned customer journey projection;
 - end to end browser coverage for live customer and staff updates;
 - broader answer-grounding, citation, specialist, supervisor, tool-selection,
@@ -1081,6 +1105,10 @@ parts remain:
 - one-command local orchestration for Temporal, OpenSearch, and the application
   stack;
 - AWS single-region infrastructure and deployment;
+- a centralized Model Gateway. Agent Runtime currently calls the configured
+  provider models directly; routing metadata is recorded, but centralized model
+  policy, budgets, provider fallback, and cross-service enforcement are not yet
+  implemented;
 - a real-phone voice channel. Its planned boundaries are documented in
   `docs/voice/VOICE_AGENT_BOUNDARY.md`; no voice implementation exists yet.
 
@@ -1093,12 +1121,16 @@ The first local vertical slice is complete. The recommended hardening sequence i
    local database to run the browser test.
 2. Add browser component, accessibility, and end-to-end tests for customer intake,
    confirmation, approval, takeover, and reconciliation status.
-3. Persist Human Operations cases and its outbox transactionally, then introduce
-   Kafka delivery for workflow and audit projections.
+3. Introduce Kafka delivery for the existing transactional Human Operations
+   outbox and workflow/audit projections, then add operational monitoring and
+   recovery drills for PostgreSQL.
 4. Add OpenTelemetry traces, metrics, structured logs, and the remaining governed
    evaluation suites before introducing more journeys.
 5. Build the Control Plane and Admin Console release views, then replace local
    authentication with Cognito and deploy the single-region AWS slice.
+6. Add the centralized Model Gateway behind the existing model-client interface,
+   then move routing, budget enforcement, provider fallback, and model audit
+   policy out of individual runtimes.
 
 Do not start by building every empty service. Extend the walking refund slice and
 add a boundary only when the journey reaches it.
