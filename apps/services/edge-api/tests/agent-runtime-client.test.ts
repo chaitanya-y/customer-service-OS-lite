@@ -38,6 +38,9 @@ test('forwards the refund request and audience-specific context assertions', asy
         JSON.stringify({
           customer_message: 'Please refund my order.',
           order_reference: 'ORDER-123',
+          conversation_messages: [
+            { sequence_number: 1, text: 'Please refund my order.' },
+          ],
         }),
       );
 
@@ -50,6 +53,9 @@ test('forwards the refund request and audience-specific context assertions', asy
       {
         customer_message: 'Please refund my order.',
         order_reference: 'ORDER-123',
+        conversation_messages: [
+          { sequence_number: 1, text: 'Please refund my order.' },
+        ],
       },
       {
         agentRuntime: 'agent-runtime-context',

@@ -17,6 +17,7 @@ from agent_runtime.integrations.trusted_context import (
     VerifiedAgentRuntimeContext,
 )
 from agent_runtime.main import app
+from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.graph import MISSING_ORDER_REFERENCE_MESSAGE
 from agent_runtime.refund.intent import RefundIntentExtraction
 from agent_runtime.refund.proposal import RefundProposalBuilder, RefundProposalVersions
@@ -33,12 +34,17 @@ TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION = "knowledge-rag.header.signature"
 
 
 class FakeRefundIntentExtractor:
+    def __init__(self) -> None:
+        self.conversation_messages: list[list[ConversationCustomerMessage]] = []
+
     async def extract(
         self,
         *,
         customer_message: str,
+        conversation_messages: list[ConversationCustomerMessage],
         order_context: OrderContext,
     ) -> RefundIntentExtraction:
+        self.conversation_messages.append(conversation_messages)
         return RefundIntentExtraction(
             reason_code="DAMAGED",
             scope="FULL_ORDER",
@@ -154,6 +160,105 @@ def test_refund_intake(
     assert body["refund_proposal"]["intent"]["orderId"] == "3"
     assert body["refund_proposal"]["missingFields"] == []
     assert body["refund_proposal"]["executionEvidence"]["traceId"] == "trace-1"
+
+
+def test_refund_intake_uses_ordered_customer_only_conversation_context(
+    monkeypatch,
+    order_context: OrderContext,
+) -> None:
+    async def fake_lookup_order(
+        _client: McpOrderLookupClient,
+        order_reference: str,
+    ) -> OrderContext:
+        assert order_reference == "ORDER-123"
+        return order_context
+
+    monkeypatch.setattr(McpOrderLookupClient, "lookup_order", fake_lookup_order)
+
+    async def fake_retrieve_customer_evidence(
+        _rag_client: KnowledgeRagCustomerEvidenceClient,
+        query_text: str,
+    ) -> CustomerEvidenceResponse:
+        assert query_text == "The item arrived damaged."
+        return CustomerEvidenceResponse(
+            knowledge_release_id="refund-policy-2026-08-01",
+            evidence=[],
+        )
+
+    monkeypatch.setattr(
+        KnowledgeRagCustomerEvidenceClient,
+        "retrieve_customer_evidence",
+        fake_retrieve_customer_evidence,
+    )
+    extractor = FakeRefundIntentExtractor()
+    app.dependency_overrides[get_refund_intent_extractor] = lambda: extractor
+
+    response = client.post(
+        "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
+        },
+        json={
+            "customer_message": "The item arrived damaged.",
+            "order_reference": "ORDER-123",
+            "conversation_messages": [
+                {
+                    "sequence_number": 1,
+                    "text": "My order reference is ORDER-123.",
+                },
+                {
+                    "sequence_number": 3,
+                    "text": "The item arrived damaged.",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert extractor.conversation_messages == [
+        [
+            ConversationCustomerMessage(
+                sequence_number=1,
+                text="My order reference is ORDER-123.",
+            ),
+            ConversationCustomerMessage(
+                sequence_number=3,
+                text="The item arrived damaged.",
+            ),
+        ]
+    ]
+
+
+def test_refund_intake_rejects_inconsistent_conversation_context() -> None:
+    response = client.post(
+        "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
+        },
+        json={
+            "customer_message": "The item arrived damaged.",
+            "conversation_messages": [
+                {
+                    "sequence_number": 1,
+                    "text": "A different message.",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_refund_intake_rejects_empty_message() -> None:

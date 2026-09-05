@@ -32,7 +32,11 @@ import {
   formatSseEvent,
   toRefundJourneyView,
 } from './refund-journey-view.js';
-import { resolveOrderReference } from './order-reference.js';
+import { buildCustomerConversationContext } from './customer-conversation-context.js';
+import {
+  resolveOrderReference,
+  resolveOrderReferenceFromCustomerMessages,
+} from './order-reference.js';
 
 const refundIntakeRequestSchema = z
   .object({
@@ -514,6 +518,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
 
     if (
+      !options.getConversation ||
       !options.acceptCustomerMessage ||
       !options.appendAssistantMessage ||
       !options.signConversationRuntimeContextAssertion ||
@@ -590,6 +595,45 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return sendConversationRuntimeFailure(reply, 500);
     }
 
+    let customerConversationContext;
+    try {
+      const response = await options.getConversation({
+        conversationId,
+        contextAssertion: conversationContextAssertion,
+      });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return sendConversationRuntimeFailure(reply, response.statusCode);
+      }
+
+      const transcript = conversationTranscriptResponseSchema.safeParse(
+        response.body,
+      );
+      if (
+        !transcript.success ||
+        transcript.data.data.conversationId !== conversationId
+      ) {
+        request.log.error(
+          { requestId },
+          'Conversation Runtime returned an invalid customer conversation context',
+        );
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+
+      customerConversationContext = buildCustomerConversationContext({
+        messages: transcript.data.data.messages,
+        acceptedCustomerMessage: {
+          messageId: customerMessage.messageId,
+          text: customerMessageText,
+        },
+      });
+    } catch (error) {
+      request.log.error(
+        { err: error, requestId },
+        'Customer conversation context loading failed',
+      );
+      return sendConversationRuntimeFailure(reply, 500);
+    }
+
     let agentRuntimeContextAssertion: string;
     let integrationGatewayContextAssertion: string;
     let knowledgeRagContextAssertion: string;
@@ -615,14 +659,15 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
 
     let agentResponse: AgentRuntimeResponse;
-    const orderReference = resolveOrderReference({
-      customerMessage: customerMessageText,
+    const orderReference = resolveOrderReferenceFromCustomerMessages({
+      customerMessages: customerConversationContext,
       explicitOrderReference: body.data.order_reference,
     });
     try {
       agentResponse = await options.intakeRefund(
         {
           customer_message: customerMessageText,
+          conversation_messages: customerConversationContext,
           ...(orderReference === undefined
             ? {}
             : { order_reference: orderReference }),

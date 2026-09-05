@@ -19,6 +19,7 @@ from agent_runtime.refund.answer import (
     RefundAnswerCompositionError,
     build_fallback_customer_answer,
 )
+from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.intent import (
     RefundIntentExtractionError,
     RefundIntentExtractor,
@@ -33,12 +34,21 @@ MISSING_ORDER_REFERENCE_MESSAGE = (
 
 def initialize_refund_request(state: RefundState) -> RefundState:
     customer_message = state.get("customer_message", "").strip()
+    conversation_messages = [
+        ConversationCustomerMessage.model_validate(message)
+        for message in state.get("conversation_messages", [])
+    ]
 
     if not customer_message:
         raise ValueError("customer_message is required")
 
     return {
         "customer_message": customer_message,
+        **(
+            {"conversation_messages": conversation_messages}
+            if conversation_messages
+            else {}
+        ),
         "journey": "refund",
         "status": "request_received",
     }
@@ -122,6 +132,7 @@ def route_loaded_order(
 def create_extract_refund_intent_node(intent_extractor: RefundIntentExtractor):
     async def extract_refund_intent(state: RefundState) -> RefundState:
         customer_message = state.get("customer_message")
+        conversation_messages = state.get("conversation_messages", [])
         order_context = state.get("order_context")
 
         if not customer_message or order_context is None:
@@ -130,6 +141,7 @@ def create_extract_refund_intent_node(intent_extractor: RefundIntentExtractor):
         try:
             refund_intent = await intent_extractor.extract(
                 customer_message=customer_message,
+                conversation_messages=conversation_messages,
                 order_context=order_context,
             )
         except RefundIntentExtractionError:

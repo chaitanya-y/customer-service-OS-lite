@@ -17,6 +17,7 @@ from agent_runtime.refund.answer import (
     CustomerAnswer,
     RefundAnswerCompositionError,
 )
+from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.graph import (
     MISSING_ORDER_REFERENCE_MESSAGE,
     build_refund_graph,
@@ -68,14 +69,17 @@ class FakeRefundIntentExtractor:
         )
         self.error = error
         self.messages: list[str] = []
+        self.conversation_messages: list[list[ConversationCustomerMessage]] = []
 
     async def extract(
         self,
         *,
         customer_message: str,
+        conversation_messages: list[ConversationCustomerMessage],
         order_context: OrderContext,
     ) -> RefundIntentExtraction:
         self.messages.append(customer_message)
+        self.conversation_messages.append(conversation_messages)
 
         if self.error:
             raise self.error
@@ -193,6 +197,7 @@ async def test_refund_graph_builds_a_ready_proposal(
     assert result["refund_proposal"].missing_fields == []
     assert order_lookup.references == ["ORDER-123"]
     assert intent_extractor.messages == ["I want a refund."]
+    assert intent_extractor.conversation_messages == [[]]
     assert result["knowledge_evidence"] == []
     assert result["knowledge_retrieval_status"] == "retrieved"
     assert result["answer_composition_status"] == "fallback"
@@ -217,6 +222,36 @@ async def test_refund_graph_requests_missing_order_reference() -> None:
     }
     assert order_lookup.references == []
     assert intent_extractor.messages == []
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_forwards_bounded_customer_history_to_intent_extraction(
+    order_context: OrderContext,
+) -> None:
+    order_lookup = FakeOrderLookup(result=order_context)
+    graph, intent_extractor = create_graph(order_lookup)
+    conversation_messages = [
+        ConversationCustomerMessage(
+            sequence_number=1,
+            text="My order reference is ORDER-123.",
+        ),
+        ConversationCustomerMessage(
+            sequence_number=3,
+            text="The item arrived damaged and I want a full refund.",
+        ),
+    ]
+
+    await graph.ainvoke(
+        {
+            "customer_message": "The item arrived damaged and I want a full refund.",
+            "conversation_messages": conversation_messages,
+            "order_reference": "ORDER-123",
+            "turn_id": "turn-1",
+            "trace_id": "trace-1",
+        }
+    )
+
+    assert intent_extractor.conversation_messages == [conversation_messages]
 
 
 @pytest.mark.asyncio

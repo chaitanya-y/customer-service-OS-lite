@@ -43,6 +43,36 @@ function acceptedMessageResponse(
   };
 }
 
+function conversationTranscriptResponse(messages: unknown[]) {
+  return {
+    statusCode: 200,
+    body: {
+      data: {
+        conversationId: TEST_CONVERSATION_ID,
+        status: 'OPEN',
+        controlMode: 'AI',
+        messages,
+      },
+    },
+  };
+}
+
+function acceptedCustomerConversation(
+  messageId: string,
+  sequenceNumber: number,
+  text: string,
+) {
+  return conversationTranscriptResponse([
+    {
+      messageId,
+      sequenceNumber,
+      senderKind: 'END_CUSTOMER',
+      text,
+      createdAt: '2026-09-03T12:00:00.000Z',
+    },
+  ]);
+}
+
 const readyAgentResponse = {
   statusCode: 200,
   body: {
@@ -585,10 +615,21 @@ test('extracts an order reference from chat, appends the safe answer, then start
       assert.match(input.idempotencyKey, /^cso-[a-f0-9]{64}$/);
       return acceptedMessageResponse('customer-message-1', 1);
     },
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'Please refund order AVV8JSZH8G6ZZDMX because it arrived damaged.',
+    ),
     intakeRefund: async (input, assertions) => {
       assert.deepEqual(input, {
         customer_message: 'Please refund order AVV8JSZH8G6ZZDMX because it arrived damaged.',
         order_reference: 'AVV8JSZH8G6ZZDMX',
+        conversation_messages: [
+          {
+            sequence_number: 1,
+            text: 'Please refund order AVV8JSZH8G6ZZDMX because it arrived damaged.',
+          },
+        ],
       });
       assert.deepEqual(assertions, {
         agentRuntime: 'agent-context',
@@ -682,6 +723,84 @@ test('extracts an order reference from chat, appends the safe answer, then start
   assert.equal('citations' in response.json().assistant_message, false);
 });
 
+test('carries a prior customer order reference and bounded customer history into a later chat turn', async (context) => {
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'gateway-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-context',
+    signKnowledgeRagContextAssertion: async () => 'rag-context',
+    signConversationRuntimeContextAssertion: async () => 'conversation-context',
+    signEdgeServiceAssertion: async () => 'service-context',
+    acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-3', 3),
+    getConversation: async () => conversationTranscriptResponse([
+      {
+        messageId: 'customer-message-1',
+        sequenceNumber: 1,
+        senderKind: 'END_CUSTOMER',
+        text: 'My order reference is AVV8JSZH8G6ZZDMX.',
+        createdAt: '2026-09-03T12:00:00.000Z',
+      },
+      {
+        messageId: 'assistant-message-2',
+        sequenceNumber: 2,
+        senderKind: 'ASSISTANT',
+        text: 'Please tell me the reason for the refund.',
+        createdAt: '2026-09-03T12:00:01.000Z',
+      },
+      {
+        messageId: 'customer-message-3',
+        sequenceNumber: 3,
+        senderKind: 'END_CUSTOMER',
+        text: 'The item arrived damaged. I want a full refund for item 3.',
+        createdAt: '2026-09-03T12:00:02.000Z',
+      },
+    ]),
+    intakeRefund: async (input) => {
+      assert.deepEqual(input, {
+        customer_message: 'The item arrived damaged. I want a full refund for item 3.',
+        order_reference: 'AVV8JSZH8G6ZZDMX',
+        conversation_messages: [
+          {
+            sequence_number: 1,
+            text: 'My order reference is AVV8JSZH8G6ZZDMX.',
+          },
+          {
+            sequence_number: 3,
+            text: 'The item arrived damaged. I want a full refund for item 3.',
+          },
+        ],
+      });
+      return {
+        statusCode: 200,
+        body: {
+          status: 'awaiting_refund_details',
+          customer_answer: { message: 'Please share a photo of the damaged item.' },
+        },
+      };
+    },
+    appendAssistantMessage: async () => acceptedMessageResponse('assistant-message-4', 4),
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/v1/conversations/${TEST_CONVERSATION_ID}/messages`,
+    headers: {
+      authorization: 'Bearer customer-access-token',
+      'idempotency-key': 'browser-message-history-1',
+    },
+    payload: {
+      client_message_id: 'client-message-history-1',
+      content: {
+        type: 'text',
+        text: 'The item arrived damaged. I want a full refund for item 3.',
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 202);
+});
+
 test('does not start a workflow while refund details are still missing', async (context) => {
   let workflowStarted = false;
   const app = buildApp({
@@ -692,6 +811,11 @@ test('does not start a workflow while refund details are still missing', async (
     signConversationRuntimeContextAssertion: async () => 'conversation-context',
     signEdgeServiceAssertion: async () => 'service-context',
     acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-1', 1),
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'The item was damaged.',
+    ),
     intakeRefund: async () => ({
       statusCode: 200,
       body: {
@@ -751,6 +875,11 @@ test('persists the deterministic order-reference reply without starting a workfl
     signConversationRuntimeContextAssertion: async () => 'conversation-context',
     signEdgeServiceAssertion: async () => 'service-context',
     acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-1', 1),
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'I need help with a refund.',
+    ),
     intakeRefund: async () => ({
       statusCode: 200,
       body: {
@@ -805,6 +934,11 @@ test('does not append a fake assistant message when the agent fails after custom
     signConversationRuntimeContextAssertion: async () => 'conversation-context',
     signEdgeServiceAssertion: async () => 'service-context',
     acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-1', 1),
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'I need a refund.',
+    ),
     intakeRefund: async () => {
       throw new Error('agent unavailable');
     },
@@ -848,6 +982,11 @@ test('returns a stable error when assistant persistence fails', async (context) 
     signConversationRuntimeContextAssertion: async () => 'conversation-context',
     signEdgeServiceAssertion: async () => 'service-context',
     acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-1', 1),
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'I need a refund.',
+    ),
     intakeRefund: async () => readyAgentResponse,
     appendAssistantMessage: async () => ({
       statusCode: 500,

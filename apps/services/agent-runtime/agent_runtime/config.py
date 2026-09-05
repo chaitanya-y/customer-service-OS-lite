@@ -8,6 +8,7 @@ from agent_runtime.refund.answer import (
     LangChainRefundAnswerComposer,
     RefundAnswerCompositionError,
 )
+from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.intent import (
     REFUND_INTENT_PROMPT_VERSION,
     LangChainRefundIntentExtractor,
@@ -106,6 +107,7 @@ class ConfiguredRefundIntentExtractor:
         self,
         *,
         customer_message: str,
+        conversation_messages: list[ConversationCustomerMessage],
         order_context: OrderContext,
     ) -> RefundIntentExtraction:
         try:
@@ -122,6 +124,7 @@ class ConfiguredRefundIntentExtractor:
 
             return await self._delegate.extract(
                 customer_message=customer_message,
+                conversation_messages=conversation_messages,
                 order_context=order_context,
             )
         except RefundIntentExtractionError:
