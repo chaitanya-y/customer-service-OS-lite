@@ -61,7 +61,8 @@ export type MissingFact =
   | "REFUNDABLE_AMOUNT"
   | "REFUND_DESTINATION"
   | "CUSTOMER_VERIFICATION"
-  | "TRANSACTION_REFUNDABILITY";
+  | "TRANSACTION_REFUNDABILITY"
+  | "DAMAGE_PHOTO";
 
 export type PolicyObligation = Readonly<{
   code:
@@ -174,6 +175,15 @@ export function evaluateRefundPolicy(
 
   if (requestedAmount.amountMinor > refundableAmount.amountMinor) {
     return decide("DENY", ["REFUND_AMOUNT_EXCEEDS_REFUNDABLE_BALANCE"]);
+  }
+
+  // Only the trusted evidence activity may add this reference, after verifying
+  // the accepted revision belongs to this order, proposal and item selection.
+  // A customer/model assertion or a technically valid upload is not acceptance.
+  if (release.requireDamagePhoto && input.request.reasonCode === 'DAMAGED'
+    && !input.factRefs.some((ref) => ref.factType === 'ACCEPTED_DAMAGE_EVIDENCE'
+      && /^sha256:[a-f0-9]{64}$/.test(ref.sourceVersion))) {
+    return decide('NEEDS_FACTS', ['DAMAGE_PHOTO_REVIEW_REQUIRED'], [], ['DAMAGE_PHOTO']);
   }
 
   const riskClass = assessRefundRisk(input.facts.priorRefundCount!, release);

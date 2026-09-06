@@ -181,6 +181,10 @@ function money(amountMinor: number, currency: string): Money {
   };
 }
 
+function normalizeProviderMethod(method: string): string {
+  return method.trim() || 'unspecified';
+}
+
 function toCommerceOrder(
   order: z.infer<typeof vendureOrderSchema>,
 ): CommerceOrder {
@@ -215,7 +219,7 @@ function toCommerceOrder(
       id: payment.id,
       status: payment.state,
       amount: money(payment.amount, currency),
-      method: payment.method,
+      method: normalizeProviderMethod(payment.method),
       transactionReference: payment.transactionId,
       refunds: (payment.refunds ?? []).map((refund) => ({
         id: refund.id,
@@ -227,7 +231,7 @@ function toCommerceOrder(
     fulfillments: (order.fulfillments ?? []).map((fulfillment) => ({
       id: fulfillment.id,
       status: fulfillment.state,
-      method: fulfillment.method,
+      method: normalizeProviderMethod(fulfillment.method),
       trackingCode: fulfillment.trackingCode,
     })),
   };

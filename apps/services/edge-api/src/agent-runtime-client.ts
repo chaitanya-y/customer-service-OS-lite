@@ -7,6 +7,10 @@ import {
 export type RefundIntakeRequest = {
   customer_message: string;
   order_reference?: string;
+  conversation_messages?: Array<{
+    sequence_number: number;
+    text: string;
+  }>;
 };
 
 export type AgentRuntimeResponse = {

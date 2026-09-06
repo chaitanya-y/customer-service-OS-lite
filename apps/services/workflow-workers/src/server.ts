@@ -4,7 +4,8 @@ import { loadConfig } from './config.js';
 import { createHumanOperationsCaseClient } from './human-operations-case-client.js';
 import { createIntegrationGatewayRefundContextClient } from './integration-gateway-client.js';
 import { createRefundWorkflowActivities } from './refund-workflow-activities.js';
-import { REFUND_POLICY_V1 } from './refund-policy-release.js';
+import { REFUND_POLICY_V1, getRefundPolicyRelease } from './refund-policy-release.js';
+import { createRefundEvidenceClient } from './refund-evidence-client.js';
 import { runRefundWorker } from './refund-worker.js';
 import { createHmacWorkflowAccessAssertionSigner } from './workflow-access-assertion.js';
 
@@ -38,6 +39,13 @@ const activities = createRefundWorkflowActivities({
   openHumanCase: humanOperations.openHumanCase,
   closeHumanCase: humanOperations.closeHumanCase,
   refundPolicyRelease: REFUND_POLICY_V1,
+  getPolicyRelease: getRefundPolicyRelease,
+  evidence: createRefundEvidenceClient({
+    baseUrl: config.HUMAN_OPERATIONS_BASE_URL,
+    signWorkflowAccessAssertion: signHumanOperationsAssertion,
+    expectedTenantId: config.TENANT_ID,
+    expectedEnvironmentId: config.ENVIRONMENT_ID,
+  }),
   createDecisionContext: () => ({
     decisionId: randomUUID(),
     decidedAt: new Date().toISOString(),

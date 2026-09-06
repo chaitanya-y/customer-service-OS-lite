@@ -19,6 +19,7 @@ from agent_runtime.refund.answer import (
     RefundAnswerCompositionError,
     build_fallback_customer_answer,
 )
+from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.intent import (
     RefundIntentExtractionError,
     RefundIntentExtractor,
@@ -33,12 +34,21 @@ MISSING_ORDER_REFERENCE_MESSAGE = (
 
 def initialize_refund_request(state: RefundState) -> RefundState:
     customer_message = state.get("customer_message", "").strip()
+    conversation_messages = [
+        ConversationCustomerMessage.model_validate(message)
+        for message in state.get("conversation_messages", [])
+    ]
 
     if not customer_message:
         raise ValueError("customer_message is required")
 
     return {
         "customer_message": customer_message,
+        **(
+            {"conversation_messages": conversation_messages}
+            if conversation_messages
+            else {}
+        ),
         "journey": "refund",
         "status": "request_received",
     }
@@ -122,6 +132,7 @@ def route_loaded_order(
 def create_extract_refund_intent_node(intent_extractor: RefundIntentExtractor):
     async def extract_refund_intent(state: RefundState) -> RefundState:
         customer_message = state.get("customer_message")
+        conversation_messages = state.get("conversation_messages", [])
         order_context = state.get("order_context")
 
         if not customer_message or order_context is None:
@@ -130,6 +141,7 @@ def create_extract_refund_intent_node(intent_extractor: RefundIntentExtractor):
         try:
             refund_intent = await intent_extractor.extract(
                 customer_message=customer_message,
+                conversation_messages=conversation_messages,
                 order_context=order_context,
             )
         except RefundIntentExtractionError:
@@ -229,17 +241,18 @@ def create_compose_customer_answer_node(
     async def compose_customer_answer(state: RefundState) -> RefundState:
         customer_message = state.get("customer_message")
         refund_proposal = state.get("refund_proposal")
+        order_context = state.get("order_context")
         knowledge_evidence = state.get("knowledge_evidence", [])
 
-        if not customer_message or refund_proposal is None:
+        if not customer_message or refund_proposal is None or order_context is None:
             raise ValueError(
-                "customer_message and refund_proposal are required"
+                "customer_message, refund_proposal, and order_context are required"
             )
 
         if not knowledge_evidence:
             return {
                 "customer_answer": build_fallback_customer_answer(
-                    refund_proposal
+                    refund_proposal, order_context=order_context
                 ),
                 "answer_composition_status": "fallback",
             }
@@ -248,12 +261,13 @@ def create_compose_customer_answer_node(
             answer = await answer_composer.compose(
                 customer_message=customer_message,
                 refund_proposal=refund_proposal,
+                order_context=order_context,
                 knowledge_evidence=knowledge_evidence,
             )
         except RefundAnswerCompositionError:
             return {
                 "customer_answer": build_fallback_customer_answer(
-                    refund_proposal
+                    refund_proposal, order_context=order_context
                 ),
                 "answer_composition_status": "fallback",
             }

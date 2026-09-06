@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from agent_runtime.integrations.customer_evidence import (
+    CustomerEvidence,
     CustomerEvidenceLookupUnauthorizedError,
     CustomerEvidenceLookupUnavailableError,
     CustomerEvidenceResponse,
@@ -15,11 +16,14 @@ from agent_runtime.integrations.order_lookup import (
 )
 from agent_runtime.refund.answer import (
     CustomerAnswer,
+    LangChainRefundAnswerComposer,
     RefundAnswerCompositionError,
 )
+from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.graph import (
     MISSING_ORDER_REFERENCE_MESSAGE,
     build_refund_graph,
+    create_compose_customer_answer_node,
 )
 from agent_runtime.refund.intent import (
     RefundIntentExtraction,
@@ -68,14 +72,17 @@ class FakeRefundIntentExtractor:
         )
         self.error = error
         self.messages: list[str] = []
+        self.conversation_messages: list[list[ConversationCustomerMessage]] = []
 
     async def extract(
         self,
         *,
         customer_message: str,
+        conversation_messages: list[ConversationCustomerMessage],
         order_context: OrderContext,
     ) -> RefundIntentExtraction:
         self.messages.append(customer_message)
+        self.conversation_messages.append(conversation_messages)
 
         if self.error:
             raise self.error
@@ -193,9 +200,11 @@ async def test_refund_graph_builds_a_ready_proposal(
     assert result["refund_proposal"].missing_fields == []
     assert order_lookup.references == ["ORDER-123"]
     assert intent_extractor.messages == ["I want a refund."]
+    assert intent_extractor.conversation_messages == [[]]
     assert result["knowledge_evidence"] == []
     assert result["knowledge_retrieval_status"] == "retrieved"
     assert result["answer_composition_status"] == "fallback"
+    assert "order ORDER-123" in result["customer_answer"].message
 
 
 @pytest.mark.asyncio
@@ -217,6 +226,36 @@ async def test_refund_graph_requests_missing_order_reference() -> None:
     }
     assert order_lookup.references == []
     assert intent_extractor.messages == []
+
+
+@pytest.mark.asyncio
+async def test_refund_graph_forwards_bounded_customer_history_to_intent_extraction(
+    order_context: OrderContext,
+) -> None:
+    order_lookup = FakeOrderLookup(result=order_context)
+    graph, intent_extractor = create_graph(order_lookup)
+    conversation_messages = [
+        ConversationCustomerMessage(
+            sequence_number=1,
+            text="My order reference is ORDER-123.",
+        ),
+        ConversationCustomerMessage(
+            sequence_number=3,
+            text="The item arrived damaged and I want a full refund.",
+        ),
+    ]
+
+    await graph.ainvoke(
+        {
+            "customer_message": "The item arrived damaged and I want a full refund.",
+            "conversation_messages": conversation_messages,
+            "order_reference": "ORDER-123",
+            "turn_id": "turn-1",
+            "trace_id": "trace-1",
+        }
+    )
+
+    assert intent_extractor.conversation_messages == [conversation_messages]
 
 
 @pytest.mark.asyncio
@@ -419,10 +458,9 @@ async def test_refund_graph_uses_composer_only_when_rag_evidence_exists(
     )
 
     assert result["answer_composition_status"] == "generated"
-    assert result["customer_answer"].citations[0].chunk_id == (
-        "section-003-chunk-001"
-    )
+    assert result["customer_answer"].citations[0].chunk_id == ("section-003-chunk-001")
     assert composer.calls[0]["knowledge_evidence"] == evidence_lookup.result.evidence
+    assert composer.calls[0]["order_context"] is order_context
 
 
 @pytest.mark.asyncio
@@ -453,9 +491,7 @@ async def test_refund_graph_falls_back_when_answer_composition_fails(
     graph, _ = create_graph(
         FakeOrderLookup(result=order_context),
         customer_evidence_lookup=evidence_lookup,
-        answer_composer=FakeRefundAnswerComposer(
-            error=RefundAnswerCompositionError()
-        ),
+        answer_composer=FakeRefundAnswerComposer(error=RefundAnswerCompositionError()),
     )
 
     result = await graph.ainvoke(
@@ -469,3 +505,75 @@ async def test_refund_graph_falls_back_when_answer_composition_fails(
 
     assert result["answer_composition_status"] == "fallback"
     assert result["customer_answer"].citations == []
+    assert "order ORDER-123" in result["customer_answer"].message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_message",
+    ["We will review order 3.", "The proposed refund amount is 167,880 USD."],
+)
+async def test_answer_node_falls_back_to_trusted_reference_after_wrong_model_order(
+    order_context: OrderContext,
+    model_message: str,
+) -> None:
+    order_context = order_context.model_copy(
+        update={
+            "reference": "AVV8JSZH8G6ZZDMX",
+            "total": order_context.total.model_copy(update={"amount_minor": 167880}),
+        }
+    )
+    proposal = create_proposal_builder().build(
+        extraction=RefundIntentExtraction(
+            reason_code="DAMAGED", scope="FULL_ORDER", selected_item_ids=[]
+        ),
+        order_context=order_context,
+        turn_id="turn-1",
+        trace_id="trace-1",
+    )
+
+    class WrongOrderModel:
+        def with_structured_output(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            return {"message": model_message, "citations": []}
+
+    compose_answer = create_compose_customer_answer_node(
+        LangChainRefundAnswerComposer(WrongOrderModel())  # type: ignore[arg-type]
+    )
+    result = await compose_answer(
+        {
+            "customer_message": "The item arrived damaged. Refund item 3.",
+            "order_reference": "untrusted-request-reference",
+            "order_context": order_context,
+            "refund_proposal": proposal,
+            "knowledge_evidence": [
+                CustomerEvidence.model_validate(
+                    {
+                        "knowledge_document_id": "refund-policy-current",
+                        "chunk_id": "section-003-chunk-001",
+                        "content": "Damaged items need review.",
+                        "citation": {
+                            "source_uri": "s3://cso-knowledge/refund-policy.md",
+                            "title": "Refund Policy",
+                            "section_path": ["Refund eligibility"],
+                        },
+                        "retrieval_methods": ["semantic_vector"],
+                        "reranker_rank": 1,
+                    }
+                )
+            ],
+        }
+    )
+
+    assert result["answer_composition_status"] == "fallback"
+    assert result["customer_answer"].message == (
+        "I have captured your refund request for order AVV8JSZH8G6ZZDMX. "
+        "We will now continue with the next processing step.\n\n"
+        "Proposed refund amount: USD 1,678.80. "
+        "This is a request, not a refund approval."
+    )
+    assert result["customer_answer"].citations == []
+    assert proposal.intent.order_id == "3"
+    assert proposal.intent.requested_amount.amount_minor == 167880

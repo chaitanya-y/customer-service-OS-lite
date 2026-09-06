@@ -214,6 +214,18 @@
   padding: 32px 0;
 }
 
+.evidencePanel { border-top: 1px solid var(--border-subtle); margin-top: 24px; padding-top: 20px; }
+.evidencePanel h2 { font-size: 20px; margin-top: 0; }
+.evidencePanel p { color: var(--text-secondary); line-height: 1.6; }
+.evidenceGrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); list-style: none; padding: 0; }
+.evidencePhoto { border: 1px solid var(--border-subtle); border-radius: 8px; min-width: 0; padding: 12px; }
+.evidenceImage { background: var(--surface-raised); border-radius: 6px; display: block; height: 220px; margin: 12px 0; object-fit: contain; width: 100%; }
+.evidenceForm { display: grid; gap: 12px; margin-top: 20px; }
+.evidenceForm label { font-weight: 700; }
+.evidenceForm p { font-size: 14px; margin: 0; }
+.evidenceForm input { color: var(--text-primary); max-width: 100%; }
+.evidenceForm button { justify-self: start; }
+
 @media (max-width: 800px) {
   .journeyLayout {
     grid-template-columns: 1fr;

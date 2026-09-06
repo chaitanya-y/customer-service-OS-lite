@@ -18,6 +18,8 @@ export type OpenHumanCaseInput = Readonly<{
   policyVersion: string;
 }>;
 
+export type CloseHumanCaseInput = Readonly<{ caseId: string; tenantId: string; environmentId: string; workflowId: string; outcome?: 'EVIDENCE_REVIEW_COMPLETED' | 'EVIDENCE_COLLECTION_EXPIRED' }>;
+
 export type ClaimHumanCaseInput = Readonly<{
   caseId: string;
   tenantId: string;
@@ -50,7 +52,7 @@ export type ReassignHumanCaseInput = Readonly<{
 
 export interface HumanCaseRepository {
   open(input: OpenHumanCaseInput): Promise<HumanCase>;
-  close(input: Readonly<{ caseId: string; tenantId: string; environmentId: string; workflowId: string }>): Promise<HumanCase>;
+  close(input: CloseHumanCaseInput): Promise<HumanCase>;
   list(input: Readonly<{ tenantId: string; environmentId: string; status?: HumanCase['status']; assignee?: 'me' | 'unassigned'; staffId: string }>): Promise<readonly HumanCase[]>;
   get(input: Readonly<{ caseId: string; tenantId: string; environmentId: string }>): Promise<HumanCase>;
   auditEvents(input: Readonly<{ caseId: string; tenantId: string; environmentId: string }>): Promise<readonly HumanCaseAuditEvent[]>;
@@ -107,12 +109,12 @@ export class InMemoryHumanCaseRepository implements HumanCaseRepository {
     return humanCase;
   }
 
-  async close(input: Readonly<{ caseId: string; tenantId: string; environmentId: string; workflowId: string }>): Promise<HumanCase> {
+  async close(input: CloseHumanCaseInput): Promise<HumanCase> {
     const current = this.#requireCase(input.caseId, input.tenantId, input.environmentId);
     if (current.workflowId !== input.workflowId) throw new HumanCaseRepositoryError('CASE_NOT_FOUND');
     if (current.status === 'CLOSED') return current;
     const closed = this.#update(current, { status: 'CLOSED' });
-    this.#appendAudit(closed, 'CASE_CLOSED', 'WORKFLOW', input.workflowId, {});
+    this.#appendAudit(closed, 'CASE_CLOSED', 'WORKFLOW', input.workflowId, input.outcome ? { outcome: input.outcome } : {});
     return closed;
   }
 
@@ -166,7 +168,7 @@ export class InMemoryHumanCaseRepository implements HumanCaseRepository {
     if (replay?.outboxEvent) return { case: this.#requireCase(replay.caseId, input.tenantId, input.environmentId), outboxEvent: replay.outboxEvent };
     const current = this.#requireCase(input.caseId, input.tenantId, input.environmentId);
     this.#assertVersion(current, input.expectedCaseVersion);
-    if (current.status !== 'CLAIMED' || current.assignedStaffId !== input.staffId) throw new HumanCaseRepositoryError('CASE_CONFLICT');
+    if (current.status !== 'CLAIMED' || current.assignedStaffId !== input.staffId || !current.allowedActions.includes(input.decision)) throw new HumanCaseRepositoryError('CASE_CONFLICT');
     const decidedAt = this.#timestamp();
     const next = this.#update(current, { status: 'DECISION_PENDING', decidedAt });
     const outboxEvent: HumanDecisionOutboxEvent = {

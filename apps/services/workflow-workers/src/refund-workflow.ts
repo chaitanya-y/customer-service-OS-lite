@@ -3,6 +3,7 @@ import {
   continueAsNew,
   defineQuery,
   defineSignal,
+  patched,
   proxyActivities,
   setHandler,
   sleep,
@@ -20,10 +21,14 @@ import type { RefundProposal } from "./refund-policy-input.js";
 import type { RefundPolicyDecision } from "./refund-policy.js";
 import type { WorkflowJourneyAccess } from './workflow-access-assertion.js';
 import type { RefundPreview } from './refund-preview.js';
+import type { AcceptedDamageEvidence, EvidenceSnapshot, RefundEvidenceActivities } from './refund-evidence-client.js';
 
 const activities = proxyActivities<RefundWorkflowActivities>({
   startToCloseTimeout: "30 seconds",
   retry: { maximumAttempts: 3 },
+});
+const evidenceActivities = proxyActivities<RefundEvidenceActivities>({
+  startToCloseTimeout: '30 seconds', retry: { maximumAttempts: 3 },
 });
 
 export type RefundWorkflowRequest = Readonly<{
@@ -31,6 +36,7 @@ export type RefundWorkflowRequest = Readonly<{
   proposal: RefundProposal;
   policyVersion: string;
   access: WorkflowJourneyAccess;
+  evidenceRecovery?: Readonly<{ deadline: number; decision: RefundPolicyDecision }>;
   recovery?: Readonly<{
     decision: RefundPolicyDecision;
     preview: RefundPreview;
@@ -62,6 +68,9 @@ export type RefundProviderOutcome = Readonly<{
 export type RefundWorkflowState = Readonly<{
   stage:
     | "EVALUATING"
+    | "AWAITING_CUSTOMER_EVIDENCE"
+    | "AWAITING_EVIDENCE_REVIEW"
+    | "EVIDENCE_COLLECTION_EXPIRED"
     | "AWAITING_CUSTOMER_CONFIRMATION"
     | "CONFIRMED"
     | "CANCELLED"
@@ -104,7 +113,6 @@ export async function refundWorkflow(
   request: RefundWorkflowRequest,
 ): Promise<RefundWorkflowState> {
   let state: RefundWorkflowState = { stage: "EVALUATING" };
-  let confirmation: RefundCustomerConfirmation | undefined;
   let humanDecision: RefundHumanDecision | undefined;
 
   setHandler(getRefundWorkflowState, () => state);
@@ -116,16 +124,63 @@ export async function refundWorkflow(
     return state;
   }
 
-  const refundContext = await activities.refreshRefundContext({
+  let refundContext = await activities.refreshRefundContext({
     proposal: request.proposal,
     workflowId: workflowInfo().workflowId,
     access: request.access,
   });
-  const decision = await activities.evaluateRefundPolicy({
+  let decision = request.evidenceRecovery?.decision ?? await activities.evaluateRefundPolicy({
     proposal: request.proposal,
     refundContext,
     policyVersion: request.policyVersion,
   });
+
+  let evidence: EvidenceSnapshot | undefined;
+  const evidenceAccess = { proposal: request.proposal, workflowId: workflowInfo().workflowId,
+    access: request.access, policyVersion: request.policyVersion };
+  if (request.policyVersion === 'refund-policy-v2' && decision.effect === 'NEEDS_FACTS'
+    && decision.missingFacts.length === 1 && decision.missingFacts[0] === 'DAMAGE_PHOTO') {
+    evidence = await evidenceActivities.openRefundEvidence(buildOpenHumanCaseInput({
+      request, workflowId: workflowInfo().workflowId, decision,
+      caseType: 'REFUND_EVIDENCE_REVIEW', allowedActions: [],
+    }));
+    const deadline = request.evidenceRecovery?.deadline ?? Date.now() + 24 * 60 * 60_000;
+    let polls = 0;
+    while (evidence.accepted === undefined) {
+      if (Date.now() >= deadline) {
+        await evidenceActivities.closeRefundEvidence({ ...evidenceAccess,
+          caseId: evidence.caseId, outcome: 'EVIDENCE_COLLECTION_EXPIRED' });
+        state = { stage: 'EVIDENCE_COLLECTION_EXPIRED', decision };
+        return state;
+      }
+      state = { stage: evidence.assessment !== 'MORE_REQUIRED'
+        && (evidence.readyCount > 0 || evidence.processingCount > 0)
+        ? 'AWAITING_EVIDENCE_REVIEW' : 'AWAITING_CUSTOMER_EVIDENCE', decision };
+      await sleep(Math.min(30_000, deadline - Date.now()));
+      evidence = await evidenceActivities.readRefundEvidence(evidenceAccess);
+      // Bound history size without extending the customer's original deadline.
+      if (++polls >= 120 && evidence.accepted === undefined && Date.now() < deadline) {
+        return continueAsNew<typeof refundWorkflow>({ ...request, evidenceRecovery: { deadline, decision } });
+      }
+    }
+    if (Date.now() >= deadline) {
+      await evidenceActivities.closeRefundEvidence({ ...evidenceAccess,
+        caseId: evidence.caseId, outcome: 'EVIDENCE_COLLECTION_EXPIRED' });
+      state = { stage: 'EVIDENCE_COLLECTION_EXPIRED', decision };
+      return state;
+    }
+    refundContext = await activities.refreshRefundContext(evidenceAccess);
+    decision = await activities.evaluateRefundPolicy({ proposal: request.proposal,
+      refundContext, policyVersion: request.policyVersion, damageEvidence: evidence.accepted });
+    if (decision.effect === 'ALLOW' || decision.effect === 'DENY' || decision.effect === 'NEEDS_FACTS') {
+      await evidenceActivities.closeRefundEvidence({ ...evidenceAccess,
+        caseId: evidence.caseId, outcome: 'EVIDENCE_REVIEW_COMPLETED' });
+    }
+  }
+
+  const openMonetaryCase = async (input: OpenHumanCaseInput) => evidence?.accepted === undefined
+    ? activities.openHumanCase(input)
+    : evidenceActivities.transitionRefundEvidence({ ...input, evidenceVersion: evidence.accepted.evidenceVersion });
 
   switch (decision.effect) {
     case "NEEDS_FACTS":
@@ -138,15 +193,22 @@ export async function refundWorkflow(
       {
         const preview = await activities.createRefundPreview({ proposal: request.proposal, refundContext, decision });
         state = { stage: 'AWAITING_CUSTOMER_CONFIRMATION', decision, preview };
-        setHandler(confirmRefund, (received) => {
-          if (confirmation === undefined && received.previewId === preview.previewId) confirmation = received;
-        });
-        await condition(() => confirmation?.previewId === preview.previewId);
-        if (!confirmation?.accepted) {
+        const confirmation = await waitForRefundConfirmation(preview);
+        if (confirmation === undefined) {
+          if (evidence?.accepted) await evidenceActivities.closeRefundEvidence({
+            ...evidenceAccess, caseId: evidence.caseId, outcome: 'EVIDENCE_REVIEW_COMPLETED',
+          });
+          state = { ...state, stage: 'PREVIEW_INVALIDATED' };
+          return state;
+        }
+        if (!confirmation.accepted) {
+          if (evidence?.accepted) await evidenceActivities.closeRefundEvidence({
+            ...evidenceAccess, caseId: evidence.caseId, outcome: 'EVIDENCE_REVIEW_COMPLETED',
+          });
           state = { stage: 'CANCELLED', decision, preview };
           return state;
         }
-        const humanCase = await activities.openHumanCase(
+        const humanCase = await openMonetaryCase(
           buildOpenHumanCaseInput({
             request,
             workflowId: workflowInfo().workflowId,
@@ -186,11 +248,11 @@ export async function refundWorkflow(
             outcome: 'APPROVED',
           }),
         );
-        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; }, evidence?.accepted);
         return state;
       }
     case "TAKEOVER_REQUIRED":
-      const humanCase = await activities.openHumanCase(
+      const humanCase = await openMonetaryCase(
         buildOpenHumanCaseInput({
           request,
           workflowId: workflowInfo().workflowId,
@@ -233,6 +295,19 @@ export async function refundWorkflow(
           workflowId: workflowInfo().workflowId,
           access: request.access,
         });
+        if (evidence?.accepted !== undefined) {
+          const current = await evidenceActivities.readRefundEvidence(evidenceAccess);
+          if (!sameAcceptedEvidence(evidence.accepted, current.accepted)) {
+            state = { stage: 'PREVIEW_INVALIDATED', decision };
+            return state;
+          }
+          decision = await activities.evaluateRefundPolicy({ proposal: request.proposal,
+            refundContext: refreshedContext, policyVersion: request.policyVersion, damageEvidence: current.accepted! });
+          if (decision.effect === 'DENY' || decision.effect === 'NEEDS_FACTS') {
+            state = { stage: decision.effect === 'DENY' ? 'DENIED' : 'NEEDS_FACTS', decision };
+            return state;
+          }
+        }
         const preview = await activities.createRefundPreview({
           proposal: request.proposal,
           refundContext: refreshedContext,
@@ -244,15 +319,16 @@ export async function refundWorkflow(
           },
         });
         state = { stage: 'AWAITING_CUSTOMER_CONFIRMATION', decision, preview };
-        setHandler(confirmRefund, (received) => {
-          if (confirmation === undefined && received.previewId === preview.previewId) confirmation = received;
-        });
-        await condition(() => confirmation?.previewId === preview.previewId);
-        if (!confirmation?.accepted) {
+        const confirmation = await waitForRefundConfirmation(preview);
+        if (confirmation === undefined) {
+          state = { ...state, stage: 'PREVIEW_INVALIDATED' };
+          return state;
+        }
+        if (!confirmation.accepted) {
           state = { stage: 'CANCELLED', decision, preview };
           return state;
         }
-        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; }, evidence?.accepted);
         return state;
       }
 
@@ -285,26 +361,59 @@ export async function refundWorkflow(
           decision,
           preview,
         };
-        setHandler(confirmRefund, (receivedConfirmation) => {
-          if (
-            confirmation === undefined &&
-            receivedConfirmation.previewId === preview.previewId
-          ) {
-            confirmation = receivedConfirmation;
-          }
-        });
-        await condition(() => confirmation?.previewId === preview.previewId);
+        const confirmation = await waitForRefundConfirmation(preview);
         if (confirmation === undefined) {
-          throw new Error("REFUND_CONFIRMATION_INVARIANT");
+          state = { ...state, stage: 'PREVIEW_INVALIDATED' };
+          return state;
         }
         if (!confirmation.accepted) {
           state = { stage: 'CANCELLED', decision, preview };
           return state;
         }
-        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; });
+        state = await executeAuthorizedRefund(request, decision, preview, (nextState) => { state = nextState; }, evidence?.accepted);
         return state;
       }
   }
+}
+
+/** The deadline is exclusive: a decision received exactly at expiry is too late. */
+export function isRefundPreviewCurrent(validUntil: string, nowMilliseconds: number): boolean {
+  const deadline = Date.parse(validUntil);
+  return Number.isFinite(deadline) && nowMilliseconds < deadline;
+}
+
+async function waitForRefundConfirmation(
+  preview: RefundPreview,
+): Promise<RefundCustomerConfirmation | undefined> {
+  let confirmation: RefundCustomerConfirmation | undefined;
+  let expired = false;
+  // Old parked histories did not schedule a timer. Preserve their command history;
+  // the separate handler patch still rejects their next late live confirmation.
+  const timedWait = patched('refund-preview-expiry-timer-v1');
+  setHandler(confirmRefund, (received) => {
+    if (confirmation !== undefined || expired || received.previewId !== preview.previewId) return;
+    // Temporal replaces Date.now() with its replay-safe workflow clock. Never
+    // trust confirmedAt to backdate acceptance. Preserve historical signals on replay.
+    if (patched('refund-preview-expiry-confirmation-v1')
+      && !isRefundPreviewCurrent(preview.validUntil, Date.now())) {
+      expired = true;
+      return;
+    }
+    confirmation = received;
+  });
+
+  if (confirmation === undefined && !expired) {
+    if (timedWait) {
+      const remainingMilliseconds = Date.parse(preview.validUntil) - Date.now();
+      if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) return undefined;
+      await condition(() => confirmation !== undefined || expired, remainingMilliseconds);
+    } else {
+      await condition(() => confirmation !== undefined || expired);
+    }
+  }
+  // A timely decision is final for this preview. Human review and provider
+  // processing may outlive the deadline; existing fresh-facts checks still apply.
+  return confirmation;
 }
 
 function buildOpenHumanCaseInput({
@@ -395,7 +504,13 @@ async function executeAuthorizedRefund(
   decision: RefundPolicyDecision,
   preview: RefundPreview,
   setState: (nextState: RefundWorkflowState) => void,
+  damageEvidence?: AcceptedDamageEvidence,
 ): Promise<RefundWorkflowState> {
+  if (request.policyVersion === 'refund-policy-v2' && request.proposal.intent.reasonCode === 'DAMAGED') {
+    const current = await evidenceActivities.readRefundEvidence({ proposal: request.proposal,
+      workflowId: workflowInfo().workflowId, access: request.access, policyVersion: request.policyVersion });
+    if (!sameAcceptedEvidence(damageEvidence, current.accepted)) return { stage: 'PREVIEW_INVALIDATED', decision, preview };
+  }
   const refreshed = await activities.refreshRefundContext({ proposal: request.proposal, workflowId: workflowInfo().workflowId, access: request.access });
   const amountStillAvailable = refreshed.facts.transactionRefundable && refreshed.facts.itemSelectionValid && refreshed.facts.refundableAmount.currency === preview.requestedAmount.currency && refreshed.facts.refundableAmount.amountMinor >= preview.requestedAmount.amountMinor;
   if (!amountStillAvailable) return { stage: 'PREVIEW_INVALIDATED', decision, preview };
@@ -423,6 +538,11 @@ async function executeAuthorizedRefund(
     return reconcilePendingRefund(request, decision, preview, 0);
   }
   return { stage: 'REFUND_FAILED', decision, preview };
+}
+
+function sameAcceptedEvidence(expected: AcceptedDamageEvidence | undefined, current: AcceptedDamageEvidence | undefined): boolean {
+  return expected !== undefined && current !== undefined && expected.evidenceVersion === current.evidenceVersion
+    && expected.assessmentId === current.assessmentId && expected.manifestHash === current.manifestHash;
 }
 
 /**

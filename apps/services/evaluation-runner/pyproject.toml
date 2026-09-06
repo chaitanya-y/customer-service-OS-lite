@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["evaluation_runner"]
+
+[project]
+name = "customer-service-evaluation-runner"
+version = "0.1.0"
+description = "Framework-neutral evaluation runner for governed customer-service agents"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic>=2.13,<3",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1,<10",
+  "ruff>=0.16,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint.isort]
+known-first-party = ["evaluation_runner"]

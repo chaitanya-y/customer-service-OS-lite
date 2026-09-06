@@ -1,4 +1,5 @@
 import type { Money, RefundPolicyInput } from "./refund-policy.js";
+import type { AcceptedDamageEvidence } from './refund-evidence-client.js';
 
 export type RefundProposal = Readonly<{
   proposalId: string;
@@ -38,12 +39,14 @@ type CreateRefundPolicyInputOptions = Readonly<{
   proposal: RefundProposal;
   refundContext: RefundContext;
   policyVersion: string;
+  damageEvidence?: AcceptedDamageEvidence;
 }>;
 
 export function createRefundPolicyInput({
   proposal,
   refundContext,
   policyVersion,
+  damageEvidence,
 }: CreateRefundPolicyInputOptions): RefundPolicyInput {
   assertMatchingOrder(proposal, refundContext);
   assertMatchingSelection(proposal, refundContext);
@@ -85,6 +88,12 @@ export function createRefundPolicyInput({
         sourceVersion: refundContext.source.factsVersion,
         observedAt: refundContext.observedAt,
       },
+      ...(damageEvidence === undefined ? [] : [{
+        factId: damageEvidence.assessmentId,
+        factType: 'ACCEPTED_DAMAGE_EVIDENCE',
+        sourceVersion: damageEvidence.manifestHash,
+        observedAt: damageEvidence.observedAt,
+      }]),
     ],
   };
 }

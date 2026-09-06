@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/internal-api/refund-evidence/v1/access-claims",
+  "title": "RefundEvidenceAccessClaimsV1",
+  "description": "Edge to Human Operations customer evidence assertion. Require HS256, typ cso-evidence+jwt, configured Edge issuer, fixed audience, current expiry, 60-second maximum positive lifetime and exact purpose/workflow/customer/scope match. JSON validation does not authenticate this payload. Reuses configured context assertion HMAC relationship, never caller-supplied identity headers.",
+  "type": "object", "additionalProperties": false,
+  "required": ["accessVersion", "workflow", "tenant", "subject", "purpose", "request", "iss", "aud", "iat", "exp"],
+  "properties": {
+    "accessVersion": {"const": "1"},
+    "workflow": {"type": "object", "additionalProperties": false, "required": ["workflowId"], "properties": {"workflowId": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}},
+    "tenant": {"type": "object", "additionalProperties": false, "required": ["tenantId", "environmentId"], "properties": {"tenantId": {"$ref": "#/$defs/id"}, "environmentId": {"$ref": "#/$defs/id"}}},
+    "subject": {"type": "object", "additionalProperties": false, "required": ["customerId"], "properties": {"customerId": {"$ref": "#/$defs/id"}}},
+    "purpose": {"enum": ["refund_evidence_read", "refund_evidence_upload", "refund_evidence_content"]},
+    "request": {"type": "object", "additionalProperties": false, "required": ["requestId", "traceId"], "properties": {"requestId": {"$ref": "#/$defs/id"}, "traceId": {"$ref": "#/$defs/id"}}},
+    "iss": {"type": "string", "minLength": 1, "maxLength": 200},
+    "aud": {"const": "human-operations-evidence"},
+    "iat": {"type": "integer", "minimum": 0},
+    "exp": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {"id": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}
+}

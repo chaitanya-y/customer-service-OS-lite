@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   actionLabel,
+  caseTypeLabel,
   formatDate,
   formatMoney,
   normalizeAuditEvents,
@@ -13,8 +14,9 @@ import {
   type HumanCase,
   type HumanCaseAction,
 } from "./human-case";
-import { getConsoleData, postConsoleData } from "./operations-api";
+import { getConsoleData, OperationsApiError, postConsoleData } from "./operations-api";
 import styles from "./operations-console.module.css";
+import { RefundEvidenceReview } from "./refund-evidence-review";
 
 function ReviewPacket({ refundCase }: Readonly<{ refundCase: HumanCase }>) {
   const packet = refundCase.reviewPacket;
@@ -35,7 +37,7 @@ function ReviewPacket({ refundCase }: Readonly<{ refundCase: HumanCase }>) {
         {packet.policyReasonCodes.length ? <ul>{packet.policyReasonCodes.map((code) => <li key={code}>{code}</li>)}</ul> : <p>None were supplied.</p>}
       </div>
       <div className={styles.reasonCodes}>
-        <h3>Evidence IDs</h3>
+        <h3>Policy evidence references</h3>
         {packet.evidenceIds.length ? <ul>{packet.evidenceIds.map((id) => <li key={id}>{id}</li>)}</ul> : <p>No evidence references were supplied.</p>}
       </div>
     </section>
@@ -58,6 +60,7 @@ function DecisionForm({ onComplete, refundCase }: Readonly<{ onComplete: () => P
   const [submitting, setSubmitting] = useState(false);
   const actionRequiresNote = selectedAction === "REJECT" || selectedAction === "RESOLVE_TAKEOVER" || selectedAction === "APPROVE_EXCEPTIONAL_REFUND";
   const canMakeDecision = refundCase.allowedActions.length > 0;
+  const claimLabel = refundCase.caseType === "REFUND_EVIDENCE_REVIEW" ? "Claim evidence review" : "Claim refund decision";
   const notePlaceholder = selectedAction === "APPROVE_EXCEPTIONAL_REFUND"
     ? "Explain why the trusted evidence supports this exceptional refund plan."
     : actionRequiresNote
@@ -95,14 +98,14 @@ function DecisionForm({ onComplete, refundCase }: Readonly<{ onComplete: () => P
   return (
     <aside className={styles.decisionPanel} aria-labelledby="decision-heading">
       <span className="cso-eyebrow">Governed action</span>
-      <h2 id="decision-heading">{canMakeDecision ? "Make a decision" : refundCase.canClaim ? "Claim this case" : "Case status"}</h2>
-      <p>{canMakeDecision ? "This action is recorded with your staff identity and sent once to the refund workflow." : refundCase.canClaim ? "Claim the case before a decision action becomes available." : "No action is available for this case in its current state."}</p>
+      <h2 id="decision-heading">{canMakeDecision ? "Make a decision" : refundCase.canClaim ? claimLabel : "Case status"}</h2>
+      <p>{canMakeDecision ? "This action is recorded with your staff identity and sent once to the refund workflow." : refundCase.canClaim ? "Claim the case before a decision action becomes available." : refundCase.caseType === "REFUND_EVIDENCE_REVIEW" ? "Review the customer’s photos in the damage evidence panel. Refund decisions remain separate." : "No action is available for this case in its current state."}</p>
       <dl className={styles.caseSummary}>
         <div><dt>Case status</dt><dd>{refundCase.status.replaceAll("_", " ")}</dd></div>
         <div><dt>Assigned to</dt><dd>{refundCase.assignedStaffId ?? "Unassigned"}</dd></div>
         <div><dt>Case version</dt><dd>{refundCase.caseVersion}</dd></div>
       </dl>
-      {refundCase.canClaim ? <button className="cso-primary-button" disabled={submitting} onClick={claimCase} type="button">{submitting ? "Claiming…" : "Claim this case"}</button> : null}
+      {refundCase.canClaim ? <button className="cso-primary-button" disabled={submitting} onClick={claimCase} type="button">{submitting ? "Claiming…" : claimLabel}</button> : null}
       {canMakeDecision ? (
         <form className={styles.decisionForm} onSubmit={submitDecision}>
           <fieldset disabled={submitting}>
@@ -111,10 +114,10 @@ function DecisionForm({ onComplete, refundCase }: Readonly<{ onComplete: () => P
           </fieldset>
           <label htmlFor="decision-note">Decision note{actionRequiresNote ? " (required)" : " (optional)"}</label>
           <textarea id="decision-note" maxLength={2_000} onChange={(event) => setNote(event.target.value)} placeholder={notePlaceholder} rows={5} value={note} />
-          {error ? <p className={styles.error} role="alert">{error}</p> : null}
           <button className="cso-primary-button" disabled={submitting || !selectedAction} type="submit">{submitting ? "Recording decision…" : "Record decision"}</button>
         </form>
       ) : null}
+      {error ? <p className={styles.error} role="alert">{error}</p> : null}
     </aside>
   );
 }
@@ -130,9 +133,11 @@ export function RefundCaseDetail({ caseId }: Readonly<{ caseId: string }>) {
   const [refundCase, setRefundCase] = useState<HumanCase | undefined>();
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string | undefined>();
-  const [refreshToken, setRefreshToken] = useState(0);
+  const loading = useRef(false);
 
   const loadCase = useCallback(async () => {
+    if (loading.current) return;
+    loading.current = true;
     setError(undefined);
     try {
       const data = await getConsoleData(`/api/refund-cases/${encodeURIComponent(caseId)}`);
@@ -143,11 +148,18 @@ export function RefundCaseDetail({ caseId }: Readonly<{ caseId: string }>) {
       setAuditEvents(normalizeAuditEvents(data));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load this case.");
-    }
+      if (requestError instanceof OperationsApiError && [401, 403, 404].includes(requestError.status)) {
+        setRefundCase(undefined); setAuditEvents([]);
+      }
+    } finally { loading.current = false; }
   }, [caseId]);
 
-  useEffect(() => { void loadCase(); }, [loadCase, refreshToken]);
-  const refresh = useMemo(() => async () => setRefreshToken((value) => value + 1), []);
+  useEffect(() => { void loadCase(); }, [loadCase]);
+  useEffect(() => {
+    if (refundCase?.caseType !== "REFUND_EVIDENCE_REVIEW" || refundCase.status === "CLOSED") return;
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void loadCase(); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadCase, refundCase?.caseType, refundCase?.status]);
 
   return (
     <section className={styles.detail}>
@@ -156,10 +168,10 @@ export function RefundCaseDetail({ caseId }: Readonly<{ caseId: string }>) {
       {!refundCase && !error ? <p className={styles.loading}>Loading case review…</p> : null}
       {refundCase ? <>
         <header className={styles.detailHeader}>
-          <div><span className="cso-eyebrow">{refundCase.caseType === "REFUND_APPROVAL" ? "Refund approval" : "Manual refund takeover"}</span><h1>{refundCase.reviewPacket.orderReference ?? "Refund case"}</h1><p>Workflow {refundCase.workflowId}</p></div>
+          <div><span className="cso-eyebrow">{caseTypeLabel(refundCase.caseType)}</span><h1>{refundCase.reviewPacket.orderReference ?? "Refund case"}</h1><p>Workflow {refundCase.workflowId}</p></div>
           <span className={`${styles.status} ${styles[`status${refundCase.status}`]}`}>{refundCase.status.replaceAll("_", " ")}</span>
         </header>
-        <div className={styles.detailGrid}><ReviewPacket refundCase={refundCase} /><DecisionForm onComplete={refresh} refundCase={refundCase} /></div>
+        <div className={styles.detailGrid}><div className={styles.reviewStack}><ReviewPacket refundCase={refundCase} /><RefundEvidenceReview onRefresh={loadCase} refundCase={refundCase} /></div><DecisionForm onComplete={loadCase} refundCase={refundCase} /></div>
         <AuditTrail events={auditEvents} />
       </> : null}
     </section>

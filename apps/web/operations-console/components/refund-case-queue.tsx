@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import {
   formatDate,
+  caseTypeLabel,
   formatMoney,
   normalizeHumanCaseList,
   type HumanCase,
@@ -19,7 +20,7 @@ function CaseSummary({ refundCase }: Readonly<{ refundCase: HumanCase }>) {
   return (
     <Link className={styles.caseRow} href={`/refund-cases/${encodeURIComponent(refundCase.caseId)}`}>
       <div>
-        <span className={styles.caseType}>{refundCase.caseType === "REFUND_APPROVAL" ? "Approval review" : "Manual takeover"}</span>
+        <span className={styles.caseType}>{caseTypeLabel(refundCase.caseType)}</span>
         <strong>{refundCase.reviewPacket.orderReference ?? refundCase.workflowId}</strong>
         <span className={styles.muted}>{refundCase.reviewPacket.refundReason ?? "Refund review required"}</span>
       </div>
@@ -55,7 +56,7 @@ export function RefundCaseQueue() {
         <div>
           <span className="cso-eyebrow">Human Operations</span>
           <h1 id="queue-heading">Refund cases</h1>
-          <p>Review governed approvals and manual takeovers with a complete audit trail.</p>
+          <p>Review damage evidence, governed approvals, and manual takeovers with a complete audit trail.</p>
         </div>
         <div className={styles.filters} aria-label="Case status">
           {filters.map((status) => (

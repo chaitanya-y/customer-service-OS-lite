@@ -5,6 +5,9 @@ import { buildApp, deliverOutbox, type SendDecision } from './app.js';
 import { createHumanAssertionVerifier } from './human-access.js';
 import { PostgresHumanCaseRepository } from './postgres-human-case-repository.js';
 import { createWorkflowCaseAccessVerifier } from './workflow-access.js';
+import { createEvidenceAccessVerifier } from './refund-evidence-access.js';
+import { PrivateEvidenceStore } from './private-evidence-store.js';
+import { PostgresRefundEvidenceRepository } from './postgres-refund-evidence-repository.js';
 
 const secret = process.env.HUMAN_ACCESS_HMAC_SECRET;
 const tenantId = process.env.TENANT_ID;
@@ -21,6 +24,12 @@ const connection = await Connection.connect({
 const client = new WorkflowClient({ connection });
 const pool = new Pool({ connectionString: databaseUrl });
 const repository = new PostgresHumanCaseRepository(pool);
+// Both settings are required together. Never default photo storage into the checkout.
+const evidenceDirectory = process.env.REFUND_EVIDENCE_STORAGE_DIR;
+const evidenceSecret = process.env.CONTEXT_ASSERTION_HMAC_SECRET;
+if (Boolean(evidenceDirectory) !== Boolean(evidenceSecret)) throw new Error('INVALID_EVIDENCE_CONFIG');
+const evidenceRepository = evidenceDirectory ? new PostgresRefundEvidenceRepository(pool) : undefined;
+const evidenceStore = evidenceDirectory ? await PrivateEvidenceStore.create(evidenceDirectory) : undefined;
 const sendDecision: SendDecision = async ({ workflowId, access, decision, decidedAt, reasonCode }) => {
   const handle = client.getHandle(workflowId);
   const workflowAccess = await handle.query<{ tenantId: string; environmentId: string }>('refund.access');
@@ -36,6 +45,10 @@ const sendDecision: SendDecision = async ({ workflowId, access, decision, decide
 };
 const app = buildApp({
   repository,
+  ...(evidenceRepository && evidenceStore && evidenceSecret ? { evidence: {
+    repository: evidenceRepository, store: evidenceStore,
+    verifyCustomer: createEvidenceAccessVerifier({ secret: evidenceSecret, issuer: process.env.CONTEXT_ASSERTION_ISSUER ?? 'customer-service-os-edge', tenantId, environmentId }),
+  } } : {}),
   verifyHuman: createHumanAssertionVerifier({
     secret,
     issuer: process.env.HUMAN_ACCESS_ISSUER ?? 'customer-service-os-human-operations',
@@ -55,6 +68,15 @@ const app = buildApp({
 
 let isDispatchingOutbox = false;
 let outboxDispatchTimer: ReturnType<typeof setInterval> | undefined;
+let evidenceRecoveryTimer: ReturnType<typeof setInterval> | undefined;
+let recoveringEvidence = false;
+async function recoverStaleEvidence() {
+  if (!evidenceRepository || recoveringEvidence) return;
+  recoveringEvidence = true;
+  try { await evidenceRepository.recoverStaleUploads({tenantId:tenantId!,environmentId:environmentId!}); }
+  catch { console.warn('Human Operations stale photo processing recovery deferred'); }
+  finally { recoveringEvidence = false; }
+}
 
 async function dispatchPendingOutbox() {
   if (isDispatchingOutbox) return;
@@ -73,6 +95,11 @@ async function dispatchPendingOutbox() {
 try {
   await app.listen({ host: process.env.HOST ?? '127.0.0.1', port: Number(process.env.PORT ?? 3003) });
   await dispatchPendingOutbox();
+  await recoverStaleEvidence();
+  if (evidenceRepository) {
+    evidenceRecoveryTimer = setInterval(() => void recoverStaleEvidence(),60_000);
+    evidenceRecoveryTimer.unref();
+  }
   outboxDispatchTimer = setInterval(() => void dispatchPendingOutbox(), 5_000);
   outboxDispatchTimer.unref();
 } catch (error) {
@@ -82,6 +109,7 @@ try {
 
 async function shutdown() {
   if (outboxDispatchTimer) clearInterval(outboxDispatchTimer);
+  if (evidenceRecoveryTimer) clearInterval(evidenceRecoveryTimer);
   await app.close();
   await pool.end();
 }

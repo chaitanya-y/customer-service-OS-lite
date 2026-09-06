@@ -88,7 +88,8 @@
           "REFUNDABLE_AMOUNT",
           "REFUND_DESTINATION",
           "CUSTOMER_VERIFICATION",
-          "TRANSACTION_REFUNDABILITY"
+          "TRANSACTION_REFUNDABILITY",
+          "DAMAGE_PHOTO"
         ]
       },
       "uniqueItems": true

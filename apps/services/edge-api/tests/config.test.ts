@@ -18,6 +18,9 @@ test('loads safe local defaults', () => {
 
   assert.equal(config.AUTH_MODE, 'local');
   assert.equal(config.PORT, 3000);
+  assert.equal(config.HUMAN_OPERATIONS_BASE_URL, 'http://127.0.0.1:3003');
+  assert.equal(config.EVIDENCE_REQUEST_TIMEOUT_MILLISECONDS, 30_000);
+  assert.equal(config.REFUND_POLICY_VERSION, 'refund-policy-v1');
   assert.equal(config.AGENT_RUNTIME_BASE_URL, 'http://127.0.0.1:8000');
   assert.equal(config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS, 60_000);
   assert.equal(

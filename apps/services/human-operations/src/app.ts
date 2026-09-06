@@ -5,6 +5,8 @@ import { humanCaseStatusSchema, humanCaseTypeSchema, humanDecisionSchema, refund
 import { HumanCaseRepositoryError, InMemoryHumanCaseRepository, type HumanCaseRepository } from './human-case-repository.js';
 import { HUMAN_ASSERTION_HEADER, type HumanAccess } from './human-access.js';
 import { WORKFLOW_ASSERTION_HEADER, type VerifyWorkflowCaseAccess } from './workflow-access.js';
+import { evidenceCaseFields, registerEvidenceRoutes, type EvidenceRoutesOptions } from './refund-evidence-routes.js';
+import { EvidenceError } from './refund-evidence.js';
 
 const opaqueId = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const workflowParamsSchema = z.object({ workflowId: opaqueId });
@@ -13,7 +15,7 @@ const legacyBodySchema = z.object({ decision: humanDecisionSchema, reasonCode: z
 const idempotencyKeySchema = z.string().min(8).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const expectedVersionSchema = z.number().int().positive();
 const workerOpenCaseSchema = z.object({ workflow_id: opaqueId, case_type: humanCaseTypeSchema, review_packet: refundReviewPacketSchema, policy_version: z.string().min(1).max(200) }).strict();
-const workerCloseCaseSchema = z.object({ workflow_id: opaqueId }).strict();
+const workerCloseCaseSchema = z.object({ workflow_id: opaqueId, outcome: z.enum(['EVIDENCE_REVIEW_COMPLETED','EVIDENCE_COLLECTION_EXPIRED']).optional() }).strict();
 const claimBodySchema = z.object({ expected_case_version: expectedVersionSchema }).strict();
 const reassignBodySchema = z.object({ assigned_staff_id: opaqueId, expected_case_version: expectedVersionSchema }).strict();
 const decisionBodySchema = z.object({ decision: humanDecisionSchema, reason_code: z.string().min(1).max(100).optional(), note: z.string().min(1).max(2_000).optional(), expected_case_version: expectedVersionSchema }).strict().superRefine((value, context) => {
@@ -40,17 +42,24 @@ type AppOptions = Readonly<{
   sendDecision: SendDecision;
   repository?: HumanCaseRepository;
   verifyWorkflowCaseAccess?: VerifyWorkflowCaseAccess;
+  evidence?: EvidenceRoutesOptions;
 }>;
 
 export function buildApp(options: AppOptions) {
-  const app = Fastify();
+  const app = Fastify({ requestTimeout: 30_000 });
   const repository = options.repository ?? new InMemoryHumanCaseRepository();
+  const caseResponse = async (humanCase: HumanCase, access?: HumanAccess) => ({
+    ...toHumanCaseResponse(humanCase,access),
+    ...(options.evidence ? await evidenceCaseFields(options.evidence,humanCase,access) : {}),
+  });
+  if (options.evidence) registerEvidenceRoutes(app, options.evidence, { cases: repository, verifyHuman: options.verifyHuman, verifyWorkflow: options.verifyWorkflowCaseAccess, caseResponse });
   app.get('/health', async () => ({ service: 'human-operations', status: 'ok' }));
 
   app.post('/internal/v1/refund-cases', async (request, reply) => {
     const body = workerOpenCaseSchema.safeParse(request.body);
     const idempotencyKey = parseIdempotencyKey(request.headers['idempotency-key']);
     if (!body.success || !idempotencyKey) return invalid(reply, 'invalid_human_case', 'Human case is invalid');
+    if (body.data.case_type === 'REFUND_EVIDENCE_REVIEW') return invalid(reply, 'invalid_human_case', 'Evidence cases require a bound evidence collection');
     const access = await verifyWorkflow(request, reply, 'human_case_open', options.verifyWorkflowCaseAccess);
     if (!access) return reply;
     if (access.workflowId !== body.data.workflow_id) return forbidden(reply, 'workflow_case_mismatch', 'Workflow identity does not match the requested case');
@@ -68,7 +77,11 @@ export function buildApp(options: AppOptions) {
     if (!access) return reply;
     if (access.workflowId !== body.data.workflow_id) return forbidden(reply, 'workflow_case_mismatch', 'Workflow identity does not match the requested case');
     try {
-      const humanCase = await repository.close({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId, workflowId: access.workflowId });
+      if (body.data.outcome) {
+        const current = await repository.get({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
+        if (current.caseType !== 'REFUND_EVIDENCE_REVIEW') return invalid(reply,'invalid_human_case','Evidence outcomes apply only to evidence review');
+      }
+      const humanCase = await repository.close({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId, workflowId: access.workflowId, ...(body.data.outcome ? {outcome:body.data.outcome} : {}) });
       return reply.send({ refund_case: toHumanCaseResponse(humanCase) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
@@ -97,7 +110,7 @@ export function buildApp(options: AppOptions) {
       const humanCase = await repository.get({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
       if (!canViewCase(access, humanCase)) return notFound(reply);
       const auditEvents = await repository.auditEvents({ caseId: humanCase.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
-      return reply.send({ refund_case: toHumanCaseResponse(humanCase, access), audit_events: auditEvents.map(toAuditEventResponse) });
+      return reply.send({ refund_case: await caseResponse(humanCase, access), audit_events: auditEvents.map(toAuditEventResponse) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -110,7 +123,7 @@ export function buildApp(options: AppOptions) {
       const current = await repository.get({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId });
       if (!canSubmitClaim(access, current)) return forbidden(reply, 'human_action_forbidden', 'This staff member cannot claim the refund case');
       const humanCase = await repository.claim({ caseId: current.caseId, tenantId: access.tenantId, environmentId: access.environmentId, staffId: access.staffId, expectedCaseVersion: body.data.expected_case_version, idempotencyKey });
-      return reply.send({ refund_case: toHumanCaseResponse(humanCase, access) });
+      return reply.send({ refund_case: await caseResponse(humanCase, access) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -122,7 +135,7 @@ export function buildApp(options: AppOptions) {
     if (access.role !== 'REFUND_SUPERVISOR') return forbidden(reply, 'human_action_forbidden', 'Only supervisors may reassign a refund case');
     try {
       const humanCase = await repository.reassign({ caseId: params.data.caseId, tenantId: access.tenantId, environmentId: access.environmentId, assignedStaffId: body.data.assigned_staff_id, expectedCaseVersion: body.data.expected_case_version, idempotencyKey });
-      return reply.send({ refund_case: toHumanCaseResponse(humanCase, access) });
+      return reply.send({ refund_case: await caseResponse(humanCase, access) });
     } catch (error) { return repositoryFailure(reply, error); }
   });
 
@@ -149,6 +162,12 @@ export function buildApp(options: AppOptions) {
     const access = await verifyHuman(request, reply, options.verifyHuman);
     if (!access) return reply;
     try {
+      if (options.evidence) {
+        try {
+          await options.evidence.repository.get(access,params.data.workflowId);
+          return reply.code(409).send({error:{code:'evidence_governed_case_required',message:'Use the governed case endpoint'}});
+        } catch (error) { if (!(error instanceof EvidenceError && error.status === 404)) throw error; }
+      }
       await options.sendDecision({ workflowId: params.data.workflowId, access, decision: body.data.decision, ...(body.data.reasonCode === undefined ? {} : { reasonCode: body.data.reasonCode }) });
       return reply.code(202).send({ workflow_id: params.data.workflowId, status: 'decision_received' });
     } catch { return reply.code(502).send({ error: { code: 'workflow_unavailable', message: 'Refund workflow is unavailable' } }); }
@@ -169,7 +188,7 @@ async function verifyWorkflow(request: { headers: Record<string, string | string
 }
 
 function canViewCase(access: HumanAccess, humanCase: HumanCase): boolean {
-  return access.role === 'REFUND_SUPERVISOR' || humanCase.caseType === 'REFUND_APPROVAL';
+  return access.role === 'REFUND_SUPERVISOR' || humanCase.caseType === 'REFUND_APPROVAL' || humanCase.caseType === 'REFUND_EVIDENCE_REVIEW';
 }
 
 function canClaimCase(access: HumanAccess, humanCase: HumanCase): boolean {
@@ -183,6 +202,7 @@ function canSubmitClaim(access: HumanAccess, humanCase: HumanCase): boolean {
 }
 
 function allowedActionsForHuman(access: HumanAccess, humanCase: HumanCase): readonly HumanDecision[] {
+  if (humanCase.caseType === 'REFUND_EVIDENCE_REVIEW') return [];
   if (humanCase.status !== 'CLAIMED' || humanCase.assignedStaffId !== access.staffId || !hasCaseRole(access, humanCase)) return [];
   return humanCase.caseType === 'REFUND_APPROVAL'
     ? ['APPROVE', 'REJECT']
@@ -190,6 +210,7 @@ function allowedActionsForHuman(access: HumanAccess, humanCase: HumanCase): read
 }
 
 function hasCaseRole(access: HumanAccess, humanCase: HumanCase): boolean {
+  if (humanCase.caseType === 'REFUND_EVIDENCE_REVIEW') return ['REFUND_APPROVER','REFUND_SUPERVISOR'].includes(access.role);
   return humanCase.caseType === 'REFUND_APPROVAL'
     ? access.role === 'REFUND_APPROVER'
     : access.role === 'REFUND_SUPERVISOR';

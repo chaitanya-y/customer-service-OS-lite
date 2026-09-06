@@ -18,7 +18,7 @@ import {
   type ReassignHumanCaseInput,
 } from './human-case-repository.js';
 
-type CaseRow = QueryResultRow & {
+export type CaseRow = QueryResultRow & {
   case_id: string;
   tenant_id: string;
   environment_id: string;
@@ -118,7 +118,7 @@ export class PostgresHumanCaseRepository implements HumanCaseRepository {
     });
   }
 
-  async close(input: Readonly<{ caseId: string; tenantId: string; environmentId: string; workflowId: string }>): Promise<HumanCase> {
+  async close(input: Readonly<{ caseId: string; tenantId: string; environmentId: string; workflowId: string; outcome?: 'EVIDENCE_REVIEW_COMPLETED' | 'EVIDENCE_COLLECTION_EXPIRED' }>): Promise<HumanCase> {
     return this.inTransaction(input, async (client) => {
       const current = await this.requireCase(client, input.caseId);
       if (current.workflow_id !== input.workflowId) throw new HumanCaseRepositoryError('CASE_NOT_FOUND');
@@ -129,7 +129,7 @@ export class PostgresHumanCaseRepository implements HumanCaseRepository {
         [now, input.caseId],
       );
       const closed = requiredRow(result.rows[0], 'Closed human case disappeared');
-      await this.appendAudit(client, closed, 'CASE_CLOSED', 'WORKFLOW', input.workflowId, {}, now);
+      await this.appendAudit(client, closed, 'CASE_CLOSED', 'WORKFLOW', input.workflowId, input.outcome ? { outcome: input.outcome } : {}, now);
       return toHumanCase(closed);
     });
   }
@@ -225,7 +225,7 @@ export class PostgresHumanCaseRepository implements HumanCaseRepository {
       }
       const current = await this.requireCase(client, input.caseId);
       assertExpectedVersion(current, input.expectedCaseVersion);
-      if (current.status !== 'CLAIMED' || current.assigned_staff_id !== input.staffId) throw new HumanCaseRepositoryError('CASE_CONFLICT');
+      if (current.status !== 'CLAIMED' || current.assigned_staff_id !== input.staffId || !allowedActionsForCaseType(current.case_type).includes(input.decision)) throw new HumanCaseRepositoryError('CASE_CONFLICT');
       const now = new Date();
       const changed = await client.query<CaseRow>(
         `UPDATE human_operations.refund_cases SET status = 'DECISION_PENDING', decided_at = $1, case_version = case_version + 1, updated_at = $1 WHERE case_id = $2 AND tenant_id = security.current_tenant_id() AND environment_id = security.current_environment_id() RETURNING *`,
@@ -333,7 +333,7 @@ export class PostgresHumanCaseRepository implements HumanCaseRepository {
 const caseSelect = `SELECT case_id, tenant_id, environment_id, workflow_id, case_type, status, assigned_staff_id, case_version, review_packet, policy_version, created_at, updated_at, decided_at FROM human_operations.refund_cases`;
 const outboxSelect = `SELECT event_id, case_id, workflow_id, tenant_id, environment_id, decision, decided_by, decided_at, reason_code, note, created_at FROM human_operations.decision_outbox`;
 
-function toHumanCase(row: CaseRow): HumanCase {
+export function toHumanCase(row: CaseRow): HumanCase {
   return {
     caseId: row.case_id,
     tenantId: row.tenant_id,

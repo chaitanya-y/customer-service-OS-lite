@@ -7,6 +7,7 @@ export type RefundPolicyRelease = Readonly<{
   highRiskPriorRefundCount: number;
   decisionValiditySeconds: number;
   permittedReasonCodes: readonly string[];
+  requireDamagePhoto?: boolean;
 }>;
 
 export const REFUND_POLICY_V1: RefundPolicyRelease = Object.freeze({
@@ -28,3 +29,17 @@ export const REFUND_POLICY_V1: RefundPolicyRelease = Object.freeze({
     "OTHER",
   ]),
 });
+
+// Policy v1 remains immutable for workflows already pinned to that release.
+// This release adds photo evidence, not a delivery-date eligibility rule.
+export const REFUND_POLICY_V2: RefundPolicyRelease = Object.freeze({
+  ...REFUND_POLICY_V1,
+  policyVersion: 'refund-policy-v2',
+  requireDamagePhoto: true,
+});
+
+export function getRefundPolicyRelease(version: string): RefundPolicyRelease {
+  if (version === REFUND_POLICY_V1.policyVersion) return REFUND_POLICY_V1;
+  if (version === REFUND_POLICY_V2.policyVersion) return REFUND_POLICY_V2;
+  throw new Error('UNKNOWN_REFUND_POLICY_VERSION');
+}

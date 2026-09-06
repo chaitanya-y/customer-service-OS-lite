@@ -27,7 +27,10 @@ export type WorkflowAccessAssertionInput = Readonly<{
     | 'refund_execute'
     | 'refund_reconcile'
     | 'human_case_open'
-    | 'human_case_close';
+    | 'human_case_close'
+    | 'refund_evidence_open'
+    | 'refund_evidence_read'
+    | 'human_case_transition';
 }>;
 
 export type SignWorkflowAccessAssertion = (

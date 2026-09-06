@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { createVendureCommerceProvider } from '../src/vendure-client.js';
 
-test('Vendure provider authenticates and maps an order', async () => {
+test('Vendure provider authenticates and maps an order with a safe fallback for an empty fulfillment method', async () => {
   let capturedRequest: RequestInit | undefined;
 
   const commerceProvider = createVendureCommerceProvider({
@@ -70,7 +70,7 @@ test('Vendure provider authenticates and maps an order', async () => {
                     {
                       id: '2',
                       state: 'Delivered',
-                      method: 'Test Courier',
+                      method: '',
                       trackingCode: 'TRACK-123',
                     },
                   ],
@@ -157,7 +157,7 @@ test('Vendure provider authenticates and maps an order', async () => {
       {
         id: '2',
         status: 'Delivered',
-        method: 'Test Courier',
+        method: 'unspecified',
         trackingCode: 'TRACK-123',
       },
     ],

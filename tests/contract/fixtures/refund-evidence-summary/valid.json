@@ -1,0 +1,19 @@
+{
+  "version": "v1",
+  "requirement": "DAMAGE_PHOTO",
+  "evidence_version": 2,
+  "assessment": "ACCEPTED",
+  "can_upload": false,
+  "attachments": [
+    {
+      "evidence_id": "2a85b731-803b-4321-9917-d184113b4c25",
+      "display_label": "Photo 1",
+      "content_type": "image/jpeg",
+      "byte_size": 2048,
+      "width": 640,
+      "height": 480,
+      "uploaded_at": "2026-09-05T15:00:00Z",
+      "technical_status": "READY"
+    }
+  ]
+}

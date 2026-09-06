@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/human-api/refund-evidence/v1/review-command",
+  "title": "RefundEvidenceReviewCommandV1",
+  "description": "Staff photo review, never monetary approval. Services must authenticate staff role/current claimed assignment, scope the case to route and tenant, compare BOTH expected versions atomically, require a nonempty READY review set with no uploads in flight, and enforce scoped idempotency. JSON Schema checks shape/action-reason compatibility, not live authorization or revision invariants. Staff identity/time are server-derived. Internal notes must not enter customer projections.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "action",
+    "expected_case_version",
+    "expected_evidence_version",
+    "reason_code"
+  ],
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "action": {
+      "enum": [
+        "ACCEPT_EVIDENCE",
+        "REQUEST_MORE_EVIDENCE"
+      ]
+    },
+    "expected_case_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "expected_evidence_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "reason_code": {
+      "enum": [
+        "DAMAGE_VISIBLE",
+        "PHOTO_UNCLEAR",
+        "DAMAGED_ITEM_NOT_VISIBLE",
+        "ORDER_ITEM_NOT_IDENTIFIABLE"
+      ]
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "\\S",
+      "description": "Optional internal rationale. Customer follow-up comes from the bounded reason_code, never this note."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ACCEPT_EVIDENCE"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reason_code": {
+            "const": "DAMAGE_VISIBLE"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "reason_code": {
+            "enum": [
+              "PHOTO_UNCLEAR",
+              "DAMAGED_ITEM_NOT_VISIBLE",
+              "ORDER_ITEM_NOT_IDENTIFIABLE"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

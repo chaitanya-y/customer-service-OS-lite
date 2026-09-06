@@ -13,6 +13,14 @@ a refund, but cannot authorize or execute one.
 
 The local refund journey is implemented and has been exercised through the
 customer and Human Operations browser interfaces.
+On 2026-09-06, the photo-gated positive path completed for a disposable local
+order: staff requested a clearer photo, accepted its replacement revision, then
+the same case moved to supervisor monetary approval and exact customer
+confirmation. One Vendure refund for USD 3,122.60 was created and, with separate
+owner authorization, that existing refund was settled. Temporal reached
+`REFUND_SUCCEEDED`; the customer projection reached `REFUND_COMPLETED` with no
+action. See [verification evidence](docs/VERIFICATION_STATUS.md), including the
+earlier September 5 proof and the later automated wording-safeguard checks.
 
 | Capability | Status |
 |---|---|
@@ -20,16 +28,20 @@ customer and Human Operations browser interfaces.
 | LangGraph proposal generation, read-only order lookup, and grounded answer | Implemented |
 | Customer-safe RAG over OpenSearch | Implemented |
 | Versioned deterministic refund policy | Implemented |
+| Private damage photos and staff evidence review | Local policy v2 slice, including a photo-gated browser-to-provider proof; see the [photo guide](docs/REFUND_PHOTO_EVIDENCE.md) |
 | Temporal confirmation, approval, takeover, provider processing, and reconciliation paths | Implemented |
 | Signed provider outcome events, replay protection, and retry delivery to Temporal | Implemented |
 | Human case queue, claim, decision, and audit trail | Implemented locally |
 | Customer and Human Operations interfaces with light, dark, and system themes | Implemented |
 | Admin Console | Visual foundation only |
-| Cognito, Kafka, OpenTelemetry, persistent Human Operations storage, AWS deployment | Planned |
+| PostgreSQL Human Operations cases, audit history, idempotency, and decision outbox | Implemented locally |
+| Centralized Model Gateway for routing, budgets, fallback, and provider policy | Planned; Agent Runtime currently calls configured models directly |
+| Cognito, Kafka, OpenTelemetry, and AWS deployment | Planned |
 
-The Human Operations repository is deliberately in memory for local development.
-Restarting that service clears local cases. It is not a production persistence
-implementation.
+The running Human Operations service uses PostgreSQL. Case state, audit events,
+idempotency records, and pending decisions survive service restarts. Its in-memory
+repository remains only as a test and dependency-injection adapter. Production
+deployment, backup, high availability, and Kafka delivery are still future work.
 
 ## The governed refund boundary
 
@@ -72,6 +84,7 @@ Useful checks:
 pnpm check:contracts
 pnpm typecheck:frontend
 pnpm build:frontend
+pnpm --filter @cso/customer-portal test
 
 cd apps/services/edge-api && pnpm typecheck && pnpm test
 cd ../integration-gateway && pnpm typecheck && pnpm test
@@ -85,6 +98,24 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 
 - [Project context and contributor handoff](docs/PROJECT_CONTEXT.md), the detailed
   architecture, contracts, environment, tests, and remaining work.
+- [Codex handoff](docs/CODEX_HANDOFF.md), the quickest safe entry point for a new
+  account or coding agent.
+- [Multi-agent working agreement](docs/MULTI_AGENT_WORKING_AGREEMENT.md), bounded
+  delegation, file ownership, context, test responsibilities and usage checkpoints.
+- [Current HLD and LLD](docs/architecture/KLEEM_AI_ARCHITECTURE_V1_1.md), the
+  authoritative architecture amendment over the preserved original PDF.
+- [Final combined HLD and LLD PDF](docs/reference/architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture.pdf),
+  the September 3 architecture snapshot and complete version 1.0 baseline appendix;
+  current verification updates are in Markdown.
+- [Reference document manifest](docs/reference/README.md), precedence, page counts,
+  checksums, and the included product PDFs.
+- [Local authentication and secrets](docs/LOCAL_AUTH_AND_SECRETS.md), a careful
+  explanation of signing secrets, login tokens, internal assertions, and rotation.
+- [Verification status](docs/VERIFICATION_STATUS.md), what is automated, what has
+  been proved manually, and remaining hardening and production work.
+- [Refund photo evidence](docs/REFUND_PHOTO_EVIDENCE.md), upload/review flow,
+  code reading order, local setup, limits, and safety boundaries.
+- [Decision log](docs/DECISION_LOG.md), accepted, implemented, and planned choices.
 - [Local refund runbook](docs/LOCAL_REFUND_RUNBOOK.md), start and test the full
   local stack safely.
 - [Frontend refund journey](docs/FRONTEND_CUSTOMER_REFUND_JOURNEY.md), implemented
@@ -101,7 +132,18 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 
 This repository is a local, production-shaped learning system. It is not yet a
 deployable production service. In particular, it does not yet include Cognito,
-Kafka delivery, OpenTelemetry observability, a persistent Human Operations store,
-reproducible Vendure seed data, or AWS infrastructure.
+Kafka delivery, OpenTelemetry observability, the centralized Model Gateway,
+reproducible Vendure seed data, production-grade Human Operations database
+operations, or AWS infrastructure.
+
+Delivery-age eligibility is not enforced. The successful September 6 browser run
+still generated an unsupported request for a delivery date. The subsequent fix
+forbids delivery-date questions and delivery-age windows in `SYSTEM_PROMPT`;
+runtime checks reject either wording so the existing graph safely falls back.
+The full Agent Runtime suite passed 101 tests with one upstream warning. A fresh
+paid live browser recheck has not been run; these automated checks do not add
+trusted delivery-age eligibility.
+Simulated Vendure settlement does not prove real webhook delivery or bank
+settlement. Photo retention deletion remains disabled pending explicit approval.
 
 Never commit `.env` files, local signed tokens, API keys, or Vendure API keys.

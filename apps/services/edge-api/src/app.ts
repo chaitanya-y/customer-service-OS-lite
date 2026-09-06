@@ -21,6 +21,7 @@ import type {
 } from './context-assertion.js';
 import type { VerifyCustomerIdentity } from './customer-identity.js';
 import {
+  RefundPreviewUnavailableError,
   RefundWorkflowNotFoundError,
   type ConfirmRefundWorkflow,
   type GetRefundWorkflow,
@@ -30,9 +31,16 @@ import {
 import {
   createRefundJourneyUpdateEvent,
   formatSseEvent,
+  refundJourneyFingerprint,
   toRefundJourneyView,
 } from './refund-journey-view.js';
-import { resolveOrderReference } from './order-reference.js';
+import { buildCustomerConversationContext } from './customer-conversation-context.js';
+import type { RefundEvidenceClient, RefundEvidenceSummary } from './refund-evidence-client.js';
+import { isEvidenceWaitStage, registerRefundEvidenceRoutes } from './refund-evidence-routes.js';
+import {
+  resolveOrderReference,
+  resolveOrderReferenceFromCustomerMessages,
+} from './order-reference.js';
 
 const refundIntakeRequestSchema = z
   .object({
@@ -119,6 +127,20 @@ const customerAnswerAgentResponseSchema = z
       .passthrough(),
   })
   .passthrough();
+const agentRuntimeFailureResponseSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('intent_extraction_unavailable'),
+      error_code: z.literal('intent_extraction_unavailable'),
+    })
+    .passthrough(),
+  z
+    .object({
+      status: z.literal('order_lookup_unavailable'),
+      error_code: z.string().trim().min(1).max(160),
+    })
+    .passthrough(),
+]);
 
 const readyRefundProposalSchema = z.object({
   proposalId: z.string().min(1),
@@ -159,6 +181,7 @@ type BuildAppOptions = {
   startRefundWorkflow?: StartRefundWorkflow;
   getRefundWorkflow?: GetRefundWorkflow;
   confirmRefundWorkflow?: ConfirmRefundWorkflow;
+  refundEvidenceClient?: RefundEvidenceClient;
   refundPolicyVersion?: string;
   createCorrelationId?: () => string;
   now?: () => Date;
@@ -196,6 +219,25 @@ function sendAgentUnavailable(reply: FastifyReply) {
     error: {
       code: 'agent_runtime_unavailable',
       message: 'Agent Runtime request failed',
+    },
+  });
+}
+
+function sendRefundIntentUnavailable(reply: FastifyReply) {
+  return reply.code(503).send({
+    error: {
+      code: 'refund_intent_unavailable',
+      message:
+        'We could not understand your refund request right now. Please try again.',
+    },
+  });
+}
+
+function sendOrderLookupUnavailable(reply: FastifyReply) {
+  return reply.code(503).send({
+    error: {
+      code: 'order_lookup_unavailable',
+      message: 'We could not retrieve your order right now. Please try again.',
     },
   });
 }
@@ -309,6 +351,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   async function verifyRequestIdentity(authorization: string | undefined) {
     return options.verifyCustomerIdentity(extractBearerToken(authorization));
   }
+
+  registerRefundEvidenceRoutes(app, {
+    verifyRequestIdentity, createCorrelationId,
+    ...(options.getRefundWorkflow ? { getRefundWorkflow: options.getRefundWorkflow } : {}),
+    ...(options.refundEvidenceClient ? { evidenceClient: options.refundEvidenceClient } : {}),
+  });
 
   app.post('/v1/conversations', async (request, reply) => {
     const body = createConversationRequestSchema.safeParse(request.body ?? {});
@@ -514,6 +562,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
 
     if (
+      !options.getConversation ||
       !options.acceptCustomerMessage ||
       !options.appendAssistantMessage ||
       !options.signConversationRuntimeContextAssertion ||
@@ -590,6 +639,45 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return sendConversationRuntimeFailure(reply, 500);
     }
 
+    let customerConversationContext;
+    try {
+      const response = await options.getConversation({
+        conversationId,
+        contextAssertion: conversationContextAssertion,
+      });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return sendConversationRuntimeFailure(reply, response.statusCode);
+      }
+
+      const transcript = conversationTranscriptResponseSchema.safeParse(
+        response.body,
+      );
+      if (
+        !transcript.success ||
+        transcript.data.data.conversationId !== conversationId
+      ) {
+        request.log.error(
+          { requestId },
+          'Conversation Runtime returned an invalid customer conversation context',
+        );
+        return sendConversationRuntimeFailure(reply, 500);
+      }
+
+      customerConversationContext = buildCustomerConversationContext({
+        messages: transcript.data.data.messages,
+        acceptedCustomerMessage: {
+          messageId: customerMessage.messageId,
+          text: customerMessageText,
+        },
+      });
+    } catch (error) {
+      request.log.error(
+        { err: error, requestId },
+        'Customer conversation context loading failed',
+      );
+      return sendConversationRuntimeFailure(reply, 500);
+    }
+
     let agentRuntimeContextAssertion: string;
     let integrationGatewayContextAssertion: string;
     let knowledgeRagContextAssertion: string;
@@ -615,14 +703,15 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
 
     let agentResponse: AgentRuntimeResponse;
-    const orderReference = resolveOrderReference({
-      customerMessage: customerMessageText,
+    const orderReference = resolveOrderReferenceFromCustomerMessages({
+      customerMessages: customerConversationContext,
       explicitOrderReference: body.data.order_reference,
     });
     try {
       agentResponse = await options.intakeRefund(
         {
           customer_message: customerMessageText,
+          conversation_messages: customerConversationContext,
           ...(orderReference === undefined
             ? {}
             : { order_reference: orderReference }),
@@ -645,9 +734,20 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return sendAgentUnavailable(reply);
     }
 
-    const customerAnswer = customerAnswerAgentResponseSchema.safeParse(
+    const agentFailure = agentRuntimeFailureResponseSchema.safeParse(
       agentResponse.body,
     );
+    if (agentFailure.success) {
+      request.log.warn(
+        { requestId, agentStatus: agentFailure.data.status },
+        'Agent Runtime could not continue the refund request',
+      );
+      return agentFailure.data.status === 'intent_extraction_unavailable'
+        ? sendRefundIntentUnavailable(reply)
+        : sendOrderLookupUnavailable(reply);
+    }
+
+    const customerAnswer = customerAnswerAgentResponseSchema.safeParse(agentResponse.body);
     if (!customerAnswer.success) {
       request.log.error({ requestId }, 'Agent Runtime returned an unsafe chat response');
       return sendAgentUnavailable(reply);
@@ -779,8 +879,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     workflowId: string,
     authorization: string | undefined,
   ): Promise<
-    | Readonly<{ workflow: RefundWorkflowView }>
-    | Readonly<{ error: 'customer_unauthorized' | 'refund_workflow_not_found' | 'workflow_unavailable' }>
+    | Readonly<{ workflow: RefundWorkflowView; evidence?: RefundEvidenceSummary }>
+    | Readonly<{ error: 'customer_unauthorized' | 'refund_workflow_not_found' | 'workflow_unavailable' | 'evidence_unavailable' }>
   > {
     if (!options.getRefundWorkflow) {
       return { error: 'workflow_unavailable' };
@@ -804,7 +904,20 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           traceId: createCorrelationId(),
         },
       });
-      return { workflow };
+      let evidence: RefundEvidenceSummary | undefined;
+      if (options.refundEvidenceClient) {
+        try {
+          evidence = await options.refundEvidenceClient.getSummary({
+            workflowId, identity, requestId: createCorrelationId(), traceId: createCorrelationId(),
+          });
+        } catch {
+          // Legacy / non-photo journeys must not depend on a new evidence
+          // service rollout. Active evidence gates fail closed instead.
+          if (isEvidenceWaitStage(workflow.stage)) return { error: 'evidence_unavailable' };
+        }
+      }
+      if (isEvidenceWaitStage(workflow.stage) && !evidence) return { error: 'evidence_unavailable' };
+      return { workflow, ...(evidence === undefined ? {} : { evidence }) };
     } catch (error) {
       if (error instanceof RefundWorkflowNotFoundError) {
         return { error: 'refund_workflow_not_found' };
@@ -815,7 +928,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
   function sendRefundJourneyLoadFailure(
     reply: FastifyReply,
-    error: 'customer_unauthorized' | 'refund_workflow_not_found' | 'workflow_unavailable',
+    error: 'customer_unauthorized' | 'refund_workflow_not_found' | 'workflow_unavailable' | 'evidence_unavailable',
   ) {
     switch (error) {
       case 'customer_unauthorized':
@@ -839,6 +952,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
             message: 'Refund workflow is temporarily unavailable',
           },
         });
+      case 'evidence_unavailable':
+        return reply.code(503).send({ error: { code: 'evidence_unavailable', message: 'Photo evidence is temporarily unavailable. Please try again.' } });
     }
   }
 
@@ -858,7 +973,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return sendRefundJourneyLoadFailure(reply, result.error);
     }
 
-    return reply.send(toRefundJourneyView(params.data.workflowId, result.workflow));
+    return reply.header('cache-control', 'private, no-store').send(toRefundJourneyView(params.data.workflowId, result.workflow, result.evidence));
   });
 
   app.get('/v1/refunds/:workflowId/events', async (request, reply) => {
@@ -878,7 +993,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return sendRefundJourneyLoadFailure(reply, initial.error);
     }
 
-    let fingerprint = JSON.stringify(toRefundJourneyView(workflowId, initial.workflow));
+    let fingerprint = refundJourneyFingerprint(workflowId, initial.workflow, initial.evidence);
     let eventSequence = 0;
     const writeUpdate = () => {
       eventSequence += 1;
@@ -899,25 +1014,26 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     reply.raw.write(`retry: ${refundJourneyPollIntervalMilliseconds}\n\n`);
     writeUpdate();
 
+    let refreshing = false;
+    let closed = false;
     const interval = setInterval(async () => {
-      const next = await loadOwnedRefundWorkflow(
-        workflowId,
-        request.headers.authorization,
-      );
-      if ('error' in next) {
-        return;
-      }
-
-      const nextFingerprint = JSON.stringify(
-        toRefundJourneyView(workflowId, next.workflow),
-      );
-      if (nextFingerprint !== fingerprint) {
-        fingerprint = nextFingerprint;
-        writeUpdate();
-      }
+      if (refreshing || closed) return;
+      refreshing = true;
+      try {
+        const next = await loadOwnedRefundWorkflow(workflowId, request.headers.authorization);
+        if ('error' in next) return;
+        const nextFingerprint = refundJourneyFingerprint(workflowId, next.workflow, next.evidence);
+        if (!closed && nextFingerprint !== fingerprint) {
+          fingerprint = nextFingerprint;
+          writeUpdate();
+        }
+      } catch {
+        // Keep the prior safe view on an unavailable poll; a later poll retries.
+      } finally { refreshing = false; }
     }, refundJourneyPollIntervalMilliseconds);
 
     request.raw.once('close', () => {
+      closed = true;
       clearInterval(interval);
     });
   });
@@ -959,6 +1075,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       await options.confirmRefundWorkflow({ workflowId: params.data.workflowId, previewId: body.data.preview_id, accepted: body.data.accepted, access: { tenantId: identity.tenantId, environmentId: identity.environmentId, subjectCustomerId: identity.customerId, requestId: createCorrelationId(), traceId: createCorrelationId() } });
       return reply.code(202).send({ workflow_id: params.data.workflowId, status: 'confirmation_received' });
     } catch (error) {
+      if (error instanceof RefundPreviewUnavailableError) return reply.code(409).send({ error: { code: 'refund_preview_unavailable', message: error.message } });
       if (error instanceof RefundWorkflowNotFoundError) return reply.code(404).send({ error: { code: 'refund_workflow_not_found', message: 'Refund workflow was not found' } });
       request.log.error({ err: error }, 'Refund workflow confirmation failed');
       return reply.code(502).send({ error: { code: 'workflow_unavailable', message: 'Refund workflow is temporarily unavailable' } });

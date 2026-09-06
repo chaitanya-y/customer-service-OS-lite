@@ -6,7 +6,8 @@
     "dev": "next dev --webpack --port 3101",
     "build": "next build",
     "start": "next start --port 3101",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@cso/ui": "workspace:*",

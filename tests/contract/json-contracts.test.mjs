@@ -25,6 +25,10 @@ const contracts = {
     "contracts/workflows/policy/v1/refund-policy-input.schema.json",
   policyDecision:
     "contracts/workflows/policy/v1/policy-decision.schema.json",
+  refundEvidenceSummary:
+    "contracts/customer-api/refund-evidence/v1/refund-evidence-summary.schema.json",
+  refundEvidenceReviewCommand:
+    "contracts/human-api/refund-evidence/v1/refund-evidence-review-command.schema.json",
 };
 
 const fixtures = {
@@ -35,6 +39,8 @@ const fixtures = {
   refundProposal: "refund-proposal",
   refundPolicyInput: "refund-policy-input",
   policyDecision: "policy-decision",
+  refundEvidenceSummary: "refund-evidence-summary",
+  refundEvidenceReviewCommand: "refund-evidence-review-command",
 };
 
 async function readJson(relativePath) {
@@ -103,6 +109,10 @@ function pathToSchemaId(schemaPath) {
       "https://customer-service-os.example/contracts/workflows/policy/v1/refund-policy-input",
     [contracts.policyDecision]:
       "https://customer-service-os.example/contracts/workflows/policy/v1/refund-policy-decision",
+    [contracts.refundEvidenceSummary]:
+      "https://customer-service-os.example/contracts/customer-api/refund-evidence/v1/summary",
+    [contracts.refundEvidenceReviewCommand]:
+      "https://customer-service-os.example/contracts/human-api/refund-evidence/v1/review-command",
   };
 
   return ids[schemaPath];

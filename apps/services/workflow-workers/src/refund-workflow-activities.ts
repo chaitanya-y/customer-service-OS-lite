@@ -6,6 +6,7 @@ import {
 } from "./refund-policy.js";
 import type { RefundPolicyRelease } from "./refund-policy-release.js";
 import { createRefundPolicyInput } from "./refund-policy-input.js";
+import type { RefundEvidenceActivities, AcceptedDamageEvidence } from './refund-evidence-client.js';
 import type { WorkflowJourneyAccess } from './workflow-access-assertion.js';
 import {
   createRefundPreview,
@@ -13,7 +14,7 @@ import {
   type RefundPreviewAuthorization,
 } from './refund-preview.js';
 
-export type HumanCaseType = 'REFUND_APPROVAL' | 'REFUND_TAKEOVER';
+export type HumanCaseType = 'REFUND_APPROVAL' | 'REFUND_TAKEOVER' | 'REFUND_EVIDENCE_REVIEW';
 export type HumanCaseAction = 'APPROVE' | 'APPROVE_EXCEPTIONAL_REFUND' | 'REJECT' | 'RESOLVE_TAKEOVER';
 
 /**
@@ -80,6 +81,7 @@ export type EvaluateRefundPolicyInput = Readonly<{
   proposal: RefundProposal;
   refundContext: RefundContext;
   policyVersion: string;
+  damageEvidence?: AcceptedDamageEvidence;
 }>;
 
 export type CreateRefundPreviewActivityInput = Readonly<{
@@ -126,6 +128,8 @@ type RefundWorkflowActivityDependencies = Readonly<{
   openHumanCase(input: OpenHumanCaseInput): Promise<OpenHumanCaseResult>;
   closeHumanCase(input: CloseHumanCaseInput): Promise<void>;
   refundPolicyRelease: RefundPolicyRelease;
+  getPolicyRelease?: (version: string) => RefundPolicyRelease;
+  evidence?: RefundEvidenceActivities;
   createDecisionContext(
     input: EvaluateRefundPolicyInput,
   ): PolicyDecisionContext;
@@ -143,21 +147,25 @@ export function createRefundWorkflowActivities({
   openHumanCase,
   closeHumanCase,
   refundPolicyRelease,
+  getPolicyRelease,
+  evidence,
   createDecisionContext,
   createPreviewContext,
-}: RefundWorkflowActivityDependencies): RefundWorkflowActivities {
+}: RefundWorkflowActivityDependencies): RefundWorkflowActivities & Partial<RefundEvidenceActivities> {
   return {
+    ...evidence,
     refreshRefundContext: fetchRefundContext,
     async evaluateRefundPolicy(input) {
       const policyInput = createRefundPolicyInput({
         proposal: input.proposal,
         refundContext: input.refundContext,
         policyVersion: input.policyVersion,
+        ...(input.damageEvidence === undefined ? {} : { damageEvidence: input.damageEvidence }),
       });
 
       return evaluateRefundPolicy(
         policyInput,
-        refundPolicyRelease,
+        getPolicyRelease?.(input.policyVersion) ?? refundPolicyRelease,
         createDecisionContext(input),
       );
     },

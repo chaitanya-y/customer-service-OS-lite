@@ -125,7 +125,7 @@ export function createHumanOperationsCaseClient({
  * avoids copying hashes, provider details, or raw customer messages into a
  * staff-facing case.
  */
-function toHumanOperationsReviewPacket(input: OpenHumanCaseInput) {
+export function toHumanOperationsReviewPacket(input: OpenHumanCaseInput) {
   const { proposal, policy } = input.reviewPacket;
 
   return {
