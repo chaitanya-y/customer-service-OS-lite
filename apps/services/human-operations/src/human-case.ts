@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const humanCaseTypeSchema = z.enum(['REFUND_APPROVAL', 'REFUND_TAKEOVER']);
+export const humanCaseTypeSchema = z.enum(['REFUND_APPROVAL', 'REFUND_TAKEOVER', 'REFUND_EVIDENCE_REVIEW']);
 export const humanCaseStatusSchema = z.enum(['OPEN', 'CLAIMED', 'DECISION_PENDING', 'CLOSED']);
 export const humanDecisionSchema = z.enum([
   'APPROVE',
@@ -53,9 +53,9 @@ export type HumanCase = Readonly<{
 export type HumanCaseAuditEvent = Readonly<{
   eventId: string;
   caseId: string;
-  eventType: 'CASE_OPENED' | 'CASE_CLAIMED' | 'DECISION_RECORDED' | 'CASE_CLOSED';
+  eventType: 'CASE_OPENED' | 'CASE_CLAIMED' | 'DECISION_RECORDED' | 'CASE_CLOSED' | 'EVIDENCE_UPLOAD_RESERVED' | 'EVIDENCE_VALIDATED' | 'EVIDENCE_REVIEWED' | 'EVIDENCE_PURGED' | 'CASE_PHASE_CHANGED';
   occurredAt: string;
-  actorType: 'WORKFLOW' | 'HUMAN';
+  actorType: 'WORKFLOW' | 'HUMAN' | 'CUSTOMER';
   actorId: string;
   caseVersion: number;
   details: Readonly<Record<string, string>>;
@@ -76,6 +76,7 @@ export type HumanDecisionOutboxEvent = Readonly<{
 }>;
 
 export function allowedActionsForCaseType(caseType: HumanCaseType): readonly HumanDecision[] {
+  if (caseType === 'REFUND_EVIDENCE_REVIEW') return [];
   return caseType === 'REFUND_APPROVAL'
     ? ['APPROVE', 'REJECT']
     : ['APPROVE_EXCEPTIONAL_REFUND', 'RESOLVE_TAKEOVER', 'REJECT'];

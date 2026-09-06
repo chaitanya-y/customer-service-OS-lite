@@ -8,7 +8,8 @@
       "types": "./src/index.tsx",
       "default": "./src/index.tsx"
     },
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./refund-evidence-model": "./src/refund-evidence-model.ts"
   },
   "peerDependencies": {
     "react": "^19.2.8"

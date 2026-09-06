@@ -1,3 +1,8 @@
+import { hasReviewableEvidence, normalizeRefundEvidence, type EvidenceMessageCode, type RefundEvidence } from "@cso/ui/refund-evidence-model";
+
+export type EvidenceReviewAction = "ACCEPT_EVIDENCE" | "REQUEST_MORE_EVIDENCE";
+export type EvidenceReviewReason = "DAMAGE_VISIBLE" | EvidenceMessageCode;
+
 export type HumanCaseAction =
   | "APPROVE"
   | "REJECT"
@@ -17,10 +22,12 @@ export type ReviewPacket = Readonly<{
 
 export type HumanCase = Readonly<{
   allowedActions: HumanCaseAction[];
+  allowedEvidenceActions: EvidenceReviewAction[];
+  evidence?: RefundEvidence;
   assignedStaffId?: string;
   canClaim: boolean;
   caseId: string;
-  caseType: "REFUND_APPROVAL" | "REFUND_TAKEOVER";
+  caseType: "REFUND_APPROVAL" | "REFUND_TAKEOVER" | "REFUND_EVIDENCE_REVIEW";
   caseVersion: number;
   createdAt: string;
   decidedAt?: string;
@@ -71,7 +78,7 @@ function asAmount(value: unknown): ReviewPacket["requestedAmount"] {
 }
 
 function asCaseType(value: unknown): HumanCase["caseType"] | undefined {
-  return value === "REFUND_APPROVAL" || value === "REFUND_TAKEOVER" ? value : undefined;
+  return value === "REFUND_APPROVAL" || value === "REFUND_TAKEOVER" || value === "REFUND_EVIDENCE_REVIEW" ? value : undefined;
 }
 
 function asStatus(value: unknown): HumanCase["status"] | undefined {
@@ -91,14 +98,18 @@ export function normalizeHumanCase(value: unknown): HumanCase | undefined {
   const caseVersion = record.case_version;
   const createdAt = asString(record.created_at);
   const updatedAt = asString(record.updated_at);
+  const evidence = normalizeRefundEvidence(record.evidence);
 
   if (
     !caseId || !workflowId || !caseType || !status ||
-    typeof caseVersion !== "number" || !Number.isInteger(caseVersion) || !createdAt || !updatedAt
+    typeof caseVersion !== "number" || !Number.isSafeInteger(caseVersion) || caseVersion < 1 || !createdAt || !updatedAt
   ) return undefined;
 
   return {
-    allowedActions: asActionArray(record.allowed_actions),
+    allowedActions: caseType === "REFUND_EVIDENCE_REVIEW" ? [] : asActionArray(record.allowed_actions),
+    allowedEvidenceActions: caseType === "REFUND_EVIDENCE_REVIEW" && status === "CLAIMED" && asString(record.assigned_staff_id) && hasReviewableEvidence(evidence)
+      ? asStringArray(record.allowed_evidence_actions).filter((action): action is EvidenceReviewAction => action === "ACCEPT_EVIDENCE" || action === "REQUEST_MORE_EVIDENCE") : [],
+    ...(evidence ? { evidence } : {}),
     ...(asString(record.assigned_staff_id) ? { assignedStaffId: asString(record.assigned_staff_id) } : {}),
     canClaim: record.can_claim === true,
     caseId,
@@ -138,11 +149,14 @@ export function normalizeAuditEvents(value: unknown): AuditEvent[] {
   return events.flatMap((event) => {
     const data = asRecord(event);
     if (!data) return [];
+    const details = asRecord(data.details);
+    const occurredAt = asString(data.occurred_at) ?? asString(data.created_at);
+    const note = asString(details?.note) ?? asString(data.note);
     return [{
       ...(asString(data.actor_id) ? { actorId: asString(data.actor_id) } : {}),
-      ...(asString(data.created_at) ? { createdAt: asString(data.created_at) } : {}),
+      ...(occurredAt ? { createdAt: occurredAt } : {}),
       ...(asString(data.event_type) ? { eventType: asString(data.event_type) } : {}),
-      ...(asString(data.note) ? { note: asString(data.note) } : {}),
+      ...(note ? { note } : {}),
     }];
   });
 }
@@ -173,4 +187,22 @@ export function actionLabel(action: HumanCaseAction) {
     : action === "REJECT"
       ? "Reject request"
       : "Resolve manual takeover";
+}
+
+export function caseTypeLabel(type: HumanCase["caseType"]): string {
+  return type === "REFUND_EVIDENCE_REVIEW" ? "Damage evidence review" : type === "REFUND_APPROVAL" ? "Refund approval" : "Manual refund takeover";
+}
+
+export function buildEvidenceReviewCommand(refundCase: HumanCase, action: EvidenceReviewAction, reason: EvidenceReviewReason, note: string) {
+  if (!refundCase.allowedEvidenceActions.includes(action) || !refundCase.evidence || !hasReviewableEvidence(refundCase.evidence)) {
+    throw new Error("This evidence review is no longer available. Refresh the case.");
+  }
+  if (action === "ACCEPT_EVIDENCE" ? reason !== "DAMAGE_VISIBLE" : !["PHOTO_UNCLEAR", "DAMAGED_ITEM_NOT_VISIBLE", "ORDER_ITEM_NOT_IDENTIFIABLE"].includes(reason)) {
+    throw new Error("Choose a reason for this evidence review.");
+  }
+  if (note.trim().length > 2000) throw new Error("Keep the internal note under 2,000 characters.");
+  return { version: "v1" as const, action, expected_case_version: refundCase.caseVersion,
+    expected_evidence_version: refundCase.evidence.evidenceVersion, reason_code: reason,
+    ...(note.trim() ? { note: note.trim() } : {}),
+  };
 }

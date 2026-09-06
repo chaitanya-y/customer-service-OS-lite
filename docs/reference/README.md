@@ -1,6 +1,6 @@
 # Reference Document Manifest
 
-Last updated: 2026-09-03
+Last updated: 2026-09-05
 
 ## Precedence
 
@@ -16,7 +16,8 @@ any deliberate architecture change.
 ## Architecture files
 
 - `architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture.pdf` is the final
-  version 1.1 combined PDF. It begins with the current amendment and includes the
+  version 1.1 combined PDF generated on September 3. It begins with that amendment
+  snapshot and includes the
   complete original document as a baseline appendix. Pages: 192. SHA-256:
   `06ce49530ee0df1feed291bca8ebb57e7b840c288a6a95e46ba0f8fffaee2cbf`.
 - `architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture_v1.0_baseline.pdf` is an
@@ -24,6 +25,11 @@ any deliberate architecture change.
   `dc336b4b3994736d4dc3f07bef0c649866ce5d98096f78f73c2ffb547fec1b71`.
 - `../architecture/KLEEM_AI_ARCHITECTURE_V1_1.md` is the searchable authoritative
   source for current decisions.
+
+The PDF bytes and checksums above are unchanged. September 5 refund verification
+and subsequent display fixes are in `../VERIFICATION_STATUS.md` and the current
+Markdown, not the older PDF snapshot. Share those Markdown files alongside the
+PDFs when handing off work.
 
 ## Product files
 

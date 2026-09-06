@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { buildApp } from '../src/app.js';
-import { RefundWorkflowNotFoundError } from '../src/temporal-refund-client.js';
+import { RefundPreviewUnavailableError, RefundWorkflowNotFoundError } from '../src/temporal-refund-client.js';
 
 const TEST_IDENTITY = {
   principalId: 'customer-42',
@@ -262,6 +262,86 @@ test('does not report workflow query failures as customer authentication failure
       code: 'workflow_unavailable',
       message: 'Refund workflow is temporarily unavailable',
     },
+  });
+});
+
+test('returns a clear conflict when a refund preview is no longer available for confirmation', async (context) => {
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
+    intakeRefund: async () => ({ statusCode: 200, body: {} }),
+    confirmRefundWorkflow: async () => { throw new RefundPreviewUnavailableError(); },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/refunds/refund-001/confirmation',
+    headers: { authorization: 'Bearer customer-access-token' },
+    payload: { preview_id: 'preview-001', accepted: true },
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    error: {
+      code: 'refund_preview_unavailable',
+      message: 'This refund preview is no longer available for confirmation. Refresh the refund status or start a new request.',
+    },
+  });
+});
+
+test('successful confirmation response acknowledges delivery without claiming acceptance or execution', async (context) => {
+  let confirmations = 0;
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
+    intakeRefund: async () => ({ statusCode: 200, body: {} }),
+    confirmRefundWorkflow: async (input) => {
+      confirmations += 1;
+      assert.equal(input.previewId, 'preview-001');
+      assert.equal(input.accepted, true);
+      assert.equal(input.access.subjectCustomerId, 'customer-42');
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/refunds/refund-001/confirmation',
+    headers: { authorization: 'Bearer customer-access-token' },
+    payload: { preview_id: 'preview-001', accepted: true },
+  });
+
+  assert.equal(response.statusCode, 202);
+  assert.deepEqual(response.json(), { workflow_id: 'refund-001', status: 'confirmation_received' });
+  assert.equal(confirmations, 1);
+});
+
+test('confirmation transport failures remain service failures, not preview conflicts', async (context) => {
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'signed-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-runtime-context',
+    signKnowledgeRagContextAssertion: async () => 'knowledge-rag-context',
+    intakeRefund: async () => ({ statusCode: 200, body: {} }),
+    confirmRefundWorkflow: async () => { throw new Error('Temporal transport unavailable'); },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/refunds/refund-001/confirmation',
+    headers: { authorization: 'Bearer customer-access-token' },
+    payload: { preview_id: 'preview-001', accepted: true },
+  });
+
+  assert.equal(response.statusCode, 502);
+  assert.deepEqual(response.json(), {
+    error: { code: 'workflow_unavailable', message: 'Refund workflow is temporarily unavailable' },
   });
 });
 
@@ -969,6 +1049,134 @@ test('does not append a fake assistant message when the agent fails after custom
     error: {
       code: 'agent_runtime_unavailable',
       message: 'Agent Runtime request failed',
+    },
+  });
+});
+
+test('returns a retryable customer error when refund intent extraction is unavailable', async (context) => {
+  let assistantAppendCalled = false;
+  let workflowStarted = false;
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'gateway-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-context',
+    signKnowledgeRagContextAssertion: async () => 'rag-context',
+    signConversationRuntimeContextAssertion: async () => 'conversation-context',
+    signEdgeServiceAssertion: async () => 'service-context',
+    acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-1', 1),
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'I need a refund for order ORDER-123.',
+    ),
+    intakeRefund: async () => ({
+      statusCode: 200,
+      body: {
+        customer_message: 'I need a refund for order ORDER-123.',
+        order_reference: 'ORDER-123',
+        journey: 'refund',
+        status: 'intent_extraction_unavailable',
+        error_code: 'intent_extraction_unavailable',
+      },
+    }),
+    appendAssistantMessage: async () => {
+      assistantAppendCalled = true;
+      return acceptedMessageResponse('assistant-message-1', 2);
+    },
+    startRefundWorkflow: async () => {
+      workflowStarted = true;
+      return { workflowId: 'should-not-start' };
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/v1/conversations/${TEST_CONVERSATION_ID}/messages`,
+    headers: {
+      authorization: 'Bearer customer-access-token',
+      'idempotency-key': 'browser-message-intent-unavailable',
+    },
+    payload: {
+      client_message_id: 'client-message-intent-unavailable',
+      content: {
+        type: 'text',
+        text: 'I need a refund for order ORDER-123.',
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(assistantAppendCalled, false);
+  assert.equal(workflowStarted, false);
+  assert.deepEqual(response.json(), {
+    error: {
+      code: 'refund_intent_unavailable',
+      message: 'We could not understand your refund request right now. Please try again.',
+    },
+  });
+});
+
+test('returns a retryable customer error when authoritative order lookup is unavailable', async (context) => {
+  let assistantAppendCalled = false;
+  let workflowStarted = false;
+  const app = buildApp({
+    verifyCustomerIdentity: async () => TEST_IDENTITY,
+    signContextAssertion: async () => 'gateway-context',
+    signAgentRuntimeContextAssertion: async () => 'agent-context',
+    signKnowledgeRagContextAssertion: async () => 'rag-context',
+    signConversationRuntimeContextAssertion: async () => 'conversation-context',
+    signEdgeServiceAssertion: async () => 'service-context',
+    acceptCustomerMessage: async () => acceptedMessageResponse('customer-message-1', 1),
+    getConversation: async () => acceptedCustomerConversation(
+      'customer-message-1',
+      1,
+      'I need a refund for order ORDER-123.',
+    ),
+    intakeRefund: async () => ({
+      statusCode: 200,
+      body: {
+        customer_message: 'I need a refund for order ORDER-123.',
+        order_reference: 'ORDER-123',
+        journey: 'refund',
+        status: 'order_lookup_unavailable',
+        error_code: 'invalid_order_context',
+      },
+    }),
+    appendAssistantMessage: async () => {
+      assistantAppendCalled = true;
+      return acceptedMessageResponse('assistant-message-1', 2);
+    },
+    startRefundWorkflow: async () => {
+      workflowStarted = true;
+      return { workflowId: 'should-not-start' };
+    },
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/v1/conversations/${TEST_CONVERSATION_ID}/messages`,
+    headers: {
+      authorization: 'Bearer customer-access-token',
+      'idempotency-key': 'browser-message-order-lookup-unavailable',
+    },
+    payload: {
+      client_message_id: 'client-message-order-lookup-unavailable',
+      content: {
+        type: 'text',
+        text: 'I need a refund for order ORDER-123.',
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(assistantAppendCalled, false);
+  assert.equal(workflowStarted, false);
+  assert.deepEqual(response.json(), {
+    error: {
+      code: 'order_lookup_unavailable',
+      message: 'We could not retrieve your order right now. Please try again.',
     },
   });
 });

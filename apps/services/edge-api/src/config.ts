@@ -24,6 +24,8 @@ const configSchema = z
       .min(1_000)
       .max(120_000)
       .default(15_000),
+    HUMAN_OPERATIONS_BASE_URL: z.url().default('http://127.0.0.1:3003'),
+    EVIDENCE_REQUEST_TIMEOUT_MILLISECONDS: z.coerce.number().int().min(1000).max(60_000).default(30_000),
     TEMPORAL_ADDRESS: z.string().min(1).default('127.0.0.1:7233'),
     TEMPORAL_TASK_QUEUE: z.string().min(1).default('refund-workflows'),
     REFUND_POLICY_VERSION: z.string().min(1).default('refund-policy-v1'),

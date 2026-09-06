@@ -9,6 +9,7 @@ import {
 } from './context-assertion.js';
 import { createLocalCustomerIdentityVerifier } from './local-customer-auth.js';
 import { createTemporalRefundClient } from './temporal-refund-client.js';
+import { createEvidenceAssertionSigner, createRefundEvidenceClient } from './refund-evidence-client.js';
 
 const config = loadConfig();
 const verifyCustomerIdentity = createLocalCustomerIdentityVerifier({
@@ -79,6 +80,14 @@ const temporalRefundClient = createTemporalRefundClient({
   client: new WorkflowClient({ connection: temporalConnection }),
   taskQueue: config.TEMPORAL_TASK_QUEUE,
 });
+const refundEvidenceClient = createRefundEvidenceClient({
+  baseUrl: config.HUMAN_OPERATIONS_BASE_URL,
+  timeoutMilliseconds: config.EVIDENCE_REQUEST_TIMEOUT_MILLISECONDS,
+  signAssertion: createEvidenceAssertionSigner({
+    secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+    issuer: config.CONTEXT_ASSERTION_ISSUER,
+  }),
+});
 const app = buildApp({
   verifyCustomerIdentity,
   signContextAssertion,
@@ -95,6 +104,7 @@ const app = buildApp({
   startRefundWorkflow: temporalRefundClient.startRefundWorkflow,
   getRefundWorkflow: temporalRefundClient.getRefundWorkflow,
   confirmRefundWorkflow: temporalRefundClient.confirmRefundWorkflow,
+  refundEvidenceClient,
   refundPolicyVersion: config.REFUND_POLICY_VERSION,
   logger: true,
 });

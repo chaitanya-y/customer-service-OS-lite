@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/customer-api/refund-evidence/v1/summary",
+  "title": "RefundEvidenceSummaryV1",
+  "description": "Customer-safe photo snapshot, separate from knowledge citations and execution evidence. The assessment applies to this exact evidence_version, with no independently mutable reviewed revision. Services must authenticate ownership, enforce current workflow state and stream/size/pixel/quota limits, validate actual bytes, and enforce unique attachment IDs. Shape validation grants no upload permission or refund eligibility. Staff actions, identity, notes, original filenames, storage locators and URLs are excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "requirement",
+    "evidence_version",
+    "assessment",
+    "can_upload",
+    "attachments"
+  ],
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "requirement": {
+      "enum": [
+        "DAMAGE_PHOTO",
+        "NONE"
+      ]
+    },
+    "evidence_version": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "assessment": {
+      "enum": [
+        "UNREVIEWED",
+        "ACCEPTED",
+        "MORE_REQUIRED"
+      ]
+    },
+    "can_upload": {
+      "type": "boolean",
+      "description": "Server-derived current permission; every upload request must recheck live authorization."
+    },
+    "customer_message_code": {
+      "enum": [
+        "PHOTO_UNCLEAR",
+        "DAMAGED_ITEM_NOT_VISIBLE",
+        "ORDER_ITEM_NOT_IDENTIFIABLE"
+      ]
+    },
+    "attachments": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "description": "Current set, not retained audit history. Five is the v1 transport ceiling; services may set lower limits. Accepted sets include only the immutable READY attachments reviewed.",
+      "items": {
+        "$ref": "#/$defs/attachment"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "requirement": {
+            "const": "NONE"
+          }
+        },
+        "required": [
+          "requirement"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "can_upload": {
+            "const": false
+          },
+          "evidence_version": {
+            "const": 0
+          },
+          "assessment": {
+            "const": "UNREVIEWED"
+          },
+          "attachments": {
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "not": {
+          "required": [
+            "customer_message_code"
+          ],
+          "type": "object",
+          "properties": {
+            "customer_message_code": {}
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_version": {
+            "const": 0
+          }
+        },
+        "required": [
+          "evidence_version"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "assessment": {
+            "const": "UNREVIEWED"
+          },
+          "attachments": {
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "assessment": {
+            "const": "ACCEPTED"
+          }
+        },
+        "required": [
+          "assessment"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "requirement": {
+            "const": "DAMAGE_PHOTO"
+          },
+          "evidence_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "can_upload": {
+            "const": false
+          },
+          "attachments": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "technical_status": {
+                  "const": "READY"
+                }
+              },
+              "required": [
+                "technical_status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "assessment": {
+            "const": "MORE_REQUIRED"
+          }
+        },
+        "required": [
+          "assessment"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "customer_message_code"
+        ],
+        "properties": {
+          "evidence_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "customer_message_code": {}
+        },
+        "type": "object"
+      },
+      "else": {
+        "not": {
+          "required": [
+            "customer_message_code"
+          ],
+          "type": "object",
+          "properties": {
+            "customer_message_code": {}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "display_label",
+        "byte_size",
+        "uploaded_at",
+        "technical_status"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "display_label": {
+          "type": "string",
+          "pattern": "^Photo [1-5]$"
+        },
+        "content_type": {
+          "enum": [
+            "image/jpeg",
+            "image/png"
+          ]
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Observed byte count, not an upload allowance. Rejected oversized files may exceed service upload limits."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "uploaded_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "technical_status": {
+          "enum": [
+            "PROCESSING",
+            "READY",
+            "REJECTED"
+          ]
+        },
+        "rejection_code": {
+          "enum": [
+            "FILE_TOO_LARGE",
+            "UNSUPPORTED_TYPE",
+            "INVALID_IMAGE",
+            "IMAGE_LIMIT_EXCEEDED",
+            "UNSAFE_FILE",
+            "VALIDATION_UNAVAILABLE"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "technical_status": {
+                "const": "READY"
+              }
+            },
+            "required": [
+              "technical_status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "content_type",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "byte_size": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "content_type": {},
+              "width": {},
+              "height": {}
+            },
+            "type": "object"
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "width"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "width": {}
+                  }
+                },
+                {
+                  "required": [
+                    "height"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "height": {}
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "technical_status": {
+                "const": "REJECTED"
+              }
+            },
+            "required": [
+              "technical_status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "rejection_code"
+            ],
+            "type": "object",
+            "properties": {
+              "rejection_code": {}
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "rejection_code"
+              ],
+              "type": "object",
+              "properties": {
+                "rejection_code": {}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

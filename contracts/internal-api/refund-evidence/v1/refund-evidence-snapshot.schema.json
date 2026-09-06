@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://customer-service-os.example/contracts/internal-api/refund-evidence/v1/snapshot",
+  "title": "RefundEvidenceSnapshotV1",
+  "description": "Authoritative Worker-only collection snapshot. Authenticate workflow, tenant, environment and customer separately. Binding is immutable; an ACCEPTED snapshot requires exact evidence revision, assessment identity, manifest hash and retained READY photos before execution. Retention may leave audit hash/id after public evidence is retired; a hash alone never proves current acceptance. No storage locations, internal staff notes or raw photos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "case_status", "evidence", "binding"],
+  "properties": {
+    "case_id": {"$ref": "#/$defs/id"},
+    "case_status": {"enum": ["OPEN", "CLAIMED", "DECISION_PENDING", "CLOSED"]},
+    "evidence": {"$ref": "https://customer-service-os.example/contracts/customer-api/refund-evidence/v1/summary"},
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["order_id", "proposal_id", "selected_item_ids", "policy_version"],
+      "properties": {
+        "order_id": {"$ref": "#/$defs/id"},
+        "proposal_id": {"$ref": "#/$defs/id"},
+        "selected_item_ids": {"description": "Empty array means FULL_ORDER, bound to the immutable order and proposal. Nonempty values are the exact selected item IDs.", "type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "policy_version": {"$ref": "#/$defs/id"}
+      }
+    },
+    "accepted_manifest_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "assessment_id": {"type": "string", "format": "uuid"}
+  },
+  "allOf": [{
+    "if": {"properties": {"evidence": {"type": "object", "properties": {"assessment": {"const": "ACCEPTED"}}, "required": ["assessment"]}}, "required": ["evidence"]},
+    "then": {"properties": {"accepted_manifest_hash": {}, "assessment_id": {}}, "required": ["accepted_manifest_hash", "assessment_id"]}
+  }],
+  "$defs": {"id": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}
+}

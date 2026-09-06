@@ -5,6 +5,10 @@ specific `AGENTS.md` inside a child directory overrides it.
 
 ## Read before changing code
 
+The main agent reads these files when starting a new implementation task. Keep a
+concise working summary; do not reload the whole set on every turn. Re-read when
+the relevant document changes or the scope requires it.
+
 Read these files in order:
 
 1. `README.md`
@@ -16,6 +20,38 @@ Read these files in order:
 
 The PDF architecture package is useful background, but the version 1.1 Markdown
 architecture and accepted ADRs take precedence if an older PDF page conflicts.
+
+For a bounded subagent, the scoped reading rules in
+[Multi-agent working agreement](docs/MULTI_AGENT_WORKING_AGREEMENT.md) replace the
+full project onboarding list above. Applicable `AGENTS.md` files, safety rules,
+required skill instructions and relevant canonical contracts are never optional.
+
+## Efficient multi-agent work
+
+- Delegation requires user approval for the current batch; this document is not
+  blanket permission to spawn agents. Default to one coordinator and one worker.
+- Before spawning, read [the working agreement](docs/MULTI_AGENT_WORKING_AGREEMENT.md).
+  State the outcome, non-goals, ownership, dependencies, model choice, checks and
+  time/usage checkpoints. Add a second worker only for independent useful work;
+  more than two workers requires explicit approval.
+- The owner approves task-based model selection within an approved parallel
+  batch. Use the working agreement's routing guide: Luna for narrow work, Terra
+  for clearly designed implementation, Sol or Astra for demanding work. Choose
+  stronger models immediately when complexity or risk warrants it, not only
+  after cheaper attempts fail. State the choice/reason and keep the main model,
+  explicit user overrides, safety checks and budget boundaries unchanged.
+- Use a compact task brief rather than a full-history fork by default. Do not
+  duplicate implementation, full-suite runs or documentation work across agents.
+- A file has one active editor. Shared contracts and service operations have
+  named owners. Only the coordinator changes local secrets, servers or databases,
+  and only with the required authorization.
+- Review progress after 10 minutes or an observed 5 percentage-point allowance
+  increase. At 20 minutes or an observed 10-point increase, pause new work at a
+  safe checkpoint and ask whether to continue. These are soft checkpoints, not
+  guaranteed cost caps; user-agreed budgets take precedence.
+- Repeated failure requires a new hypothesis, not identical retries. Finish with
+  relevant verified checks, remaining limitations and a file-by-file explanation.
+  Never trade safety or necessary regression coverage for a lower usage number.
 
 ## Product and safety invariants
 
@@ -46,8 +82,14 @@ architecture and accepted ADRs take precedence if an older PDF page conflicts.
   configured provider models directly through its model-client boundary today.
 - Kafka, OpenTelemetry/CloudWatch, Cognito, AWS infrastructure, and voice are
   planned work.
-- One final positive browser-to-provider refund test is pending. See
-  `docs/VERIFICATION_STATUS.md`.
+- The positive local browser-to-provider exceptional-refund test passed on
+  2026-09-05. See `docs/VERIFICATION_STATUS.md` for evidence and remaining gaps;
+  this is not proof of real bank settlement or all production scenarios.
+- The local damaged-item photo gate is policy v2 only. Private image validation,
+  staff evidence acceptance, supervisor monetary approval and customer
+  confirmation are distinct checks. Never send uploaded photos to RAG/the LLM.
+- Photo retention deletion is not scheduled. Obtain explicit retention approval
+  before enabling a purge; see `docs/REFUND_PHOTO_EVIDENCE.md`.
 
 ## Change workflow
 

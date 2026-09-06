@@ -2,6 +2,7 @@
 
 Version: 1.1 current architecture edition
 Date: 2026-09-03
+Verification status updated: 2026-09-05
 Status: Authoritative for the implemented repository and accepted near-term plan
 
 ## Document authority
@@ -15,8 +16,9 @@ this document and the ADR take precedence. The old PDF remains valuable for
 product intent, non-functional requirements, domain decomposition, and detailed
 future-state analysis.
 
-The final combined PDF contains this amendment first and the complete version 1.0
-document as a baseline appendix.
+The final combined PDF contains the September 3 snapshot of this amendment and
+the complete version 1.0 baseline appendix. Later verification updates are here
+and in `docs/VERIFICATION_STATUS.md`; that PDF snapshot is unchanged.
 
 ## Executive summary
 
@@ -335,12 +337,23 @@ Implemented and substantially exercised locally:
 - authorized idempotent Vendure refund path;
 - signed provider outcome, processing, and reconciliation;
 - customer and operations browser projections.
+- private normalized photo intake, PostgreSQL evidence metadata, exact-revision
+  assigned-staff review, and a Temporal gate under immutable policy release v2.
+  Evidence acceptance is separate from monetary approval. Existing v1 requests
+  retain their original rules; see `docs/REFUND_PHOTO_EVIDENCE.md`.
+
+The positive local exceptional-refund browser-to-provider path passed on
+2026-09-05: supervisor approval, exact customer confirmation, one execution,
+authorized simulated Vendure settlement, normal reconciliation, and an automatic
+completed customer display. This does not prove real bank settlement or all
+production scenarios. See `docs/VERIFICATION_STATUS.md`.
 
 Still pending:
 
-- one final positive browser-to-provider proof on a fresh disposable order;
 - reproducible Vendure/OpenSearch bootstrap and one-command stack startup;
 - broad browser end-to-end coverage;
+- deterministic delivery-age eligibility and production photo storage, scanning,
+  retention approval and recovery operations;
 - centralized Model Gateway;
 - Kafka/MSK event delivery;
 - OpenTelemetry/CloudWatch;

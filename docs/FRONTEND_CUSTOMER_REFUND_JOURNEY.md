@@ -1,5 +1,8 @@
 # Customer Widget: Refund Journey UX Design
 
+Last verified: 2026-09-05. The positive local exceptional-refund journey passed;
+see [Verification Status](VERIFICATION_STATUS.md) for evidence and limitations.
+
 ## Purpose
 
 This document records the first implemented browser journey for Customer Service
@@ -20,8 +23,6 @@ internal service directly.
 - typed refund proposal and exact refund preview;
 - customer confirmation or decline;
 - authoritative workflow status and a current-state progress display;
-- defensive customer-safe citation rendering when a future journey projection
-  supplies citations;
 - light, dark, and system themes;
 - loading, retry, unavailable, and human-review states;
 - local customer sign-in and same-origin BFF proxy routes for development.
@@ -32,6 +33,7 @@ internal service directly.
 - customer account registration and password recovery UX;
 - production OIDC/Cognito UI, although the route boundary is designed to support it;
 - refund cancellation after provider submission;
+- journey citation rendering, pending a customer-safe citation projection;
 - agent/policy/knowledge administration UI.
 
 ## Customer routes
@@ -67,14 +69,14 @@ The browser never receives that token or an internal service assertion.
 4. The chat shows the persisted assistant answer. A ready proposal starts a
    Temporal workflow and adds a refund-journey link to that answer.
 
-5. Widget loads current workflow state through its BFF
-       GET /api/refunds/:workflowId
+5. Portal loads the customer-owned journey projection through its BFF
+       GET /api/refunds/:workflowId/journey
 
 6. Customer reviews the exact preview and chooses Confirm or Decline
        POST /api/refunds/:workflowId/confirmation
 
-7. Widget refreshes after customer confirmation. After an external human decision,
-   the customer refreshes the page to load the authoritative workflow state.
+7. Portal refetches after confirmation and on SSE wakeups, including external
+   human decisions. Ten-second polling provides a fallback when disconnected.
 
 8. Workflow reaches a final, human-review, or reconciliation state
 ```
@@ -87,6 +89,10 @@ Let the customer explain the issue without requiring them to understand order
 identifiers, policies, tools, or workflow concepts.
 
 ### Layout
+
+The following is the original one-shot form wireframe, retained as design history.
+The implemented `/support` screen is now a persisted chat transcript with a
+message composer, optional order reference, **Send**, and inline refund links.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
@@ -111,18 +117,20 @@ identifiers, policies, tools, or workflow concepts.
 
 ### Interaction rules
 
-- `customer_message` is required, maximum 2,000 characters.
-- `order_reference` is optional, maximum 100 characters.
-- Disable **Continue** while the request is in flight, but keep the entered text
+- The customer message is required, maximum 2,000 characters.
+- The optional order reference is limited to 100 characters.
+- Disable **Send** while the request is in flight, but keep the entered text
   visible if the request fails.
-- The form creates a UI-scoped idempotency key per deliberate submit. The current
-  BFF and Edge intake route do not yet enforce that key end to end, so browser
-  mutation idempotency remains a hardening task.
+- The chat creates idempotency keys for conversation creation and message
+  submission, reusing the pending turn's keys on retry. Edge and Conversation
+  Runtime enforce scoped keys. Browser concurrency/replay coverage remains a
+  separate hardening task.
 - Do not say a refund is approved at this stage.
 
-### Existing API
+### Legacy one-shot intake API
 
-The Next.js BFF proxies the existing Edge route:
+This retained Edge route is the earlier one-shot intake path, not the current
+persisted chat route shown above:
 
 ```http
 POST /v1/refunds/intake
@@ -169,8 +177,9 @@ Make the customer understand what will happen, why, and what they need to do.
 
 ### Confirmation behavior
 
-**Confirm refund** is available only when `next_action` is
-`CONFIRM_OR_DECLINE` and the preview is current.
+**Confirm refund** is available when the Edge projection supplies
+`next_action.type: "CONFIRM_REFUND"` and a preview is present. The frontend maps
+this action to its internal `CONFIRM_OR_DECLINE` display value.
 
 ```http
 POST /v1/refunds/:workflowId/confirmation
@@ -181,19 +190,28 @@ POST /v1/refunds/:workflowId/confirmation
 }
 ```
 
-The workflow verifies that the preview, policy decision, and authoritative facts
-still match. The button does not directly call Vendure or issue a refund.
+The workflow binds confirmation to the exact preview ID and refreshes
+authoritative facts before execution. The button does not directly call Vendure.
+The workflow now enforces `validUntil` at confirmation, using its own clock and
+a durable timer. Exactly at expiry is too late, and malformed deadlines fail
+closed. Timely acceptance remains valid through later human review and payment
+processing. A displayed deadline alone is not the security control.
+
+Stale/terminal confirmations return HTTP 409 with `refund_preview_unavailable`.
+HTTP 202 acknowledges signal delivery, not refund approval or execution. The UI
+continues to refetch authoritative state through its existing update path.
 
 The decline action sends the same request with `accepted: false` and then renders
 the journey as closed, with clear guidance for starting another request if needed.
 
 ### Customer-safe citations
 
-`customer-api.ts` defensively rejects citations classified as `INTERNAL` or
-`INTERNAL_ONLY`. The current workflow-status route does not yet return citations,
-so the visible citation block is reserved for the future Edge journey projection.
-When that projection includes RAG evidence, show a short source label and
-expandable excerpt, never raw retrieval metadata.
+The journey projection currently has no citations and the journey component
+does not render them. `customer-api.ts` therefore does not implement citation
+classification filtering. Customer-safe evidence filtering belongs to the
+upstream RAG/answer boundary today. Future journey citations must arrive through
+an explicitly customer-safe Edge projection; show a short source label and
+expandable excerpt, never raw retrieval metadata or internal-only material.
 
 Example:
 
@@ -201,6 +219,24 @@ Example:
 Based on the current refund policy
 Source: Current refund policy, effective Aug 1, 2026
 ```
+
+### Preview display rules
+
+`formatRefundDestination()` maps provider-independent codes such as
+`ORIGINAL_PAYMENT_METHOD` to **Original payment method** and `STORE_CREDIT` to
+**Store credit**. Unknown values use neutral copy rather than exposing a raw code.
+
+`getRefundReviewDeadline()` returns the preview deadline only when the normalized
+next action is `CONFIRM_OR_DECLINE`. After confirmation, while waiting, and on
+completion, the amount and destination remain visible but **Review by** does not.
+The original preview and expiry metadata are retained unchanged. This is a
+display rule, not new expiry enforcement.
+
+The separate workflow expiry implementation supplies `PREVIEW_INVALIDATED`,
+which Edge maps to `PREVIEW_EXPIRED` with no confirmation action. The customer
+label is **Refund preview no longer available**; the explanation covers either
+expiry or changed order details and directs the customer to start a new request.
+No automatic preview renewal or supervisor-approval reuse is implemented.
 
 ## Screen 3: Human review and recovery states
 
@@ -212,7 +248,7 @@ The customer does not need to understand `APPROVAL_REQUIRED`,
 | `APPROVAL_REQUIRED` | Under review | A specialist is reviewing your request. | View progress |
 | `TAKEOVER_REQUIRED` | A specialist is helping | Your request needs personal support. | View progress / support contact |
 | `REFUND_PROCESSING` or `PENDING_RECONCILIATION` | Refund initiated | Your refund was sent to the payment provider. We will update this page when its final status is confirmed. | View progress |
-| `REFUND_SUCCEEDED` | Refund completed | The payment provider confirmed the refund. The customer bank may still need a few business days to show it. | View receipt/details |
+| `REFUND_SUCCEEDED` | Refund completed | The payment provider confirmed the refund. The customer bank may still need a few business days to show it. | No action is needed |
 | `DENY` | Refund request could not be approved | Explain the customer-safe reason and provide a support path. | Start new request / contact support |
 
 The UI must not infer success from a button click, an accepted confirmation, or a
@@ -221,41 +257,47 @@ journey complete.
 
 ## Current customer-safe journey contract
 
-The Customer Widget is built. Its BFF proxies the customer-owned Edge route and
-normalizes the current Temporal workflow result into display-safe data. The browser
-does not receive internal assertions, raw policy input, or tool payloads.
+The Customer Portal's BFF proxies the customer-owned Edge journey route. Edge
+converts Temporal state to the versioned `RefundJourneyView`; the frontend
+normalizes that projection for display. The browser does not receive internal
+assertions, raw policy input, or tool payloads.
 
-The current Edge response is intentionally narrow:
+Example of the current Edge response while confirmation is required (illustrative
+identifiers and amount):
 
-```ts
-type RefundWorkflowView = {
-  workflow_id: string;
-  stage:
-    | "AWAITING_CUSTOMER_CONFIRMATION"
-    | "AWAITING_APPROVAL"
-    | "HUMAN_TAKEOVER_REQUIRED"
-    | "REFUND_PROCESSING"
-    | "REFUND_SUCCEEDED"
-    | "PENDING_RECONCILIATION"
-    | "DENIED"
-    | "CANCELLED"
-    | "REJECTED"
-    | "TAKEOVER_RESOLVED";
-  preview?: {
-    previewId: string;
-    requestedAmount: { amountMinor: number; currency: string };
-    refundDestination: string;
-    validUntil: string;
-  };
-};
+```json
+{
+  "version": "v1",
+  "workflow_id": "refund-example",
+  "stage": "REFUND_PREVIEW_READY",
+  "preview": {
+    "preview_id": "preview-example",
+    "amount": { "amount_minor": 5309, "currency": "USD" },
+    "refund_destination": "ORIGINAL_PAYMENT_METHOD",
+    "valid_until": "2026-09-05T19:00:00.000Z"
+  },
+  "next_action": {
+    "type": "CONFIRM_REFUND",
+    "label": "Review and confirm your refund"
+  },
+  "timeline": [
+    { "id": "REQUEST_RECEIVED", "label": "Refund request received", "status": "COMPLETED" },
+    { "id": "PREVIEW_READY", "label": "Refund preview prepared", "status": "CURRENT" },
+    { "id": "SPECIALIST_REVIEW", "label": "Specialist review", "status": "PENDING" },
+    { "id": "REFUND_PROCESSING", "label": "Refund processing", "status": "PENDING" },
+    { "id": "COMPLETED", "label": "Refund completed", "status": "PENDING" }
+  ]
+}
 ```
 
 `apps/web/customer-portal/components/customer-api.ts` maps this response to the
-plain-language labels shown to the customer. It also rejects citations with
-`INTERNAL` or `INTERNAL_ONLY` classification before rendering.
+plain-language labels shown to the customer. The contract source is
+[`refund-journey-view.ts`](../apps/services/edge-api/src/refund-journey-view.ts).
 
 The Edge-owned, versioned `RefundJourneyView` projection provides the stable
 browser shape, customer safe timeline, API versioning, and no raw workflow state.
+Its fixed-order timeline can still mark preview preparation completed too early
+on takeover; path-aware timeline hardening remains pending.
 
 ## Real-time behavior
 
@@ -271,8 +313,8 @@ quiet reconnecting status.
 |---|---|
 | `SupportChat` | implemented encrypted transcript view, customer composer, optional order reference, pending/error state, and inline workflow link |
 | `conversation-api.ts` | defensive mapping of customer-safe conversation and turn responses |
-| `RefundJourney` | implemented customer-safe status, exact preview, confirmation, optional future citations, and fallback timeline |
-| `customer-api.ts` | implemented conversion of untrusted API JSON into customer display data and safe status copy |
+| `RefundJourney` | implemented customer-safe status, exact preview, confirmation, readable destination, conditional deadline, and fallback timeline |
+| `customer-api.ts` | defensive journey normalization, amount/destination formatting, next-action deadline helper, and safe status copy |
 | Customer BFF route handlers | implemented local-session authorization and Edge API proxying |
 | `ThemeControl` | light, dark, or system preference |
 | Inline error states | retryable error; form input is preserved while the page remains open |
@@ -289,7 +331,7 @@ server-held development token to Edge API.
 | Agent Runtime unavailable | We cannot review this request right now. Please try again. | Retry button, no fake result |
 | Workflow unavailable | We are having trouble loading your refund status. | Retry and support path |
 | Stale preview | Your refund details changed. Please review the new amount. | Remove confirmation action until new preview loads |
-| Human decision happens in Operations Console | A specialist is reviewing your request. | Customer refreshes the journey page to load the latest state |
+| Human decision happens in Operations Console | Updated authoritative journey state | SSE wakeup triggers a refetch; polling is the fallback |
 | No matching order | We could not find that order. Check the order reference or contact support. | Preserve request draft |
 
 ## Acceptance status
@@ -301,11 +343,14 @@ server-held development token to Edge API.
 | Restrict reads to the customer who owns the workflow | Implemented at Edge API |
 | Show an exact amount before confirmation | Implemented when the workflow creates a preview |
 | Bind confirm/decline to the exact `preview_id` | Implemented |
+| Enforce preview expiry server-side | Implemented for new waits, with exclusive deadline, timer, and restart/replay tests; legacy parked waits need explicit timer migration |
+| Readable destination and deadline only while confirmation is required | Implemented; 7 display-helper tests passed on September 5 |
 | Use customer-safe labels for human review and reconciliation | Implemented |
 | Light, dark, and system themes | Implemented |
 | Keyboard focus and basic accessible status/error regions | Implemented foundation, needs formal accessibility testing |
 | Duplicate confirmation protection | Enforced by workflow semantics, needs browser end-to-end coverage |
 | Live SSE updates with polling fallback | Implemented |
+| Positive local exceptional-refund browser journey | Passed September 5, including simulated provider settlement and automatic completion display; not real bank settlement |
 | Browser telemetry without sensitive content | Planned |
 
 ## Delivery sequence

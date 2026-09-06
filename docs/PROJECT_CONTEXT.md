@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-09-03
+Last updated: 2026-09-06
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -18,6 +18,22 @@ Read it before changing code. It records:
 - the working agreements for making changes.
 
 No credentials or `.env` values belong in this file or in Git.
+
+September 5 follow-up: confirmation expiry and the private damaged-item photo
+slice are implemented locally. The photo gate is pinned to `refund-policy-v2`;
+v1 histories remain unchanged. Read `REFUND_PHOTO_EVIDENCE.md` for current APIs,
+security boundaries, setup and reading order, and `VERIFICATION_STATUS.md` for
+actual checks. Delivery-age enforcement, cloud photo storage/scanning, retention
+approval and production observability remain separate work.
+
+September 6 proof: the photo-gated browser journey completed for full-order
+USD 3,122.60 after a clearer-photo request, exact replacement acceptance,
+same-case supervisor monetary approval, customer confirmation and settlement of
+the single Vendure refund. Section 14 records the identifiers and limitations.
+The browser still generated an unsupported delivery-date question. The subsequent
+wording safeguard is implemented and the full Agent Runtime suite passed 101
+tests with one upstream warning. A fresh paid live browser recheck has not been
+run; trusted delivery-age eligibility remains unimplemented.
 
 ## 2. Product goal
 
@@ -237,7 +253,9 @@ The repository contains schemas for:
 - refund proposal;
 - provider-neutral refund context;
 - refund policy input;
-- policy decision.
+- policy decision;
+- strict public photo summaries, staff evidence-review commands, and internal
+  photo snapshot/access contracts, separate from RAG and execution evidence.
 
 The root test suite validates JSON examples and lints the protobuf contract.
 
@@ -297,6 +315,10 @@ The Python Agent Runtime contains:
 - a retrieval node after intent extraction that supplies customer-safe evidence to
   the graph but does not make a policy decision;
 - a grounded answer composer that can cite only chunks returned by that retrieval;
+- trusted public order references and product names in answer input, with safe
+  fallback on explicit conflicting order labels;
+- application-owned proposed USD formatting, prompt `refund-answer-v3`, and
+  bounded monetary-prose checks; these do not replace factuality evaluations;
 - a separately configured answer-model deadline, defaulting to 30 seconds through
   `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS`, with no automatic retry on the
   synchronous customer turn;
@@ -404,6 +426,8 @@ not configured.
 The Node.js/TypeScript Workflow Workers package contains:
 
 - the immutable `refund-policy-v1` release;
+- the pinned `refund-policy-v2` photo gate for new damaged-item requests, with
+  authoritative exact-revision evidence reads and replay-compatible v1 histories;
 - deterministic `evaluateRefundPolicy(...)` decisions: `ALLOW`,
   `APPROVAL_REQUIRED`, `TAKEOVER_REQUIRED`, `DENY`, and `NEEDS_FACTS`;
 - proposal and trusted-refund-context binding through
@@ -450,10 +474,14 @@ case lifecycle:
 - separate signed assertions for staff access and Worker-only case operations;
 - role-based case visibility and decisions: `REFUND_APPROVER` can approve or
   reject approval cases, while `REFUND_SUPERVISOR` can resolve or reject takeover
-  cases;
+  cases or approve an exceptional refund plan that still requires customer
+  confirmation;
 - Worker-only case open and close endpoints, plus staff list, read, claim,
   reassign, and decision endpoints;
 - optimistic case-version checks and idempotency keys for staff mutations;
+- private normalized JPEG/PNG storage, technical validation, exact-revision
+  staff photo review, non-deleting superseded photo sets, and same-case
+  evidence-to-monetary transitions; photo acceptance cannot approve a refund;
 - minimized review packets containing proposal, policy, preview, and evidence IDs,
   but not raw customer messages or payment credentials;
 - PostgreSQL case, append-only audit, action-idempotency, and decision-outbox
@@ -539,8 +567,19 @@ tokens and `@cso/auth` local-session helpers.
 Customer and operations BFFs accept only their own local development origin for
 mutations. They proxy to Edge API or Human Operations respectively, so browser
 code never calls Temporal, Vendure, OpenSearch, MCP, or service assertions
-directly. The initial journey page refreshes after a customer confirmation; SSE
-and polling after an external human decision remain future work.
+directly. The journey refetches its Edge-owned projection after confirmation and
+on same-origin SSE wakeups, with ten-second polling when disconnected. Destination
+labels are readable; the deadline is hidden when confirmation is no longer the
+next action. The underlying preview and expiry metadata remain unchanged; this
+display change adds no expiry enforcement.
+
+The subsequent September 5 workflow change separately enforces confirmation
+expiry with Temporal's clock and a durable timer. At or after `validUntil`, no
+confirmation is accepted and no refund executes; timely acceptance is preserved
+through later human review/payment processing. Edge returns 409 for a preview
+that is no longer confirmable. Two compatibility patches preserve historical
+execution: old parked waits reject a new late confirmation but require an explicit
+migration to gain autonomous timeout behavior. See `VERIFICATION_STATUS.md`.
 
 ## 8. Current Git state
 
@@ -1055,7 +1094,63 @@ pnpm test -- tests/mcp.test.ts
 
 ## 14. Last real local end-to-end proof
 
-The owner environment successfully exercised the safe browser takeover path:
+The latest photo-gated positive local proof passed on 2026-09-06:
+
+```text
+Customer browser refund request
+  -> read-only order lookup, customer-safe RAG, structured proposal
+  -> first private photo passes technical validation
+  -> staff requests a clearer photo; replacement accepted at exact revision
+  -> same case changes from evidence review to monetary takeover
+  -> assigned supervisor approves an exceptional refund plan
+  -> customer confirms the exact full-order USD 3,122.60 preview
+  -> trusted facts refresh and one Gateway refund execution
+  -> Vendure refund 5 Pending
+  -> authorized simulated settlement of that existing refund
+  -> existing refund 5 Settled; no second refund
+  -> Temporal REFUND_SUCCEEDED
+  -> customer projection REFUND_COMPLETED, no action
+```
+
+The disposable order was `AUUYAWRHBVGJPK5R` (Vendure order 2), containing two
+Laptop 13 inch 8GB units. Workflow
+`refund-19928c34-afd6-4e0a-b709-29d8ca36381a`, Human case
+`case-8307800e-a61c-4295-bfad-d118931137b7`, and confirmed preview
+`724a34e6-f044-448e-817d-a17d02fa7dac` bind the recorded flow. Gateway created
+exactly one refund, ID 5; separate owner authorization settled that same refund.
+This proves the local Vendure simulator path, not real webhook delivery or bank
+settlement. The dummy payment handler does not automatically settle refunds.
+Do not reuse the refunded order, and inspect Git before assuming a clone contains
+the locally verified changes.
+
+[Verification Status](VERIFICATION_STATUS.md) preserves the earlier September 5
+non-photo-gated proof for USD 1,683.80 and the later photo smoke with synthetic
+commerce facts and no money execution. The September 6 run joins the private
+photo gate to positive local provider execution; it does not erase those earlier
+test boundaries.
+
+The successful browser run still asked for an unsupported delivery date. The
+subsequent fix makes `SYSTEM_PROMPT` forbid asking for the delivery date or stating
+a delivery-age window. Runtime defense-in-depth rejects either wording so the
+existing graph safely falls back. The full Agent Runtime suite passed 101 tests
+with the same one upstream warning. A fresh paid live browser recheck has not
+been run. Trusted delivery-age eligibility is still not enforced, and neither a
+model question nor a customer answer supplies trusted delivery facts.
+
+### September 6 order-contract regression and checks
+
+Vendure manual fulfillment returned an empty method string. Gateway now
+normalizes blank provider methods to `unspecified` so the order projection
+satisfies its contract without inventing delivery details. Edge maps typed
+`order_lookup_unavailable` to a safe retryable HTTP 503.
+
+At the earlier September 6 order-contract checkpoint, Gateway typecheck and 44
+tests passed; Edge typecheck and 83 tests passed; Agent Runtime Ruff and 98 tests
+passed, with one upstream warning. Live signed REST and MCP order lookup passed.
+These results cover the order-contract fix; the later 101-test wording-safeguard
+result is recorded above.
+
+Earlier historical proof exercised the safe browser takeover path:
 
 ```text
 Customer Widget
@@ -1067,17 +1162,17 @@ Customer Widget
   -> Temporal workflow close and customer-safe completion state
 ```
 
-The order reference used during the owner test is intentionally documented only
-in [the local runbook](LOCAL_REFUND_RUNBOOK.md), because it belongs to one local
-Vendure database and is not portable seed data. The agent's safe commerce
+Historical order references in [the local runbook](LOCAL_REFUND_RUNBOOK.md) and
+verification records belong to one local Vendure database and are not portable
+seed data. The agent's safe commerce
 projection excluded customer name, email, and payment transaction reference.
 
 The safe takeover path does not submit a refund. The automatic and approval
 execution paths have workflow and Gateway tests, and must be exercised only with a
 disposable local Vendure order.
 
-A separate isolated Agent Runtime integration check also verified the online
-grounding path after the browser proof: Edge-signed context reached Knowledge/RAG,
+An earlier isolated Agent Runtime integration check also verified the online
+grounding path: Edge-signed context reached Knowledge/RAG,
 OpenSearch returned three `CUSTOMER_SAFE` policy chunks, and the answer composer
 returned citations only for those retrieved chunks. The check did not start a
 Temporal workflow or execute a refund. It established that the prior generic
@@ -1092,10 +1187,21 @@ parts remain:
 - production customer authentication through Cognito;
 - production Human Operations database operations, Kafka outbox delivery, and
   workforce delegation beyond the local role model;
-- Edge streaming, rate limiting, and an Edge-owned customer journey projection;
+- Edge rate limiting and broader streaming hardening; the Edge-owned journey
+  projection and SSE wakeups with polling fallback are already implemented;
 - end to end browser coverage for live customer and staff updates;
 - broader answer-grounding, citation, specialist, supervisor, tool-selection,
   trajectory, and guardrail evaluations;
+- generated technical field labels and broader wording evaluations; the delivery
+  date/window safeguard has automated verification but no fresh paid live browser
+  recheck. The private photo upload/review gate and takeover-aware timeline are
+  implemented locally;
+- trusted delivery-age eligibility, cloud evidence storage/scanning and approved
+  retention deletion; the local photo gate does not enforce a delivery window;
+- live payment-provider webhook delivery and real bank settlement evidence;
+- rollout/migration for pre-patch workflows already parked in unlimited
+  confirmation waits; the new workflow timer and live-signal expiry guard are
+  implemented and tested, but old idle waits do not gain a timer retroactively;
 - live model evaluation and release gating for the refund specialist;
 - Kafka topics, event schemas, consumers, and outbox delivery;
 - OpenTelemetry traces, metrics, logs, and audit projections;

@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -117,3 +118,37 @@ async def test_langchain_extractor_maps_invalid_model_output_to_a_safe_error(
             conversation_messages=[],
             order_context=order_context,
         )
+
+
+@pytest.mark.asyncio
+async def test_langchain_extractor_logs_only_the_safe_model_error_category(
+    order_context: OrderContext,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingStructuredModel(FakeStructuredModel):
+        async def ainvoke(self, messages: list[object]) -> object:
+            self.messages = messages
+            raise RuntimeError("provider response containing sensitive detail")
+
+    extractor = LangChainRefundIntentExtractor(
+        FakeChatModel(FailingStructuredModel(result=None))  # type: ignore[arg-type]
+    )
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(RefundIntentExtractionError),
+    ):
+        await extractor.extract(
+            customer_message="Refund my order.",
+            conversation_messages=[],
+            order_context=order_context,
+        )
+
+    records = [
+        record
+        for record in caplog.records
+        if record.message == "Refund intent extraction failed"
+    ]
+    assert len(records) == 1
+    assert records[0].error_type == "RuntimeError"  # type: ignore[attr-defined]
+    assert "sensitive detail" not in caplog.text

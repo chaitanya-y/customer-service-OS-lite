@@ -1,4 +1,5 @@
 import type { RefundWorkflowView } from './temporal-refund-client.js';
+import { refundEvidenceSummarySchema, type RefundEvidenceSummary } from './refund-evidence-client.js';
 
 export const REFUND_JOURNEY_VIEW_VERSION = 'v1';
 
@@ -16,7 +17,11 @@ export type RefundJourneyView = Readonly<{
     | 'REFUND_CANCELLED'
     | 'PREVIEW_EXPIRED'
     | 'REFUND_FAILED'
-    | 'REQUEST_RESOLVED';
+    | 'REQUEST_RESOLVED'
+    | 'AWAITING_CUSTOMER_EVIDENCE'
+    | 'AWAITING_EVIDENCE_REVIEW'
+    | 'EVIDENCE_COLLECTION_EXPIRED';
+  evidence?: RefundEvidenceSummary;
   preview?: Readonly<{
     preview_id: string;
     amount: Readonly<{ amount_minor: number; currency: string }>;
@@ -29,6 +34,7 @@ export type RefundJourneyView = Readonly<{
       | 'WAIT_FOR_SPECIALIST'
       | 'WAIT_FOR_REFUND'
       | 'CONTACT_SUPPORT'
+      | 'PROVIDE_EVIDENCE'
       | 'NONE';
     label: string;
   }>;
@@ -51,6 +57,9 @@ type JourneyStage = RefundJourneyView['stage'];
 
 const STAGE_BY_WORKFLOW_STAGE: Readonly<Record<string, JourneyStage>> = {
   EVALUATING: 'REQUEST_RECEIVED',
+  AWAITING_CUSTOMER_EVIDENCE: 'AWAITING_CUSTOMER_EVIDENCE',
+  AWAITING_EVIDENCE_REVIEW: 'AWAITING_EVIDENCE_REVIEW',
+  EVIDENCE_COLLECTION_EXPIRED: 'EVIDENCE_COLLECTION_EXPIRED',
   AWAITING_CUSTOMER_CONFIRMATION: 'REFUND_PREVIEW_READY',
   AWAITING_APPROVAL: 'SPECIALIST_REVIEWING',
   HUMAN_TAKEOVER_REQUIRED: 'SPECIALIST_REVIEWING',
@@ -81,6 +90,12 @@ const TIMELINE: readonly Readonly<{
 
 function nextActionFor(stage: JourneyStage): RefundJourneyView['next_action'] {
   switch (stage) {
+    case 'AWAITING_CUSTOMER_EVIDENCE':
+      return { type: 'PROVIDE_EVIDENCE', label: 'Add a clear photo of the damaged item' };
+    case 'AWAITING_EVIDENCE_REVIEW':
+      return { type: 'WAIT_FOR_SPECIALIST', label: 'A specialist is reviewing your photos' };
+    case 'EVIDENCE_COLLECTION_EXPIRED':
+      return { type: 'NONE', label: 'Start a new request if you still need help' };
     case 'REFUND_PREVIEW_READY':
       return { type: 'CONFIRM_REFUND', label: 'Review and confirm your refund' };
     case 'SPECIALIST_REVIEWING':
@@ -110,7 +125,31 @@ function currentTimelineStep(stage: JourneyStage): RefundJourneyView['timeline']
   }
 }
 
-function timelineFor(stage: JourneyStage): RefundJourneyView['timeline'] {
+function timelineFor(stage: JourneyStage, hasPreview: boolean): RefundJourneyView['timeline'] {
+  if (stage === 'PREVIEW_EXPIRED') {
+    return [
+      { id: 'REQUEST_RECEIVED', label: 'Refund request received', status: 'COMPLETED' },
+      { id: 'PREVIEW_READY', label: 'Refund preview no longer available', status: 'SKIPPED' },
+    ];
+  }
+  if (stage === 'SPECIALIST_REVIEWING' && !hasPreview) {
+    return [
+      { id: 'REQUEST_RECEIVED', label: 'Refund request received', status: 'COMPLETED' },
+      { id: 'SPECIALIST_REVIEW', label: 'Specialist review', status: 'CURRENT' },
+      { id: 'PREVIEW_READY', label: 'Refund preview prepared', status: 'PENDING' },
+      { id: 'REFUND_PROCESSING', label: 'Refund processing', status: 'PENDING' },
+      { id: 'COMPLETED', label: 'Refund completed', status: 'PENDING' },
+    ];
+  }
+  if (stage === 'AWAITING_CUSTOMER_EVIDENCE' || stage === 'AWAITING_EVIDENCE_REVIEW' || stage === 'EVIDENCE_COLLECTION_EXPIRED') {
+    return [
+      { id: 'REQUEST_RECEIVED', label: 'Refund request received', status: 'COMPLETED' },
+      { id: 'SPECIALIST_REVIEW', label: 'Photo evidence review', status: stage === 'EVIDENCE_COLLECTION_EXPIRED' ? 'SKIPPED' : 'CURRENT' },
+      { id: 'PREVIEW_READY', label: 'Refund preview prepared', status: stage === 'EVIDENCE_COLLECTION_EXPIRED' ? 'SKIPPED' : 'PENDING' },
+      { id: 'REFUND_PROCESSING', label: 'Refund processing', status: stage === 'EVIDENCE_COLLECTION_EXPIRED' ? 'SKIPPED' : 'PENDING' },
+      { id: 'COMPLETED', label: 'Refund completed', status: stage === 'EVIDENCE_COLLECTION_EXPIRED' ? 'SKIPPED' : 'PENDING' },
+    ];
+  }
   if (stage === 'REQUEST_RESOLVED') {
     return TIMELINE.map((step) => ({
       ...step,
@@ -139,6 +178,7 @@ function timelineFor(stage: JourneyStage): RefundJourneyView['timeline'] {
 export function toRefundJourneyView(
   workflowId: string,
   workflow: RefundWorkflowView,
+  evidence?: RefundEvidenceSummary,
 ): RefundJourneyView {
   const stage = STAGE_BY_WORKFLOW_STAGE[workflow.stage] ?? 'REQUEST_RECEIVED';
 
@@ -146,6 +186,10 @@ export function toRefundJourneyView(
     version: REFUND_JOURNEY_VIEW_VERSION,
     workflow_id: workflowId,
     stage,
+    ...(evidence === undefined ? {} : { evidence: refundEvidenceSummarySchema.parse({
+      ...evidence,
+      can_upload: evidence.can_upload && (stage === 'AWAITING_CUSTOMER_EVIDENCE' || stage === 'AWAITING_EVIDENCE_REVIEW'),
+    }) }),
     ...(workflow.preview === undefined
       ? {}
       : {
@@ -160,11 +204,15 @@ export function toRefundJourneyView(
           },
         }),
     next_action: nextActionFor(stage),
-    timeline: timelineFor(stage),
+    timeline: timelineFor(stage, workflow.preview !== undefined),
   };
 }
 
 /** SSE intentionally carries only a wake-up signal; callers re-fetch the authoritative journey. */
+export function refundJourneyFingerprint(workflowId: string, workflow: RefundWorkflowView, evidence?: RefundEvidenceSummary): string {
+  return JSON.stringify(toRefundJourneyView(workflowId, workflow, evidence));
+}
+
 export function createRefundJourneyUpdateEvent(
   workflowId: string,
   eventId: string,

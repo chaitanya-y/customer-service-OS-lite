@@ -12,6 +12,12 @@ handed to a human case when policy requires it.
 
 The safest end-to-end demonstration is the **takeover path**. It creates and
 resolves a Human Operations case but does not submit a refund to Vendure.
+The positive photo-gated exceptional-refund path passed locally on 2026-09-06,
+including a clearer-photo request, exact replacement-revision acceptance,
+same-case monetary takeover, supervisor plan approval, exact customer
+confirmation and settlement of the one existing simulated refund. Temporal and
+the customer projection reached completion. See [the recorded proof](VERIFICATION_STATUS.md),
+which also preserves the earlier September 5 test.
 
 ## Prerequisites
 
@@ -53,10 +59,10 @@ them; it explains which values must match and which values must be different.
 
 | Secret | Services that must share it | Purpose |
 |---|---|---|
-| `CONTEXT_ASSERTION_HMAC_SECRET` | Edge API, Conversation Runtime, Integration Gateway, Agent Runtime, Knowledge/RAG | Edge-issued audience-specific customer context |
+| `CONTEXT_ASSERTION_HMAC_SECRET` | Edge API, Conversation Runtime, Integration Gateway, Agent Runtime, Knowledge/RAG, Human Operations for private photos | Edge-issued audience-specific customer context |
 | `EDGE_SERVICE_ASSERTION_HMAC_SECRET` | Edge API, Conversation Runtime | Edge-only assistant-message commits; this must differ from every other secret |
 | `WORKFLOW_ACCESS_HMAC_SECRET` | Workflow Workers, Integration Gateway | Worker-only fact refresh, refund execution, and reconciliation |
-| `HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET` | Workflow Workers, Human Operations | Worker-only case open and close |
+| `HUMAN_OPERATIONS_WORKFLOW_HMAC_SECRET` | Workflow Workers, Human Operations | Worker-only case open/close and evidence read/transition |
 | `PROVIDER_WEBHOOK_HMAC_SECRET` | Integration Gateway only | Local signed provider outcome event verification |
 
 `LOCAL_AUTH_HMAC_SECRET` belongs only to Edge API.
@@ -82,6 +88,12 @@ The Edge local customer token has a maximum lifetime of 48 hours. Generate a new
 one after it expires. The browser applications convert these development tokens
 into HTTP-only local session cookies. The tokens themselves never go to browser
 JavaScript.
+
+The staff token also expires within 48 hours. Check the effective local file:
+Next.js `.env.local` overrides `.env`. On the September 5 owner setup, the customer
+token is in `apps/web/customer-portal/.env.local`, while the staff token is in
+`apps/web/operations-console/.env`. Replace only the effective token, restart that
+web app, and choose **Continue locally** again. Never print tokens into logs.
 
 ## Start the stack
 
@@ -218,6 +230,7 @@ has been more reliable than the current Turbopack setup on this local stack.
 | Vendure Dashboard | `http://127.0.0.1:3001/dashboard` |
 | Integration Gateway health | `http://127.0.0.1:3002/health` |
 | Human Operations health | `http://127.0.0.1:3003/health` |
+| Conversation Runtime health | `http://127.0.0.1:3004/health` |
 | Agent Runtime health | `http://127.0.0.1:8000/health` |
 | Knowledge/RAG health | `http://127.0.0.1:8001/health` |
 | OpenSearch | `http://127.0.0.1:9200` |
@@ -229,12 +242,20 @@ test session.
 
 ## Test the safe takeover path
 
+For new damaged-item requests pinned to `refund-policy-v2`, first follow
+[Refund Photo Evidence](REFUND_PHOTO_EVIDENCE.md): apply migration 003, configure
+private storage, upload a photo on the refund page, then have assigned staff
+review the exact photo revision. Only after accepted evidence does policy route
+the same case into monetary approval/takeover. Existing v1 workflows retain the
+older behavior described below. A photo acceptance is not a refund approval.
+
 1. Open the Customer UI and choose **Continue locally**.
-2. On `/support`, enter a full request with a valid local order reference. In the
-   owner environment, this was tested with `AVV8JSZH8G6ZZDMX`:
+2. On `/support`, enter a full request with a fresh valid local order reference.
+   Replace `<ORDER_REFERENCE>` below. Historical orders such as
+   `AVV8JSZH8G6ZZDMX` have already been used and may no longer be refundable:
 
    ```text
-   I want a refund for order AVV8JSZH8G6ZZDMX. The item arrived damaged and I would like a full refund.
+   I want a refund for order <ORDER_REFERENCE>. The item arrived damaged and I would like a full refund.
    ```
 
 3. Submit the request. A high-value request should become **A specialist is
@@ -242,10 +263,11 @@ test session.
 4. Open the Operations Console and choose **Continue locally**.
 5. In the **Open** queue, open the newest case. Review the order reference,
    requested amount, policy reason codes, and evidence IDs.
-6. Click **Claim this case**, choose **Resolve manual takeover**, add a note, and
-   submit it.
-7. Return to the customer journey and refresh the page. It should read **Support
-   review completed**.
+6. Click **Claim this case**. After claiming, choose **Resolve manual takeover**,
+   add a note, and submit it. This closes the review without a refund; it is
+   different from **Approve exceptional refund plan**.
+7. Return to the customer journey. Live updates should show **Support review
+   completed**; refresh only if the connection is unavailable.
 
 This path proves the human review and audit boundary without a commerce write.
 
@@ -264,20 +286,22 @@ location.reload();
 ```
 
 Then send these messages as two separate turns, leaving the optional order
-reference field empty:
+reference field empty. Replace the placeholder with a fresh test order:
 
 ```text
-I need help with a refund. My order reference is AVV8JSZH8G6ZZDMX.
+I need help with a refund. My order reference is <ORDER_REFERENCE>.
 ```
 
 ```text
-The item arrived damaged. I want a full refund for item 3.
+The item arrived damaged. I want a full refund for my entire order.
 ```
 
 Pass condition: the second response must not ask the customer to share the order
 reference again. It may request required evidence or create a high-value human
 review case. This test passed through the local BFF, Edge API, Conversation
 Runtime, Agent Runtime, MCP Gateway, Knowledge/RAG, and Temporal on 2026-09-04.
+It passed again on September 5 with `23NK4CXW6XYMA5NE` and a correct proposed
+USD 1,683.80. That order is now refunded; use a new one for another positive test.
 
 For one local sample, the first and second Edge API turns took 20.68 and 18.82
 seconds respectively. Conversation persistence and transcript reads were under 50
@@ -291,6 +315,18 @@ exact preview and choose **Confirm refund**. That confirmation signals Temporal;
 it does not call Vendure from the browser. The Workflow Worker refreshes facts
 again and calls the Integration Gateway's idempotent execution route.
 
+For the exceptional takeover path, use a fresh USD order above USD 500 with one
+settled simulated payment and no prior refunds, owned by the configured customer.
+For damaged-item v2 requests, complete the private photo gate first: assigned
+staff must accept the exact current photo revision. A clearer-photo request
+supersedes that reviewed set without deleting it and opens a fresh current set.
+The same case then changes to monetary takeover and clears its earlier assignment;
+the supervisor must claim the monetary phase before deciding the refund plan.
+The assigned supervisor first chooses **Approve exceptional refund plan** and
+records a decision note. The workflow refreshes facts and prepares a preview;
+only then does the customer confirm. Closing the human case after plan approval
+does not mean the refund has executed.
+
 Use a disposable local order for this test. Check the resulting refund in the
 Vendure Dashboard, then inspect the workflow in Temporal UI. Do not use an
 unknown real order or production credentials.
@@ -301,8 +337,21 @@ authoritative final result. It moves to **Refund completed** only when Vendure
 reconciliation finds a settled refund or a signed provider outcome event reports
 completion. A failed provider event moves it to **Refund needs attention**.
 
-The local Vendure simulator normally settles the refund quickly. A real payment
-provider may take days, so its signed webhook is accepted at
+The configured dummy payment handler leaves refunds `Pending`; it does not
+automatically settle them. To simulate provider completion:
+
+1. Obtain explicit permission to settle the existing local test refund.
+2. Open the correct Vendure order, expand the payment's **Refunds**, and verify
+   the existing refund ID and amount.
+3. Choose **Settle refund** and enter a clearly labeled local test transaction ID.
+   Do not click **Refund** again or call `refundOrder` a second time.
+4. Verify the record is `Settled`. Keep Workflow Workers running and wait for the
+   next normal reconciliation check, which runs every five minutes.
+5. Verify Temporal becomes `REFUND_SUCCEEDED` and the customer page automatically
+   shows **Refund completed**. Do not force a success signal to shorten the wait.
+
+This moves no real bank money. A real payment provider may take days, and its
+signed webhook is accepted at
 `POST /internal/v1/provider-refund-events`. The Gateway records each event before
 retrying delivery to Temporal. This endpoint is for a provider adapter, never a
 browser client.
@@ -321,43 +370,71 @@ browser client.
 - Conversation context sent to Agent Runtime includes only bounded end-customer
   messages. Assistant messages are intentionally excluded, and RAG receives only
   the latest customer message.
+- Refund destinations use readable labels. **Review by** appears only while
+  confirmation is the next customer action, not during processing or after
+  completion/closure/invalidation. The backend retains the original expiry.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
 | `pnpm: command not found` | Run `corepack enable`, open a new shell, then check `pnpm --version`. |
-| Customer authentication required | Regenerate the Edge token, update `apps/web/customer-portal/.env`, and restart the Customer UI. |
+| Customer authentication required | Regenerate the Edge token, update the effective customer web env file (`.env.local` overrides `.env`), restart the Customer UI, and choose Continue locally. |
 | Human authentication unavailable | Regenerate the Human Operations token, update `apps/web/operations-console/.env`, and restart the Operations Console. |
 | Request origin is not allowed | Use `http://127.0.0.1:3100`, not a different host or port. |
 | No human case appears | Verify Human Operations and Workflow Workers are running and connected to the same Temporal server. |
 | RAG request fails | Verify OpenSearch, the configured published index, and `OPENAI_API_KEY` in Knowledge/RAG. |
 | Grounded answer falls back to a generic message | Verify `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS=30` in Agent Runtime or use its default, then restart Agent Runtime. The answer call gets one bounded 30-second attempt rather than repeated timeouts. |
 | Assistant asks for an order reference that was provided in an earlier turn | Start a fresh conversation and run the multi-turn retention test above. If it repeats, inspect Edge API conversation-context tests before changing prompt wording. |
-| Assistant calls an item number an order number | Known customer-copy defect. Do not treat it as a failed lookup; tighten the answer-composer contract and add the regression test before the final positive refund test. |
+| Assistant calls an item number an order number | Regression fixed in the September 5 answer composer. Verify the running Agent Runtime includes the trusted-order input and fallback checks, then run its tests. |
+| Assistant displays minor units as dollars | Regression fixed by application-owned USD formatting. Verify the `refund-answer-v3` path and its money/fallback tests are running. |
+| Order lookup fails after manual Vendure fulfillment | On September 6, a blank provider method violated the order contract. Gateway now normalizes blank methods to `unspecified`; verify that adapter and its tests. Typed `order_lookup_unavailable` is a safe retryable Edge 503, not evidence that the order is missing. |
+| Assistant asks for a delivery date during photo-gated intake | This unsupported question occurred in the successful September 6 browser run. The subsequent `SYSTEM_PROMPT` forbids delivery-date questions and delivery-age windows; runtime checks reject either wording so the existing graph safely falls back. The full Agent Runtime suite passed 101 tests with one upstream warning. A fresh paid live browser recheck has not been run. Trusted delivery-age eligibility remains unimplemented; do not treat a customer-supplied date as verified facts. |
+| Refund remains initiated | Read the existing Vendure refund. Dummy-provider `Pending` needs explicitly authorized simulated settlement; `Settled` should be detected at the next five-minute reconciliation check. |
 | Existing case disappeared after restart | This is not expected now. Verify PostgreSQL is running, `DATABASE_URL` points to the same database, Human Operations migrations ran, and the tenant/environment values did not change. |
 | Provider event endpoint returns `503` | Set `PROVIDER_WEBHOOK_HMAC_SECRET` in the Integration Gateway `.env` and restart the Gateway. |
 
 ## What this does not prove yet
 
 This local test does not prove production authentication, real bank settlement,
-managed PostgreSQL backup/high availability, Kafka delivery, distributed tracing,
-workload scaling, or AWS deployment.
+real payment-provider webhook delivery, delivery-age eligibility, managed
+PostgreSQL backup/high availability, Kafka delivery, OpenTelemetry/distributed
+observability, workload scaling, or AWS deployment.
 Those are the next hardening and deployment milestones.
 
-## Final positive refund test still pending
+## Completed positive test and repeat procedure
 
-The safe takeover path and focused automated execution tests have passed. One
-manual positive browser-to-provider proof remains before the refund journey can be
-called fully verified end to end:
+The latest photo-gated positive path passed on 2026-09-06. Order
+`AUUYAWRHBVGJPK5R` (Vendure order 2) contained two Laptop 13 inch 8GB units, with a
+full-order refund of USD 3,122.60. Staff requested a clearer photo after the first
+passed technical validation, accepted the replacement at its exact revision,
+then the same case moved to monetary takeover. A supervisor approved the
+exceptional plan and the customer confirmed the exact preview. Gateway created
+only refund 5 (`Pending`); separate owner-authorized settlement changed that same
+refund to `Settled`, with no second refund. Temporal reached `REFUND_SUCCEEDED`
+and the customer projection reached `REFUND_COMPLETED` with no action.
+
+[Verification Status](VERIFICATION_STATUS.md) records the workflow, case and
+preview identifiers, the automated delivery wording safeguard checks, and the earlier
+September 5 proof (order `23NK4CXW6XYMA5NE`, refund 4, USD 1,683.80). Neither order
+is reusable for another positive execution. The earlier September 6 order-contract
+recovery passed Gateway typecheck/44 tests, Edge typecheck/83 tests, Agent Runtime
+Ruff/98 tests with one upstream warning, and live signed REST/MCP lookup. The later
+wording safeguard passed the full 101-test Agent Runtime suite with the same
+warning; it has not had a fresh paid live browser recheck.
+
+For a future regression run:
 
 1. Create and fulfill a disposable order in Vendure.
 2. Submit a damaged-item refund from the Customer Portal.
-3. If policy creates a takeover case, claim it and approve an exceptional refund
-   plan in the Operations Console.
+3. For damaged-item v2 requests, upload a private photo and review its exact
+   revision in the Operations Console. Exercise request-more and replacement,
+   then accept the current set. If policy changes the same case to takeover,
+   reclaim it as a supervisor and approve the exceptional refund plan.
 4. Confirm the exact refund preview in the Customer Portal.
 5. Observe `REFUND_PROCESSING` after provider acceptance.
-6. Verify the refund record in Vendure.
+6. Verify the single refund record in Vendure. If it is `Pending` under the dummy
+   provider, separately authorize and settle that existing refund as above.
 7. Verify a signed provider event or reconciliation moves Temporal to
    `REFUND_SUCCEEDED`.
 8. Confirm the Customer Portal shows the truthful completed state.

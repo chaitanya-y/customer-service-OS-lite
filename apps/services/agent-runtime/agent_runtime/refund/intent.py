@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Literal, Protocol
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -21,6 +22,7 @@ RefundReasonCode = Literal[
 ]
 RefundScope = Literal["FULL_ORDER", "SELECTED_ITEMS", "UNSPECIFIED"]
 REFUND_INTENT_PROMPT_VERSION = "refund-intent-v1"
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You extract refund intent for a customer-service workflow.
 
@@ -108,4 +110,8 @@ class LangChainRefundIntentExtractor:
             )
             return RefundIntentExtraction.model_validate(result)
         except Exception as error:
+            logger.warning(
+                "Refund intent extraction failed",
+                extra={"error_type": type(error).__name__},
+            )
             raise RefundIntentExtractionError from error

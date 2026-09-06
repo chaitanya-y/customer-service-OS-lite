@@ -1,0 +1,8 @@
+{
+  "version": "v1",
+  "action": "APPROVE_EXCEPTIONAL_REFUND",
+  "expected_case_version": 4,
+  "expected_evidence_version": 2,
+  "reason_code": "DAMAGE_VISIBLE",
+  "decided_by": "client-supplied-staff"
+}

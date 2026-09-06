@@ -1,4 +1,4 @@
-import { WorkflowClient } from '@temporalio/client';
+import { WorkflowClient, WorkflowNotFoundError } from '@temporalio/client';
 
 export type RefundWorkflowStartInput = Readonly<{
   workflowId: string;
@@ -59,6 +59,18 @@ export class RefundWorkflowNotFoundError extends Error {
   }
 }
 
+export class RefundPreviewUnavailableError extends Error {
+  constructor() {
+    super('This refund preview is no longer available for confirmation. Refresh the refund status or start a new request.');
+    this.name = 'RefundPreviewUnavailableError';
+  }
+}
+
+function acceptsConfirmation(workflow: RefundWorkflowView, previewId: string): boolean {
+  return workflow.stage === 'AWAITING_CUSTOMER_CONFIRMATION'
+    && workflow.preview?.previewId === previewId;
+}
+
 export function createTemporalRefundClient({
   client,
   taskQueue,
@@ -106,11 +118,30 @@ export function createTemporalRefundClient({
     },
     async confirmRefundWorkflow({ workflowId, access, previewId, accepted }) {
       const handle = await getOwnedHandle(workflowId, access);
-      await handle.signal('refund.confirmation', {
-        previewId,
-        accepted,
-        confirmedAt: now().toISOString(),
-      });
+      const workflow = await handle.query<RefundWorkflowView>('refund.state');
+      if (!acceptsConfirmation(workflow, previewId)) {
+        throw new RefundPreviewUnavailableError();
+      }
+
+      // This is a status/identity preflight, not an expiry authorization. The
+      // workflow clock determines whether the signal arrived before its deadline.
+      try {
+        await handle.signal('refund.confirmation', {
+          previewId,
+          accepted,
+          confirmedAt: now().toISOString(),
+        });
+      } catch (error) {
+        if (error instanceof WorkflowNotFoundError) {
+          // The workflow may have expired after the preflight. Closed workflows
+          // remain queryable; only a confirmed state change becomes a conflict.
+          const latest = await handle.query<RefundWorkflowView>('refund.state');
+          if (!acceptsConfirmation(latest, previewId)) {
+            throw new RefundPreviewUnavailableError();
+          }
+        }
+        throw error;
+      }
     },
   };
 }

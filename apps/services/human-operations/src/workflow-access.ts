@@ -6,10 +6,10 @@ export const WORKFLOW_ASSERTION_HEADER = 'x-cso-workflow-assertion';
 const opaqueId = z.string().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const claimsSchema = z.object({
   accessVersion: z.literal('1'),
-  workflow: z.object({ workflowId: opaqueId }).strict(),
+  workflow: z.object({ workflowId: z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/) }).strict(),
   tenant: z.object({ tenantId: opaqueId, environmentId: opaqueId }).strict(),
   subject: z.object({ customerId: opaqueId }).strict(),
-  purpose: z.enum(['human_case_open', 'human_case_close']),
+  purpose: z.enum(['human_case_open', 'human_case_close', 'refund_evidence_open', 'refund_evidence_read', 'human_case_transition']),
   request: z.object({ requestId: opaqueId, traceId: opaqueId }).strict(),
   iss: z.string().min(1).max(200),
   aud: z.string().min(1).max(200),
@@ -22,7 +22,7 @@ export type WorkflowCaseAccess = Readonly<{
   tenantId: string;
   environmentId: string;
   subjectCustomerId: string;
-  purpose: 'human_case_open' | 'human_case_close';
+  purpose: 'human_case_open' | 'human_case_close' | 'refund_evidence_open' | 'refund_evidence_read' | 'human_case_transition';
 }>;
 
 export type VerifyWorkflowCaseAccess = (assertion: string | undefined, purpose: WorkflowCaseAccess['purpose']) => Promise<WorkflowCaseAccess>;

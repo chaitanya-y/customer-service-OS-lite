@@ -170,6 +170,44 @@ export async function proxyEdgeApi(input: {
   }
 }
 
+export async function proxyEdgeEvidence(input: {
+  authorization: LocalCustomerAuthorization;
+  path: string;
+  body?: ArrayBuffer;
+  headers?: Record<string, string>;
+}): Promise<NextResponse> {
+  try {
+    const upstream = await fetch(new URL(input.path, EDGE_API_BASE_URL), {
+      method: input.body ? "POST" : "GET",
+      body: input.body,
+      cache: "no-store",
+      headers: { authorization: input.authorization.authorization, ...input.headers },
+    });
+    if (input.body) {
+      return new NextResponse(await upstream.text(), { status: upstream.status,
+        headers: { "cache-control": "no-store", "content-type": "application/json" } });
+    }
+    if (!upstream.ok) {
+      await upstream.body?.cancel();
+      return errorResponse(upstream.status, "evidence_unavailable", "This photo is not available. Refresh and try again.");
+    }
+    const contentType = upstream.headers.get("content-type");
+    if (contentType !== "image/jpeg" && contentType !== "image/png") {
+      await upstream.body?.cancel();
+      return errorResponse(502, "evidence_unavailable", "This photo is not available.");
+    }
+    return new NextResponse(upstream.body, { headers: {
+      "content-type": contentType,
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+      "content-disposition": "inline",
+      "cross-origin-resource-policy": "same-origin",
+    } });
+  } catch {
+    return errorResponse(502, "evidence_unavailable", "Photo uploads and viewing are temporarily unavailable.");
+  }
+}
+
 /**
  * Streams a customer-authorized Edge event feed without ever exposing the
  * server-held local customer token to the browser.

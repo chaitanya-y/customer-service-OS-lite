@@ -5,11 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   formatDateTime,
   formatRefundAmount,
+  formatRefundDestination,
   getApiErrorMessage,
+  getRefundReviewDeadline,
   normalizeRefundJourney,
   type RefundJourney,
 } from "./customer-api";
 import styles from "./customer-widget.module.css";
+import { RefundEvidencePanel } from "./refund-evidence";
 import {
   useRefundJourneyUpdates,
   type RefundJourneyUpdateConnection,
@@ -79,6 +82,13 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
     void loadJourney();
   }, [loadJourney]);
 
+  useEffect(() => {
+    if (journey?.stage !== "AWAITING_CUSTOMER_EVIDENCE" && journey?.stage !== "AWAITING_EVIDENCE_REVIEW") return;
+    // Supplement event updates while asynchronous file checks and staff review are pending.
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void loadJourney(true); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [journey?.stage, loadJourney]);
+
   async function submitConfirmation(accepted: boolean) {
     if (!journey?.preview || journey.nextAction !== "CONFIRM_OR_DECLINE") return;
 
@@ -119,6 +129,7 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
   const timeline = journey.timeline.length > 0
     ? journey.timeline
     : [{ eventId: "current", label: journey.statusLabel, status: "CURRENT" as const }];
+  const reviewDeadline = getRefundReviewDeadline(journey);
 
   return (
     <div className={styles.journeyLayout} aria-live="polite">
@@ -131,12 +142,14 @@ export function RefundJourney({ workflowId }: { workflowId: string }) {
           {updateConnectionLabel(updateConnection)}
         </p>
 
+        {journey.evidence ? <RefundEvidencePanel evidence={journey.evidence} onRefresh={() => loadJourney(true)} workflowId={workflowId} /> : journey.stage === "AWAITING_CUSTOMER_EVIDENCE" || journey.stage === "AWAITING_EVIDENCE_REVIEW" ? <section className={styles.evidencePanel}><h2>Damage photos</h2><p>Photo details are temporarily unavailable.</p><button className={styles.secondaryButton} onClick={() => void loadJourney()} type="button">Refresh photo details</button></section> : null}
+
         {journey.preview ? (
           <div className={styles.preview}>
             <p className={styles.previewLabel}>Refund amount</p>
             <p className={styles.previewAmount}>{formatRefundAmount(journey.preview.amount)}</p>
-            <p className={styles.previewReason}>Returned to {journey.preview.refundDestination}</p>
-            {journey.preview.expiresAt ? <p className={styles.previewLabel}>Review by {formatDateTime(journey.preview.expiresAt)}</p> : null}
+            <p className={styles.previewReason}>Returned to {formatRefundDestination(journey.preview.refundDestination)}</p>
+            {reviewDeadline ? <p className={styles.previewLabel}>Review by {formatDateTime(reviewDeadline)}</p> : null}
             {journey.nextAction === "CONFIRM_OR_DECLINE" ? (
               <div className={styles.actions}>
                 <button className={styles.secondaryButton} disabled={isConfirming} onClick={() => void submitConfirmation(false)} type="button">Decline</button>

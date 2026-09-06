@@ -241,17 +241,18 @@ def create_compose_customer_answer_node(
     async def compose_customer_answer(state: RefundState) -> RefundState:
         customer_message = state.get("customer_message")
         refund_proposal = state.get("refund_proposal")
+        order_context = state.get("order_context")
         knowledge_evidence = state.get("knowledge_evidence", [])
 
-        if not customer_message or refund_proposal is None:
+        if not customer_message or refund_proposal is None or order_context is None:
             raise ValueError(
-                "customer_message and refund_proposal are required"
+                "customer_message, refund_proposal, and order_context are required"
             )
 
         if not knowledge_evidence:
             return {
                 "customer_answer": build_fallback_customer_answer(
-                    refund_proposal
+                    refund_proposal, order_context=order_context
                 ),
                 "answer_composition_status": "fallback",
             }
@@ -260,12 +261,13 @@ def create_compose_customer_answer_node(
             answer = await answer_composer.compose(
                 customer_message=customer_message,
                 refund_proposal=refund_proposal,
+                order_context=order_context,
                 knowledge_evidence=knowledge_evidence,
             )
         except RefundAnswerCompositionError:
             return {
                 "customer_answer": build_fallback_customer_answer(
-                    refund_proposal
+                    refund_proposal, order_context=order_context
                 ),
                 "answer_composition_status": "fallback",
             }
