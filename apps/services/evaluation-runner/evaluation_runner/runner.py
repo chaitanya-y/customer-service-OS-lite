@@ -84,6 +84,7 @@ async def run_evaluation(
         evaluation_version=evaluation_version,
         dataset_id=dataset.dataset_id,
         dataset_version=dataset.dataset_version,
+        dataset_case_ids=[case.case_id for case in dataset.cases],
         repetitions=repetitions,
         trials=trials,
         case_summaries=case_summaries,

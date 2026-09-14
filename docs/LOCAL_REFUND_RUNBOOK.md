@@ -84,12 +84,14 @@ CSO_LOCAL_HUMAN_TOKEN=<output from the Human Operations local:token command>
 HUMAN_OPERATIONS_BASE_URL=http://127.0.0.1:3003
 ```
 
-The Edge local customer token has a maximum lifetime of 48 hours. Generate a new
-one after it expires. The browser applications convert these development tokens
-into HTTP-only local session cookies. The tokens themselves never go to browser
-JavaScript.
+The Edge local customer token has a default and maximum lifetime of seven days.
+Generate a new one after it expires. The web applications keep the tokens
+server-side and forward them to their backend services. Local sign-in sets an
+HTTP-only session cookie; it does not put the JWT into browser JavaScript.
 
-The staff token also expires within 48 hours. Check the effective local file:
+The staff CLI defaults to seven days. Set `LOCAL_HUMAN_ACCESS_TTL_SECONDS=604800`
+in Human Operations `.env` so an older two-day override does not take precedence.
+Check the effective local file:
 Next.js `.env.local` overrides `.env`. On the September 5 owner setup, the customer
 token is in `apps/web/customer-portal/.env.local`, while the staff token is in
 `apps/web/operations-console/.env`. Replace only the effective token, restart that

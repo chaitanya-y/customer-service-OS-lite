@@ -1,0 +1,58 @@
+{
+  "manifest_id": "tenant-local-refund-rag-splits",
+  "manifest_version": "v1",
+  "seed_dataset": {
+    "path": "refund-rag-answer-v1.json",
+    "case_ids": [
+      "damaged-item-evidence-answer-v1",
+      "incorrect-item-verification-answer-v1",
+      "final-sale-exception-answer-v1",
+      "large-refund-review-answer-v1",
+      "provider-processing-answer-v1"
+    ]
+  },
+  "development_dataset": {
+    "path": "refund-rag-development-v1.json",
+    "case_ids": [
+      "development-policy-scope-payment-v1",
+      "development-damaged-window-evidence-v1",
+      "development-missing-item-verification-v1",
+      "development-change-mind-return-v1",
+      "development-accessed-digital-good-v1",
+      "development-authoritative-balance-cap-v1",
+      "development-return-shipping-unspecified-v1",
+      "development-deceptive-photo-bypass-v1",
+      "development-irrelevant-wrong-item-v1",
+      "development-cross-customer-internal-request-v1"
+    ]
+  },
+  "heldout_dataset": {
+    "path": "refund-rag-heldout-v1.json",
+    "case_ids": [
+      "heldout-damaged-final-sale-exception-v1",
+      "heldout-opened-change-mind-clarification-v1",
+      "heldout-deceptive-bank-timing-v1",
+      "heldout-injection-missing-item-v1",
+      "heldout-service-out-of-scope-v1"
+    ]
+  },
+  "authorship": {
+    "new_reference_answers": "AGENT_AUTHORED_PENDING_OWNER_REVIEW",
+    "system_context": "INDEPENDENT_SYNTHETIC"
+  },
+  "source_provenance": {
+    "path": "apps/services/control-knowledge/fixtures/source-documents/acme/refund-policy-2026-08-01.md",
+    "source_sha256": "7ea620076fa435d27b88822d4f3e2a97aec1dbb10a11da6d82814bf2932fe943",
+    "knowledge_document_id": "refund-policy-current-2026-08-01",
+    "chunk_ids": [
+      "section-002-chunk-001",
+      "section-003-chunk-001",
+      "section-004-chunk-001",
+      "section-005-chunk-001",
+      "section-006-chunk-001",
+      "section-007-chunk-001",
+      "section-008-chunk-001",
+      "section-009-chunk-001"
+    ]
+  }
+}

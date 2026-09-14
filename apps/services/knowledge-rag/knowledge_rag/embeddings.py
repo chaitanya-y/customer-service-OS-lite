@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -73,9 +73,7 @@ class DeterministicEmbeddingProvider:
         if not text.strip():
             raise ValueError("Cannot embed empty text")
 
-        digest = hashlib.sha256(
-            f"{self.model.model_version}\0{text}".encode()
-        ).digest()
+        digest = hashlib.sha256(f"{self.model.model_version}\0{text}".encode()).digest()
 
         raw_vector = [
             (digest[index % len(digest)] - 127.5) / 127.5
@@ -84,6 +82,7 @@ class DeterministicEmbeddingProvider:
         vector_norm = math.sqrt(sum(value * value for value in raw_vector))
 
         return [value / vector_norm for value in raw_vector]
+
 
 class OpenAIEmbeddingProvider:
     """
@@ -99,8 +98,9 @@ class OpenAIEmbeddingProvider:
         api_key: str,
         model_name: str = "text-embedding-3-small",
         dimension: int = 1536,
+        client: Any | None = None,
     ) -> None:
-        self._client = OpenAI(api_key=api_key)
+        self._client = client if client is not None else OpenAI(api_key=api_key)
         self.model = EmbeddingModel(
             provider="openai",
             model_name=model_name,

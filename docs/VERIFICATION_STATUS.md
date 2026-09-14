@@ -1,6 +1,6 @@
 # Verification Status
 
-Last updated: 2026-09-06
+Last updated: 2026-09-13
 
 This file separates implementation, automated evidence, manual evidence, and work
 that still needs proof. A feature existing in code is not the same as an end-to-end
@@ -26,8 +26,626 @@ evidence. The accurate current claim is:
 > eligibility, observability, and other operational/failure scenarios still
 > require separate work and evidence. The browser run also exposed an unsupported
 > delivery-date question. The subsequent wording safeguard has automated
-> verification (101 Agent Runtime tests passed), but no fresh paid live browser
-> recheck has been run.
+> historical verification (101 Agent Runtime tests passed). The September 10
+> refinement and its offline evidence are recorded below; no fresh paid live
+> browser recheck has been run.
+
+## Approved dataset v3 preparation on 2026-09-13
+
+The offline five-case v3 preparation is complete. The owner approved four
+source-aligned reference corrections for incorrect items, final-sale exceptions,
+large refunds and provider processing. The damaged-item reference is unchanged.
+Only those four references and `dataset_version` differ semantically from v2.
+Inputs, synthetic facts, evidence targets, safety checks and grader settings are
+unchanged. This is a new answer key, not a change to customer answers or policy.
+
+Diagnostic capture adds only the exact built-in v3 path and this SHA-256:
+`1b128ab9db614854d5a76cc27c65966fb8fa234a2231664575f119af20b504de`.
+Copied or modified fixtures remain rejected before clients are created; the
+parser uses the verified bytes. Rejected answers remain private and unscored.
+Tests prove all five references reach the grader without reaching the evaluated
+answer system. Historical v1/v2, development, held-out and split fixture hashes,
+and the full production answer module hash, match the pre-change snapshot.
+
+Fresh verification: **232 Evaluation Runner tests passed**, Ruff lint passed,
+and all **42 Python files** passed formatting. Eleven test instances were added;
+the focused suite passed 50 tests. A scoped independent review found no defects.
+Agent Runtime was unchanged in this task; its earlier 146-test result in the
+v8-refinement record remains historical, not a new run. No paid calls, service/token/env
+changes, dependency installs, refund actions or Git writes occurred.
+
+No v3 live scores or human calibration exist. The next proposed campaign uses
+five cases times three repetitions with fixed versions and separate paid/capture
+approval. Keep failed trials in the reliability denominator and report semantic
+scores only with their scored coverage; missing grades are not zero. Owner
+approval of references is not human rating of generated answers. Do not compare
+v3 against v2 as an improvement. The reference decisions and bounded sequence
+are in `evaluation/RAGAS_DATASET_REVIEW.md` and `evaluation/EVALUATION_STRATEGY.md`.
+
+## Captured v8 trial on 2026-09-13
+
+The separately authorized `refund-ragas-v8-20260913-001` used the same pinned
+v2 damaged-item case, models and three CUSTOMER_SAFE evidence chunks. It failed
+before judging with `SYSTEM_ERROR` / `DELIVERY_AGE_TEXT_REJECTED`. It said:
+
+> Submit the request within 30 calendar days of delivery.
+
+The duration is supported for damaged items, but that sentence lacks the
+general-policy framing and refund-reason scope required by the strict text
+validator. It did not match the earlier personalized-exception conclusion.
+Offline replay with matching saved evidence hashes reproduced the failure.
+Replacing only that sentence in memory with the supported general damaged-item
+policy form passed the delivery-text validator; this was not a production fix
+or a quality grade. The answer also transferred an incorrect/missing-item
+verification requirement into a damaged-item response, an unresolved review
+finding rather than a reconstructed RAGAS judgment.
+
+Usage was **4,129 tokens** across one answer call (4,115) and one query-embedding
+call (14). Measurement is complete; reasoning is included in output totals.
+No judges ran, no semantic scores exist, and no refund action or trial retry
+occurred. Artifacts `result.json`, `usage.json`, `rejections.json` and `runner.log`
+are private (`0600`) under `/private/tmp/cso-ragas-v8-approved-iIBHLfmI/`.
+Result/usage/diagnostic schemas and response/evidence hashes were verified.
+The result is an answer-generation/validation failure, not token expiry.
+
+The owner agreed to stop prompt-only retry cycles and prepare a bounded
+five-case evaluation campaign. A possible hybrid answer-composer redesign is
+separate work, not implemented here. Failed system trials must remain visible;
+they are not semantic zeroes and must not disappear from the denominator.
+
+## Captured v7 rejection and offline v8 refinement on 2026-09-13
+
+The authorized trial `refund-ragas-v7-20260913-001` used the same synthetic
+damaged-item v2 case, models and three CUSTOMER_SAFE evidence chunks as the
+completed v6 trial below. It failed before RAGAS scoring with `SYSTEM_ERROR` /
+`DELIVERY_AGE_TEXT_REJECTED`. The captured answer said:
+
+> Final-sale products are not eligible for a refund unless the item arrived
+> damaged or the wrong item was sent; since your item arrived damaged, it falls
+> under the damaged-item exception.
+
+The personalized-conclusion guard matched `your item arrived damaged, it falls`.
+The error code also covers personalized eligibility, not just delivery dates.
+An offline replay using matching saved evidence content hashes reproduced the
+rejection; removing only the offending line in memory passed the delivery-text
+validator. No saved answer or production response was altered. This diagnoses
+this captured failure, not the exact cause of the earlier uncaptured failure.
+
+The trial made one answer call (4,525 tokens) and one query-embedding call
+(14 tokens): **4,539 total tokens**, measurement complete. Reasoning tokens are
+included in output totals. No RAGAS judges ran, no scores were produced, no refund
+was executed, and no automatic retry occurred. Cost remains unknown without a
+pricing schedule. The private `0600` artifacts are in
+`/private/tmp/cso-ragas-v7-approved-ZVLfN0fC/`: `result.json`, `usage.json`,
+`rejections.json` and `runner.log`. Temporary files may not survive migration.
+
+The owner then approved a bounded offline refinement to `refund-answer-v8`:
+reported damage is not verified eligibility; explain a relevant policy exception
+only as a general condition; never decide that this customer's item qualifies.
+The prompt includes allowed/disallowed examples and warns against assuming that
+an item is final-sale from its refund reason. Deterministic policy and all guard
+and composer code from `IDENTIFIER_MENTION` onward are unchanged (SHA-256
+`699c847dfae48068ba7a307306463161d0beb5c0c8a1a1ae7dbdf49d5216187c`).
+The five RAG seed/development/held-out/split fixture hashes are also unchanged.
+
+Three new composer cases preserve the exact synthetic response, isolate its
+offending sentence without any delivery-window text, and accept a general
+exception explanation while retaining citations, the application qualification
+and trusted amount. The full copied response matches the captured SHA-256
+`803b1f76078fb53252cbe13adcc351bde90f25938eb7fb97dac71cdf91bcfaad`.
+These boundary tests already passed with v7's unchanged guard. Two evaluator
+version-provenance checks failed before the v8 update and passed afterwards;
+neither check proves the model follows the prompt.
+
+Fresh offline verification: **146 Agent Runtime tests passed** (one existing
+Starlette/httpx deprecation warning), **221 Evaluation Runner tests passed**,
+and both linters passed. Both edited runtime Python files and all 41 evaluator
+Python files passed formatting. The full runtime format check still reports the
+same four untouched files listed below. No paid call, server/token change or Git
+mutation accompanied the v8 refinement. No live v8 trial had run at that
+checkpoint; the subsequent authorized failed trial is recorded above.
+Repeated trials, human calibration,
+and reviewed expanded cases remain necessary; do not claim this prompt change
+solves model reliability or completes RAGAS.
+
+## Earlier approved v7 answer-prompt refinement on 2026-09-13
+
+After the offline answer/source review, the owner approved the damaged-item
+answer rubric and a bounded prompt update. `refund-answer-v7` now instructs the
+model to preserve a rule's refund-reason scope and request/review/approval stage,
+state applicable prerequisites explicitly, and omit unrelated exclusions while
+retaining relevant exceptions. It does not change deterministic policy,
+verification controls, retrieval, answer guards or the v1/v2 RAG references.
+
+Two existing executor tests first failed because normal results and private
+rejection diagnostics still recorded prompt v6; after the update all 12 executor
+tests passed. Full verification: **143 Agent Runtime tests passed** (one
+Starlette/httpx deprecation warning) and **221 Evaluation Runner tests passed**.
+Both linters passed. The edited answer file and all 41 evaluator Python files
+passed formatting. The full Agent Runtime format check still reports four
+untouched files: `integrations/customer_evidence.py`,
+`integrations/trusted_context.py`, `refund/router.py` and
+`tests/test_customer_evidence.py`. They were not reformatted in this scope.
+
+The guard-and-composer code from `IDENTIFIER_MENTION` onward has the same SHA-256
+before and after the prompt change. The pinned v1/v2 fixture hashes also match.
+Version-reporting tests and existing guard regressions do not prove model
+compliance with the new instructions. No live v7 trial had run at that checkpoint;
+the later authorized failed trial is recorded above. No
+additional paid calls, server/token changes or Git mutations accompanied this
+implementation. Fresh trials require separate approval; do not lower thresholds
+or rewrite the reference to improve scores.
+
+## Completed v2 RAGAS trial on 2026-09-13, using prompt v6
+
+The owner authorized one synthetic damaged-item trial, all five configured
+metrics if the answer passed, and private rejected-answer capture. Run
+`refund-ragas-v2-capture-20260913-001` completed using `refund-answer-v6`, dataset
+v2, evaluator v2, `gpt-5-nano` and `text-embedding-3-small`. The answer passed the
+production guard; the diagnostic sidecar contains zero rejections. This does
+not explain or fix the earlier uncaptured intermittent rejection.
+
+| Metric | Score | Above provisional 0.70 minimum |
+|---|---:|---|
+| Context precision | 1.0000 | Yes |
+| Context recall | 1.0000 | Yes |
+| Faithfulness | 1.0000 | Yes |
+| Response relevancy | 0.4407 | No |
+| Factual correctness, precision mode | 0.5600 | No |
+
+All semantic grades remain informational; the overall pass reflects blocking
+safety checks, not universal quality success. Retrieval plus answer took 21.89
+seconds. Usage measured 36,946 tokens over 15 successful calls: one answer,
+11 judge, two judge-embedding and one query-embedding calls. No pricing schedule
+was supplied; cost is unknown, not zero. Reasoning tokens are already included
+in output totals. No repeat trial or refund action occurred.
+
+Private artifacts (all mode `0600`) are under
+`/private/tmp/cso-ragas-v2-approved-cwCuIwEv/`: `result.json`, `usage.json`,
+`rejections.json` and `runner.log`. The saved run and diagnostic sidecar passed
+schema/integrity validation. Temporary local files may not survive migration.
+The subsequent agent-assisted review found an over-broad verification statement,
+unnecessary exclusions, and an insufficiently explicit photo-before-approval
+condition. These are review findings, not reconstructed judge reasoning: the
+adapter retains numeric scores but not detailed claim-level explanations.
+Owner approval of the answer rubric is not completed independent calibration.
+
+## Offline evaluation follow-up on 2026-09-13
+
+The bounded batch used one Sol worker for read-only rejection-replay readiness,
+one for a single missing intake-evaluation case, and a separate read-only review
+after implementation. No new diagnostic or production guard was implemented.
+
+- Added `refund-agent-failure-modes-v1.json`: one synthetic retrieval-outage
+  case, separate from the unchanged seven-case agent dataset. It exercises the
+  real LangGraph intake with deterministic external dependencies and the real
+  fallback answer. A proposal remains ready, but knowledge is unavailable,
+  composition is fallback, citations are empty, and the answer model is not
+  called. No refund is authorized or executed.
+- Added three automated tests for fixture validity, one trial through all
+  seven existing graders, and deliberately corrupted observations rejected by
+  final-state, forbidden-tool and safety graders. Trace assertions are automated
+  tests, not a new generic trajectory-grading framework. The worker observed
+  three missing-fixture failures before adding the fixture, then three passes.
+- Coordinator verification: **221 Evaluation Runner tests passed in 3.19
+  seconds**, no skips; Ruff lint clean; all 41 Python files formatted;
+  `git diff --check` passed. These are three new tests, not 221 paid evaluations.
+- The separate read-only review finished with no blocking findings. Existing
+  wrong-proposal-amount grader coverage was reused rather than duplicated in
+  the new outage test.
+- Read-only diagnostic finding: the live CLI is not answer-only. A passing
+  answer proceeds to configured RAGAS judges. A future trial needs explicit
+  approval covering that scope and optional private rejection retention.
+  Offline delivery-validator replay needs the captured answer/citations plus
+  exact CUSTOMER_SAFE evidence with matching content hashes. At that checkpoint
+  the rejected answer had not been retained. The later v7 capture is diagnosed
+  above; the earlier uncaptured response's exact cause remains unknown.
+
+This batch made no paid calls, live-score measurements, service/token changes,
+provider actions, dependency changes or Git mutations. RAG reference review and
+human calibration remain pending; no reference answers or human marks changed.
+Full Temporal/human/provider evaluation, LangSmith export and public tau
+benchmark integration remain unimplemented. See the Evaluation Runner README
+for the replay boundary and the source-review worksheet for owner decisions.
+
+## Offline v2 diagnostics and dataset-review batch on 2026-09-12
+
+The owner approved two independent workstreams. One Sol worker extended the
+existing diagnostic boundary; another prepared source review and then performed
+a bounded read-only review of the diagnostic change. The coordinator integrated
+documentation and ran the full Evaluation Runner suite once on settled code.
+
+- Diagnostic mode now allows only the exact resolved paths and reviewed SHA-256
+  pins of `refund-rag-answer-v1.json` and `refund-rag-answer-v2.json`. Copied or
+  modified fixtures are rejected before external clients are constructed. The
+  bytes that pass the pin are reused for parsing. Capture is still opt-in,
+  private (`0600`), non-overwriting and separate from quality samples.
+- Tests exercise both versions and an offline v2 path through the real answer
+  composer, executor, adapter and runner. Only the external model and retrieval
+  are doubled. A deliberately uncited policy-window answer produces
+  `DELIVERY_AGE_TEXT_REJECTED`; its private diagnostic is retained while the main
+  trial remains `SYSTEM_ERROR`, with no sample or judge scoring. This synthetic
+  test does not reproduce or reveal the uncaptured live answer below.
+- [The worksheet](evaluation/RAGAS_DATASET_REVIEW.md) covers five seed, ten
+  development and five held-out cases against the registered CUSTOMER_SAFE
+  source. Its chunk map is fixture-level verification, not a fresh live-index
+  check. All reference decisions and human calibration remain with the owner;
+  the 15 candidate references still await review. Expected-evidence lists are
+  minimum retrieval targets, not exclusive lists of permissible context.
+
+| Verification | Result |
+|---|---|
+| New behavior before implementation | v2 diagnostic test failed against the old v1-only path check; v1 passed |
+| Worker focused live-evaluator suite | 39 passed in 1.96 seconds |
+| Coordinator full Evaluation Runner suite | 218 passed in 2.19 seconds, no skips |
+| Additional test cases since the 212-test checkpoint | 6 |
+| Ruff lint / formatting | Clean; 40 Python files already formatted |
+| Whitespace and scoped code review | `git diff --check` passed; no review blockers |
+| Guard and fixture preservation | SHA-256 checks confirmed answer implementation/tests and all five RAG fixture/manifest files unchanged |
+
+No paid calls, new live scores, provider/refund actions, service or secret
+changes, dependency changes, or Git operations were performed. Diagnostic
+support is complete for this bounded batch; the underlying live rejection is
+not fixed. Next: review the worksheet, obtain separate approval for a paid trial
+and private rejected-answer capture, then reproduce any captured rejection
+offline before choosing a behavior change. Do not expand cases or repetitions
+automatically.
+
+## Latest live v2 trial on 2026-09-12: rejected before grading
+
+The separately authorized run `refund-ragas-dataset-v2-20260912-001` attempted
+one damaged-item case and one repetition against dataset v2. Query embedding and
+answer generation succeeded, but the production answer guard returned
+`DELIVERY_AGE_TEXT_REJECTED`. The saved trial is `SYSTEM_ERROR`, with
+`sample: null` and `grader_results: []`. No RAGAS judge or judge-embedding calls
+ran. This is a failed system trial, not a zero-valued semantic score or a new
+completed baseline.
+
+The content-free usage report measured 14 query-embedding tokens and 3,952 answer
+tokens (1,134 input plus 2,818 output), totaling 3,966 tokens. The answer's 2,624
+reasoning tokens are included in its output count, not extra tokens. Cost remains
+null because no price schedule was supplied. Both API calls succeeded; this
+failure was not customer/staff token expiry. No retry or refund action occurred.
+
+Machine-local artifacts are `/private/tmp/cso-ragas-dataset-v2-NtfSKU/result.json`
+and `usage.json` in that directory. Temporary files are not portable handoff
+dependencies; this entry preserves their outcome. The exact rejected response
+was not captured because diagnostic mode was not enabled. Do not infer its
+wording, assume a model violation versus a false positive, or change the guard
+without further evidence. Any additional paid call needs fresh approval.
+
+## Owner-approved RAG answer dataset v2 on 2026-09-12
+
+The owner approved a revised damaged-item reference grounded in the published
+CUSTOMER_SAFE policy: the 30-calendar-day request window, order/item identification
+and photos before approval. The new `refund-rag-answer-v2.json` preserves all five
+case IDs; only the dataset version and damaged-item reference differ from v1.
+The historical v1 file retains SHA-256
+`00aa539c014dfd3d45944c5f8bacc327e1c79dfdaf04b44027bd26a107f533d6`.
+The original live result, production answer guard and diagnostic dataset pin were
+not changed. This is reference approval, not completion of human calibration.
+
+Four new offline tests first failed because the new dataset was absent, then
+passed. They protect historical data and unchanged case fields, and exercise the
+real RAGAS grader adapter to confirm the approved reference reaches context
+precision, context recall and factual correctness. The external scorer is a
+test double; its scores are not live RAGAS quality evidence. Independent
+application facts are still appended only for factual-correctness comparison,
+not for retrieval metrics.
+
+Final verification: Evaluation Runner 212 tests passed in 2.87 seconds; Ruff lint
+passed and all 40 Python files passed formatting checks. That offline reference
+change made no paid calls or changes to services, tokens, embeddings, indexes,
+refunds or Git history. The later live trial is recorded above. v2 results must
+not be directly baseline-compared with v1. At this checkpoint, normal v2 usage
+reporting was available, while rejected-answer capture supported only pinned v1.
+
+## Offline RAGAS dataset, usage and comparison batch on 2026-09-11
+
+The owner approved one coordinator and three bounded workers (two Sol, one Luna).
+This batch expanded evaluation tooling and documentation, not the number of live
+quality trials. It did not change the answer guard, original five-case seed,
+secrets, services, indexes, refund state, dependencies or Git history.
+
+1. Added 10 development and 5 held-out synthetic cases, with split membership and
+   source SHA-256 provenance in `refund-rag-splits-v1.json`. References remain
+   `AGENT_AUTHORED_PENDING_OWNER_REVIEW`. Four new fixture tests validate contract,
+   split and trust-boundary properties, not live model quality. The held-out split
+   is not an independent benchmark; true zero-evidence abstention is excluded.
+2. Added opt-in, content-free provider-usage reports for query embeddings,
+   structured answers, RAGAS judges and judge embeddings. Unknowns remain null;
+   cache/reasoning counts are subsets, not extra tokens. Versioned caller-supplied
+   prices may yield an estimate, never an invoice or a guessed historical cost.
+   Usage reporting is attempted on fatal judge errors without hiding the error.
+   Atomic publication refuses existing files and preserves another run's staging
+   file. The production embedding provider only adds optional client injection.
+3. Strengthened baseline comparison: reject incompatible evaluator/judge versions
+   and repetition coverage; report completed-to-system-error regressions and the
+   reverse recovery separately from semantic score changes.
+4. Recorded the first completed live case and its human calibration checklist in
+   `evaluation/RAGAS_BASELINE_REVIEW.md`. No human marks were fabricated.
+
+| Verification | Result |
+|---|---|
+| Evaluation Runner full suite after the timeout correction | 208 passed in 2.32 seconds, no skipped tests |
+| Added Evaluation Runner coverage | 28 cases beyond the pre-batch 180-test checkpoint |
+| Worker focused usage/live/comparison/embedding checks | 66 passed in 1.82 seconds after the timeout correction; includes the new embedding-injection test |
+| Dataset worker focused checks | 8 new-plus-seed tests passed |
+| Ruff lint and formatting | Evaluation Runner clean, 39 files formatted; both changed Knowledge/RAG files clean |
+
+External API responses were simulated with local test transports. No paid calls
+were made. Review caught an injected-client timeout regression before completion;
+the instrumented clients explicitly use 30 seconds and zero SDK retries. Focused
+checks and the final full suite passed after that correction. These tests
+establish tooling behavior, not new RAGAS scores. The one
+real damaged-item trial remains the only completed live semantic measurement.
+Next: owner reference review, separately approved remaining four seed cases,
+then a separately approved five-case repeated run and judge/human calibration.
+Production observability, LangSmith and public agent benchmark integration are
+not completed by this batch. See the service README for usage flags, comparison
+semantics and the file reading order.
+
+## Answer boundary and synthetic diagnostics Batch 1 on 2026-09-11
+
+The owner approved two scoped workers and later explicitly resumed their
+interrupted work. This offline implementation batch made no paid model calls; a
+separately authorized v6 trial later produced the first completed live semantic
+measurement, recorded below.
+
+Prompt `refund-answer-v6` makes eligibility qualification application-owned.
+Three exact complete English uncertainty sentences are recognized (with NFKC
+normalization), checked separately from the rest of the answer, and replaced
+with the standard qualification. For example, "Your request has not been
+assessed for eligibility." no longer fails solely for containing "eligibility".
+Added clauses, unsupported positive/negative eligibility decisions and delivery
+date requests still reject. The historical captured personalized-window response
+continues to reject. Cited general windows still require matching duration,
+calendar/business basis and recognized conditions. This is a small allowlist,
+not a universal semantic validator, and it does not enforce delivery age.
+
+The composer defaults to `capture_rejected_answer=False`. Explicit capture
+retains a defensive copy of a schema-valid rejected answer before application
+qualification or money is appended. It never retains malformed raw provider
+output in that field, never returns a rejected answer, and leaves normal errors
+with no rejected-answer payload.
+
+The live evaluator accepts `--rejection-diagnostics-path` only for the built-in
+reviewed synthetic dataset and its exact content hash. It parses those same
+verified bytes, checks evidence scope before composing, and keeps rejected
+responses in a separate owner-only (`0600`), non-overwriting file. Result and
+temporary-path aliases, pre-existing outputs and missing output directories are
+rejected before clients are constructed. The main result remains `SYSTEM_ERROR`
+with no sample or semantic grades. A judge failure still invalidates the run and
+writes neither new result nor diagnostic sidecar. No references or raw retrieved
+passages are copied into the rejection sidecar. Read the Evaluation Runner README
+for the opt-in contract and future dataset-pin review requirement.
+
+| Fresh check | Result |
+|---|---|
+| Agent Runtime full suite | 143 passed, one existing Starlette deprecation warning |
+| Evaluation Runner full suite with installed optional dependencies | 179 passed, no skipped tests |
+| Focused worker checks | 95 answer tests; 38 evaluator/executor tests passed |
+| Added coverage compared with the previous batch | 19 Agent Runtime cases and 20 Evaluation Runner cases |
+| Ruff lint | Both packages passed |
+| Ruff formatting | Two changed Agent Runtime files and all 36 Evaluation Runner files passed |
+| Offline integrated failure path | Real composer, executor, adapter, runner and sidecar; only external retrieval/model replaced with test doubles; original rejected answer captured privately, SYSTEM_ERROR preserved, zero judge/external calls |
+
+Both Sol workers completed. The coordinator reviewed their changes and ran the
+full suites once on settled code. Customer-facing answer schemas, money formatting,
+refund workflow authorization, dataset contents, model/judge metric inputs and
+dependencies are unchanged. The four previously noted untouched Agent Runtime
+formatting issues were not included in this bounded batch. No services were
+restarted, no secrets or indexes changed, and nothing was committed or pushed.
+The running Agent Runtime may still require a restart before browser testing;
+an isolated evaluation command imports the current source in a fresh process.
+
+Next: independently human-double-score the completed v6 case and adjudicate
+disagreements before treating its scores as meaningful. Separately authorize any
+expanded seed-case or repetition run; do not infer quality calibration or
+production reliability from this one case.
+
+## Seven-day local login tokens on 2026-09-11
+
+The owner requested seven-day local customer and staff login tokens instead of
+48-hour tokens. Edge now issues and validates a maximum lifetime of 604800
+seconds. The Human Operations local token CLI defaults to 604800 and refuses
+longer configured lifetimes; the running service continues to verify JWT expiry.
+The configured staff TTL override was updated too, so the old 172800 value cannot
+silently shorten newly generated tokens.
+
+Both expired tokens were replaced in their effective ignored environment files,
+preserving all identity claims, the staff role, and signing secrets. Signature
+checks and the production identity verifiers accepted both renewed tokens. Both
+have exactly 604800 seconds between issue and expiry, expiring September 18,
+2026, at approximately 3:30 PM America/Chicago. No secret/token values were printed.
+Customer Portal and Operations Console were restarted to load the replacements;
+the running Edge watcher loaded the changed customer verifier.
+
+| Check | Result |
+|---|---|
+| Edge API | Typecheck passed; 85 tests passed |
+| Human Operations | Typecheck passed; 21 tests passed, 4 optional PostgreSQL tests skipped because the test database URL was not configured |
+| New lifetime behavior | Test-first failures for seven-day customer validity and staff CLI acceptance/default, followed by passing tests after the bounded change |
+| Customer web authentication | No session: 401; with local session and renewed upstream token: 404 `conversation_not_found` for a deliberately nonexistent valid ID, proving authentication passed without creating a conversation |
+| Staff web authentication | No session: 401; with local session and renewed token: 200 on read-only case listing |
+| Web pages | Both sign-in pages returned 200 |
+
+The first Human Operations full-suite attempt hit sandbox `listen EPERM` errors
+in four socket tests. The authorized local-socket rerun passed; no application
+fix was required. All three edited environment files remain ignored by Git.
+Browser cookie behavior, internal short-lived assertions, production auth plans,
+refund state and RAGAS guards were unchanged. No paid calls, refunds, commits or
+pushes were made. Seven-day local tokens do not solve the separate RAGAS
+delivery-wording rejection.
+
+## Latest live RAGAS attempt on 2026-09-11
+
+After the offline prompt-v5 batch below, the earlier authorized synthetic trial
+`refund-ragas-baseline-20260911-001` stopped after approximately 28.2 seconds
+with `DELIVERY_AGE_TEXT_REJECTED`; it records `SYSTEM_ERROR`, no sample and no
+semantic grades. A later v6 run, `refund-ragas-baseline-20260911-v6-4096-001`,
+completed one `damaged-item-evidence-answer-v1` case in 142.13 seconds. Its
+artifact is `/private/tmp/cso-ragas-v6-budget4096-0dnpe8/result.json`.
+
+Observed RAGAS grades were context precision `0.8333`, context recall `0.6667`,
+faithfulness `1.0`, response relevancy `0.6769`, and factual correctness
+precision `0.73`. Deterministic grades passed and the runner marked the trial
+passed, but context recall and response relevancy missed their nonblocking 0.7
+minima. Thus the run passed its blocking gate; it did not establish calibrated
+quality or a release threshold. The exact answer/source comparison and human
+calibration checklist are in `docs/evaluation/RAGAS_BASELINE_REVIEW.md`.
+
+This isolated evaluation does not use customer/staff login tokens. The answer
+reached the production text guard; renewing login tokens cannot fix that rejection.
+An independent offline contrast probe also exposed a false positive: the guard
+rejected "Your request has not been assessed for eligibility." while accepting
+"Your delivery timing has not been verified." Unsupported eligibility decisions
+and mixed uncertainty-plus-eligibility claims remained rejected. The subsequent
+v6 batch addressed this bounded false positive and added opt-in synthetic
+diagnostics without weakening refund authorization. The completed one-case trial
+above is the current live evidence; additional paid trials still require fresh
+owner authorization, and a calibrated full-dataset baseline is pending.
+
+## Offline prompt and RAGAS readiness batch on 2026-09-11
+
+Prompt `refund-answer-v5` adds explicit conditional examples of permitted general
+policy wording and prohibited personalized window/date requests. The 30-day
+example is not a universal rule; the cited evidence must support its duration,
+time basis, and conditions. A source comparison against the pre-batch local file
+confirmed all guard regexes, validation/composer functions, monetary formatting,
+and qualification logic are byte-for-byte unchanged.
+
+The new Agent Runtime regression preserves the exact 753-character synthetic
+answer from the September 10 diagnostic, its three citations and supporting
+customer-safe evidence. It exercises the real composer with a substituted external
+model response and confirms `DELIVERY_AGE_TEXT_REJECTED`. The existing positive
+case confirms supported general-policy wording receives the qualification and
+trusted USD amount. These tests preserve enforcement; they cannot measure whether
+a live model follows the new prompt.
+
+The evaluation readiness audit checked the five existing seed references and
+evidence mappings against the pinned customer-safe policy. Existing tests already
+cover metric-specific application-fact separation. A strengthened live-runner
+test proves a failed system invokes no judges and persists no sample or semantic
+grades. One new test proves a scorer exception invalidates the evaluation and
+does not write a quality artifact. The executor's expected prompt version was
+updated to v5 after integration exposed the stale v4 assertion. Datasets and
+production Evaluation Runner code were not changed.
+
+| Final check | Result |
+|---|---|
+| Agent Runtime full suite | 124 passed; one existing Starlette deprecation warning and a sandbox pytest-cache warning |
+| Evaluation Runner full suite, including installed optional integration dependencies | 159 passed with pytest cache disabled |
+| Ruff lint | Both packages passed with cache disabled |
+| Ruff formatting | Two changed Agent Runtime files and all 36 Evaluation Runner files passed |
+| Added coverage | Two new tests, one strengthened existing test, one updated version expectation |
+
+The initial Ruff invocation could not write its cache in the sandbox; rerunning
+with `--no-cache` passed without application changes. The four previously recorded
+untouched Agent Runtime formatting failures were not part of this bounded change.
+
+Reading order: [prompt and composer](../apps/services/agent-runtime/agent_runtime/refund/answer.py),
+[captured-response regression](../apps/services/agent-runtime/tests/test_refund_answer.py),
+[live evaluation failure tests](../apps/services/evaluation-runner/tests/test_live_rag_evaluation.py),
+then [the evaluation run guide](../apps/services/evaluation-runner/README.md).
+
+Both scoped Sol workers finished; the coordinator reviewed their diffs and ran
+the final suites. No paid APIs, model calls, provider/refund actions, secrets,
+datasets, indexed documents, service processes, or Git history were changed in
+this batch. The code and documentation remain uncommitted. The running Agent
+Runtime was not restarted; a fresh browser recheck needs it to load v5. An isolated
+evaluation command imports the current source in a new process.
+
+At that checkpoint, the next step was a separately authorized one-case live trial.
+The later v6 trial above completed that step. The bounded dataset/repetition run,
+fresh browser wording check, and calibrated semantic release gates remain pending.
+Do not equate offline completion with completed RAG evaluation.
+
+## Live RAGAS attempt and diagnostic on 2026-09-10
+
+After the offline grounding correction, the owner separately authorized one live
+trial and one diagnostic retry of the same synthetic damaged-item case. These
+were not part of the earlier offline checks below.
+
+| Attempt | Evidence | Outcome |
+|---|---|---|
+| `refund-ragas-baseline-20260910-001` | One `damaged-item-evidence-answer-v1` trial, evaluation version `refund-ragas-v2`, answer/judge configuration `gpt-5-nano`, embeddings `text-embedding-3-small`; about 30.3 seconds elapsed | `SYSTEM_ERROR`, `sample: null`, `grader_results: []`; answer rejected with `DELIVERY_AGE_TEXT_REJECTED` before semantic grading |
+| `refund-ragas-diagnostic-20260910-001` | One separately authorized answer-only diagnostic using the same synthetic case and customer-safe evidence; 28.26 seconds elapsed | The captured answer included "Ensure your request is within 30 calendar days of delivery." The unchanged guard rejected personalized, unqualified window wording. No RAGAS judges ran. |
+
+The retrieved damaged-item policy did contain the 30-calendar-day rule. This was
+not evidence that the policy duration was invented: the problem was how the answer
+applied/explained it when customer delivery timing was unverified. Offline replay
+accepted the supported general-policy alternative and required the usual
+application-owned qualification. It did not prove future model compliance.
+
+Neither attempt executed a refund or changed the knowledge corpus. They produced
+no semantic quality scores; an absent score is not a score of zero. These timings
+are single-run observations, not a latency benchmark. Actual paid token/cost
+accounting was not captured, so default zero-valued accounting fields must not be
+interpreted as zero spend. At that checkpoint, the successful live RAGAS baseline
+was still pending; the later one-case v6 measurement is recorded above and is not
+a calibrated full-dataset baseline.
+
+## Independent RAGAS grounding correction on 2026-09-10
+
+The Evaluation Runner now records independently derived synthetic application
+facts separately from retrieved policy. Faithfulness receives both sources;
+factual-correctness precision uses the reviewed reference supplemented with those
+facts. Retrieval precision/recall and their corpus are unchanged. No facts or
+answer keys are extracted from generated responses. The grader version is now
+`ragas-0.4-adapter-v2`; old and new scores cannot be directly baseline-compared.
+
+Fresh offline verification: **158 Evaluation Runner tests passed**, Ruff lint
+passed, and all 36 Python files passed formatting checks. The added regressions
+cover independent money/status facts, malformed facts, metric-specific input
+separation, unchanged retrieval evidence, and nonblocking grader-version mismatch.
+Eleven missing-behavior tests failed before implementation; all pass now.
+
+This verifies wiring and guardrails, not LLM-judge quality. A successful paid
+one-case baseline and fresh browser wording recheck remained pending at that
+checkpoint. No paid API,
+refund execution, runtime code, secrets or indexed documents were changed by
+this evaluation-only correction. No commit or push was made.
+
+## Cited delivery-policy wording correction on 2026-09-10
+
+The September 7 one-case live RAGAS artifacts `refund-ragas-baseline-20260907-003`
+and `refund-ragas-baseline-20260907-004` recorded `SYSTEM_ERROR` with
+`DELIVERY_AGE_TEXT_REJECTED`, not RAGAS quality scores. The old wording guard
+rejected a general delivery-window statement even when it matched retrieved policy.
+
+Prompt `refund-answer-v4` and `validate_delivery_policy_text` now distinguish a
+supported, cited general policy explanation from personalized eligibility. The
+bounded matcher checks the exact cited document/chunk, duration, time basis and
+recognized rule conditions. An accepted explanation receives the application-owned
+qualification that the customer's delivery timing has not been verified. Common
+unsupported/mixed/negated windows, date questions, and personalized conclusions
+are rejected. Trusted monetary formatting and the final answer length contract
+remain in place. This is English defense in depth, not general semantic validation
+or delivery-age enforcement.
+
+Offline verification:
+
+| Check | Result |
+|---|---|
+| Agent Runtime | Full suite: 123 passed, one existing Starlette deprecation warning |
+| Evaluation Runner with installed optional production/RAGAS dependencies | Full suite: 141 passed |
+| Production composer through evaluation adapter | Regression reproduced the old rejection, then passed with the qualified answer and unchanged evidence |
+| Ruff lint | Both packages passed |
+| Formatting | Changed Python files and all Evaluation Runner files passed; four untouched Agent Runtime files still fail formatting |
+
+The four existing formatting failures are `agent_runtime/integrations/customer_evidence.py`,
+`agent_runtime/integrations/trusted_context.py`, `agent_runtime/refund/router.py`,
+and `tests/test_customer_evidence.py`. They were not changed by this fix.
+Offline tests replace external model/retrieval calls; they do not prove live
+model compliance or RAGAS score quality. No servers, secrets, indexed documents,
+paid APIs, or provider refunds were changed or exercised in this correction.
+
+A successful live RAGAS baseline and a fresh browser wording recheck remain
+pending. The subsequent evaluation-only grounding correction above addresses the
+distinction between retrieved policy and application-owned facts. Existing
+reviewed reference answers are unchanged on disk. No commit or push was made for
+this correction.
 
 ## Automated validation run on 2026-09-03
 
@@ -421,5 +1039,5 @@ branches, or delivery-window eligibility. The September 6 run proves local
 Vendure execution through the photo gate, not real provider/bank settlement.
 OpenTelemetry/observability, production auth and AWS remain unimplemented.
 Confirmation expiry tests do not prove automatic migration of legacy parked
-waits. The delivery-date/window wording safeguard is implemented and passed the
-101-test Agent Runtime suite; a fresh paid live browser recheck has not been run.
+waits. The current cited-policy wording safeguard has the September 10 offline
+evidence above; a fresh paid live browser recheck has not been run.

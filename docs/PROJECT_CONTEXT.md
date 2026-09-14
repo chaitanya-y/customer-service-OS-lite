@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-09-06
+Last updated: 2026-09-12
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -19,6 +19,14 @@ Read it before changing code. It records:
 
 No credentials or `.env` values belong in this file or in Git.
 
+Local login tokens now default to seven days (604800 seconds), as requested on
+September 11. Both configured customer and staff tokens were renewed with the
+same identities/role and signing secrets; both web apps were restarted. The staff
+CLI `.env` TTL override was updated to 604800. This does not extend internal
+service assertions or establish a production token policy. Read
+`LOCAL_AUTH_AND_SECRETS.md` before renewal; check expiry at runtime rather than
+assuming a previously recorded token is still valid.
+
 September 5 follow-up: confirmation expiry and the private damaged-item photo
 slice are implemented locally. The photo gate is pinned to `refund-policy-v2`;
 v1 histories remain unchanged. Read `REFUND_PHOTO_EVIDENCE.md` for current APIs,
@@ -30,10 +38,77 @@ September 6 proof: the photo-gated browser journey completed for full-order
 USD 3,122.60 after a clearer-photo request, exact replacement acceptance,
 same-case supervisor monetary approval, customer confirmation and settlement of
 the single Vendure refund. Section 14 records the identifiers and limitations.
-The browser still generated an unsupported delivery-date question. The subsequent
-wording safeguard is implemented and the full Agent Runtime suite passed 101
-tests with one upstream warning. A fresh paid live browser recheck has not been
-run; trusted delivery-age eligibility remains unimplemented.
+The browser still generated an unsupported delivery-date question. The
+initial wording safeguard passed 101 tests with one upstream warning. September
+10 refines that blanket rule: supported, cited general delivery-policy wording
+gets an application-owned qualification, while date requests and personalized
+eligibility claims remain prohibited. Trusted delivery-age eligibility remains
+unimplemented. Early live RAGAS attempts on September 7, 10 and 11 failed before
+grading. A later September 11 one-case trial completed all five metrics after an
+explicit 4096-token judge budget was added. A calibrated baseline across the
+dataset and a fresh paid browser recheck remain pending. The current
+priority is evaluation before observability; see `evaluation/EVALUATION_STRATEGY.md`.
+
+The September 10 evaluation-only grounding follow-up records validated synthetic
+application facts separately from policy chunks. Faithfulness receives both;
+factual correctness uses precision against the reviewed reference plus independent
+facts. Retrieval metrics remain policy-only. Grader v2 changes require a fresh
+baseline, not comparison with v1. Its September 10 offline checkpoint had 158
+passing tests, with lint and formatting clean. The subsequent authorized live
+trial produced `SYSTEM_ERROR`, not semantic scores. An authorized answer-only
+diagnostic captured "Ensure your request is within 30 calendar days of delivery."
+The guard rejected personalized, unqualified wording despite the supported
+general policy window. The earlier September 11 prompt `refund-answer-v5` added
+conditional examples, but its live trial was also rejected before grading.
+The latest `refund-answer-v6` change distinguishes a bounded set of complete
+uncertainty sentences from customer-eligibility decisions, replacing accepted
+uncertainty with an application-owned qualification. Mixed unsafe claims remain
+blocked. Explicitly enabled synthetic diagnostics preserve rejected answers in
+a private sidecar, not as quality samples or RAGAS inputs. This is a scoped English
+wording correction, not a universal semantic validator or delivery-age enforcement.
+The successful run `refund-ragas-baseline-20260911-v6-4096-001` measured context
+precision 0.8333, context recall 0.6667, faithfulness 1.0, answer relevancy 0.6769,
+and factual correctness (precision mode) 0.73. Total evaluation time was 142.13
+seconds, including 14.76 seconds for retrieval and answer generation. Overall
+`passed` reflects blocking checks, not all semantic thresholds. Token/cost fields
+in that historical result are unmeasured placeholders, not evidence of free use.
+No refunds were executed. New paid runs require new explicit authorization.
+See [the baseline review](evaluation/RAGAS_BASELINE_REVIEW.md) and
+`VERIFICATION_STATUS.md` for limitations, timings, and remaining checks.
+
+The approved offline RAGAS follow-up adds 10 development cases and 5 held-out
+cases under `apps/services/evaluation-runner/fixtures/evaluation-datasets/`.
+`refund-rag-splits-v1.json` records split membership and source provenance; the
+original five-case seed dataset remains unchanged. New reference answers are
+agent-authored candidates awaiting owner review, not human-calibrated truth.
+The held-out cases must not be used for prompt tuning and are not an independently
+validated benchmark. Four new contract tests validate the fixtures; they do not
+measure live answer quality. True zero-retrieval abstention is not covered because
+the current answer executor requires retrieved evidence. No paid trial or refund
+execution was performed for this offline expansion.
+
+The same follow-up adds opt-in content-free provider usage (`usage.py` and
+`--usage-output-path`), optional versioned cost estimates, and stricter
+`compare_runs()` compatibility/system-error reporting. The full Evaluation
+Runner suite passed 208 tests. These are evaluation-tooling improvements, not
+production tracing or proof that the remaining cases have achieved good scores.
+
+September 12 adds the owner-approved `refund-rag-answer-v2.json` seed revision:
+only the damaged-item expected answer and dataset version change. Historical v1
+and its scores remain intact. That reference checkpoint passed 212 Evaluation
+Runner tests, not 212 live trials. A subsequent authorized v2 trial
+(`refund-ragas-dataset-v2-20260912-001`) failed at the delivery-policy answer guard
+before scoring: two successful provider calls, 3,966 measured tokens, zero judge
+calls, no retained rejected text, no refund action. Cost was not calculated.
+
+The following offline batch extended private diagnostic capture to the two exact
+v1/v2 path/content pins and prepared a source-grounded, 20-case review worksheet.
+The full Evaluation Runner suite passed 218 tests; lint and formatting were clean.
+It does not alter dataset answers, the production answer guard, paid permissions
+or human approval status. See `evaluation/RAGAS_DATASET_REVIEW.md` and the current
+`VERIFICATION_STATUS.md` before proposing the next run. Capturing one rejected
+synthetic response still requires separate approval; a captured failure must be
+reproduced offline before choosing a behavioral fix.
 
 ## 2. Product goal
 
@@ -317,7 +392,7 @@ The Python Agent Runtime contains:
 - a grounded answer composer that can cite only chunks returned by that retrieval;
 - trusted public order references and product names in answer input, with safe
   fallback on explicit conflicting order labels;
-- application-owned proposed USD formatting, prompt `refund-answer-v3`, and
+- application-owned proposed USD formatting, prompt `refund-answer-v6`, and
   bounded monetary-prose checks; these do not replace factuality evaluations;
 - a separately configured answer-model deadline, defaulting to 30 seconds through
   `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS`, with no automatic retry on the
@@ -945,7 +1020,7 @@ Expected URLs:
 - health: `http://127.0.0.1:3000/health`
 - customer refund intake: `POST http://127.0.0.1:3000/v1/refunds/intake`
 
-Generate a local customer access token, valid for at most 48 hours:
+Generate a local customer access token, valid for at most seven days:
 
 ```bash
 pnpm local:token
@@ -1130,12 +1205,16 @@ photo gate to positive local provider execution; it does not erase those earlier
 test boundaries.
 
 The successful browser run still asked for an unsupported delivery date. The
-subsequent fix makes `SYSTEM_PROMPT` forbid asking for the delivery date or stating
-a delivery-age window. Runtime defense-in-depth rejects either wording so the
-existing graph safely falls back. The full Agent Runtime suite passed 101 tests
-with the same one upstream warning. A fresh paid live browser recheck has not
-been run. Trusted delivery-age eligibility is still not enforced, and neither a
-model question nor a customer answer supplies trusted delivery facts.
+initial blanket delivery-window safeguard passed 101 Agent Runtime tests, with
+one upstream warning, but later blocked live RAGAS trials. The September 10
+answer correction permits supported, cited general policy explanations with an
+application-owned qualification; it still rejects date questions and personalized
+delivery-eligibility claims. A fresh paid live browser recheck remains pending;
+the later September 11 one-case RAGAS result is documented in
+[the baseline review](evaluation/RAGAS_BASELINE_REVIEW.md). A calibrated dataset
+baseline remains pending. Trusted delivery-age eligibility is not
+enforced, and neither a model question nor a customer answer supplies trusted
+delivery facts.
 
 ### September 6 order-contract regression and checks
 
