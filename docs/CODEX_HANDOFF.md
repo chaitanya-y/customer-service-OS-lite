@@ -1,6 +1,53 @@
 # Codex Handoff
 
-Last updated: 2026-09-06
+Last updated: 2026-09-13
+
+Latest checkpoint: the approved offline dataset v3 preparation is complete.
+`refund-rag-answer-v3.json` retains the damaged-item reference and applies the
+four owner-approved, source-aligned reference corrections. Historical v1/v2,
+development/held-out fixtures, the answer prompt and all guards are unchanged.
+Diagnostic capture accepts v3 only at its exact built-in path and SHA-256.
+Evaluation Runner passes **232 tests**, lint and formatting (42 Python files).
+These are offline tests, not live model trials or human calibration.
+
+The latest authorized live trial, `refund-ragas-v8-20260913-001`, failed before
+grading because its 30-day instruction lacked general-policy framing and
+refund-reason scope. Usage was 4,129 tokens, two calls and zero judges/refunds.
+The earlier v7 failed on a personalized eligibility conclusion; v6/v2 has one
+completed, uncalibrated trial. No v3 scores exist. Stop prompt-only retry loops.
+
+Next: obtain separate approval for a fixed-version v3 campaign (five cases times
+three repetitions, including private synthetic rejection capture), then review
+the actual answers with the owner and report failures, scored coverage and
+semantic results separately. Fifteen trials is not a provider-call or cost cap;
+judge SDK retries are not explicitly disabled. Do not treat missing scores as
+zero, compare v3 with v2 as an improvement, or claim reference approval is judge
+calibration. A hybrid composer redesign is separate work. After the bounded
+baseline report, proceed to LangSmith and then Tau without requiring a perfect
+score first. No paid calls, service/token changes or Git writes were authorized
+by the offline v3 implementation approval.
+See `VERIFICATION_STATUS.md`, the Evaluation Runner README and
+`docs/evaluation/RAGAS_DATASET_REVIEW.md` for exact evidence and the next boundary.
+
+Earlier checkpoint: an authorized September 13 v2 trial completed on prompt v6:
+context precision/recall and faithfulness scored 1.00, response relevancy 0.4407,
+and factual correctness 0.56. It recorded 36,946 tokens with no rejection or
+refund action. After review the owner approved a focused `refund-answer-v7`
+prompt update. The guard and RAG references are unchanged. Agent Runtime passes
+143 tests and Evaluation Runner 221 at that checkpoint. The later v7 rejection
+and v8 failure are recorded above; neither produced semantic scores.
+See the current `VERIFICATION_STATUS.md` entry for artifacts, the pre-existing
+Agent Runtime formatting warnings and the explicit next-trial approval boundary.
+
+Earlier checkpoint: the September 13 offline batch added a separate one-case
+agent retrieval-outage dataset and three tests. Evaluation Runner now passes
+221 tests with lint/format clean. This covers real-graph intake fallback with
+synthetic dependencies, not full Temporal/provider evaluation. The read-only
+diagnostic review confirmed that the live CLI can call judges if its answer
+passes; it has no answer-only mode. No paid retry, guard fix, RAG reference edit
+or human calibration occurred. Read the current entry in
+`VERIFICATION_STATUS.md` before resuming; the later v7 failure was captured and
+diagnosed, but the earlier uncaptured response cannot be reconstructed.
 
 ## Start here
 
@@ -103,13 +150,88 @@ Read `docs/VERIFICATION_STATUS.md` for the exact synthetic identifiers, audit
 evidence, historical test runs, and remaining production limitations. Do not reuse
 either now-refunded order for another positive execution test.
 
-The September 6 browser run still generated an unsupported request for a delivery
-date. The subsequent fix is implemented: `SYSTEM_PROMPT` forbids asking for the
-delivery date or stating a delivery-age window, and runtime defense-in-depth
-rejects either wording so the existing graph safely falls back. The full Agent
-Runtime suite passed 101 tests with the same one upstream warning. A fresh paid
-live browser recheck has not been run. Trusted delivery-age eligibility remains
-unimplemented; the wording safeguard does not supply trusted delivery facts.
+The September 6 browser run generated an unsupported delivery-date question. Its
+initial blanket window safeguard later blocked September 7 RAGAS trials before
+semantic grading (`DELIVERY_AGE_TEXT_REJECTED`). The September 10 correction
+distinguishes supported, cited general policy explanations from personalized
+eligibility decisions, and appends an application-owned qualification. Date
+requests and unsupported/personalized claims remain prohibited. Trusted
+delivery-age eligibility is still unimplemented. A fresh paid browser recheck
+remains pending. A one-case v6 synthetic RAGAS run now exists, but it is not a
+calibrated or production baseline; see `docs/evaluation/RAGAS_BASELINE_REVIEW.md`
+and the latest verification entry.
+
+Recent evaluation code is present locally beyond the committed runner foundation:
+five reviewed RAG answer cases, seven deterministic intake/proposal cases, RAGAS
+adapters, repeated trials and baseline comparison. This is not full workflow
+evaluation or a completed public benchmark. Inspect Git before assuming these
+changes are committed. The immediate priority is evaluation before observability;
+LangSmith, full workflow simulations and the public benchmark adapter remain
+future steps.
+
+An earlier offline follow-up added 10 development and 5 held-out RAG cases (all
+new references pending owner review), a source/split manifest, optional measured
+usage/cost sidecars, and evaluator/judge-compatible regression comparisons with
+system-error transitions. The original five seed cases are unchanged. Evaluation
+Runner's combined suite passed 208 tests; this is tooling coverage, not 208 live
+AI trials. The one completed real RAGAS case and its unresolved human-review
+questions remain in `docs/evaluation/RAGAS_BASELINE_REVIEW.md`. Follow the latest
+`VERIFICATION_STATUS.md` entry and service README before proposing paid work.
+
+September 12: the owner approved a source-aligned damaged-item reference in
+`apps/services/evaluation-runner/fixtures/evaluation-datasets/refund-rag-answer-v2.json`.
+Only that reference and the dataset version changed; historical v1 and its live
+result remain intact. At that checkpoint a completed v2 baseline was still pending: the authorized
+run `refund-ragas-dataset-v2-20260912-001` failed with
+`DELIVERY_AGE_TEXT_REJECTED` before any judges ran. Query embedding and answer
+generation succeeded; the usage sidecar measured 3,966 tokens, with cost unknown.
+The exact rejected answer was not saved. Do not infer its wording or treat this
+as a token-expiry issue. See `VERIFICATION_STATUS.md` for durable evidence.
+
+The earlier offline diagnostic extension accepted only the exact path/content pins
+for v1 and v2, keeping rejected responses private and unscored. Its focused suite
+passed 39 tests and the full Evaluation Runner suite passed 218 tests, with lint
+and formatting clean. This does not fix the live rejection or produce new scores.
+Read the current Evaluation Runner README and verification entry before using it.
+The new
+`docs/evaluation/RAGAS_DATASET_REVIEW.md` prepares review of the five seed and
+15 candidate cases without editing their references or filling human approvals.
+That checkpoint's next action was to capture one v2 response with separate
+permission and reproduce the rejection offline. That work is now recorded above;
+follow the latest v3 checkpoint instead. Neither reference approval nor
+diagnostic implementation authorizes a paid retry or guard change.
+
+The September 10 evaluation-only follow-up now separates `application_facts`
+from retrieved policy. The facts are snapshotted from validated synthetic input,
+never generated answer text. Faithfulness sees both sources; factual correctness
+uses precision against the reviewed reference plus independent facts. Retrieval
+precision/recall are unchanged. Grader v2 prevents direct comparison with v1.
+All 158 Evaluation Runner tests, lint and formatting passed at that offline
+checkpoint. A separately authorized September 10 trial then failed before
+grading: `refund-ragas-baseline-20260910-001` recorded `SYSTEM_ERROR` and no scores.
+The separately authorized answer-only diagnostic captured "Ensure your request
+is within 30 calendar days of delivery." The cited policy supported the duration,
+but the answer guard rejected this personalized, unqualified wording. No refund
+was executed. See the verification status for the attempt IDs and timings.
+
+The earlier September 11 follow-up added allowed/disallowed examples in prompt
+`refund-answer-v5` without changing the guard. Its authorized live trial still
+failed with `DELIVERY_AGE_TEXT_REJECTED`, no sample and no semantic grades. The
+exact answer was not retained. A separate offline probe demonstrated that a safe
+uncertainty sentence was also rejected; do not assume this was the live answer.
+
+The latest approved Batch 1 uses `refund-answer-v6` and a narrowly bounded
+uncertainty replacement with application-owned qualification. Unsupported
+personalized decisions, delivery-date requests and the historical rejected answer
+remain regression cases. The evaluation diagnostic mode retains rejected
+schema-valid synthetic answers separately, never as scored successful samples.
+Read the Evaluation Runner README for its explicit opt-in and dataset restrictions,
+and `VERIFICATION_STATUS.md` for the completed checks and remaining limits.
+The next paid step requires fresh owner authorization for an expanded synthetic
+run, after independent human review of the completed one-case result. Do not
+authorize other cases/repetitions solely because the blocking gate passed.
+Do not treat earlier paid-test permission as reusable. See the evaluation strategy
+for limitations and exact metric inputs, and the verification status for checks.
 
 ### September 6 order-contract regression
 
@@ -238,6 +360,18 @@ correlation IDs but not OpenTelemetry spans. Do not infer a per-model latency
 breakdown from this table.
 
 ## Recommended next work
+
+Local login update on September 11: the customer token default/maximum and staff
+CLI default/maximum are now seven days (604800 seconds). The owner authorized
+renewal of both configured tokens with the same identities, staff role, and
+signing secrets. They expire September 18, 2026, at approximately 3:30 PM
+America/Chicago. The staff `.env` override is now
+`LOCAL_HUMAN_ACCESS_TTL_SECONDS=604800`; the effective customer token remains in
+the Customer Portal `.env.local`, and the staff token in Operations Console
+`.env`. Both web apps were restarted. Internal assertions and browser cookie
+behavior are unchanged. Treat the earlier September 5 48-hour renewal as history,
+not the current lifetime. Always recheck expiry instead of relying on this date.
+See `LOCAL_AUTH_AND_SECRETS.md` for the development-only security tradeoff.
 
 1. Review and commit the approved local answer/display changes and verification
    documentation before assuming a fresh clone contains them.

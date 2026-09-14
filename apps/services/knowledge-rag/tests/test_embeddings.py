@@ -5,6 +5,7 @@ from knowledge_rag.embeddings import (
     DeterministicEmbeddingProvider,
     EmbeddingModel,
     EmbeddingProviderContractError,
+    OpenAIEmbeddingProvider,
     embed_chunks,
 )
 
@@ -78,3 +79,25 @@ def test_embed_chunks_rejects_provider_with_wrong_vector_count() -> None:
         match="one vector for every input chunk",
     ):
         embed_chunks([make_chunk()], WrongCountProvider())
+
+
+def test_openai_provider_uses_optional_injected_client() -> None:
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            assert kwargs == {
+                "model": "text-embedding-3-small",
+                "input": ["policy text"],
+                "dimensions": 3,
+                "encoding_format": "float",
+            }
+            item = type("Item", (), {"index": 0, "embedding": [0.1, 0.2, 0.3]})()
+            return type("Response", (), {"data": [item]})()
+
+    client = type("Client", (), {"embeddings": FakeEmbeddings()})()
+    provider = OpenAIEmbeddingProvider(
+        api_key="unused-when-client-is-injected",
+        dimension=3,
+        client=client,
+    )
+
+    assert provider.embed_documents(["policy text"]) == [[0.1, 0.2, 0.3]]

@@ -136,6 +136,12 @@ def test_runner_executes_every_case_for_every_repetition() -> None:
     assert result.summary.consistent_case_rate == 1.0
 
 
+def test_runner_embeds_exact_dataset_case_ids_in_run_evidence() -> None:
+    result = run_with(dataset=make_dataset(case_count=2))
+
+    assert result.dataset_case_ids == ["case-1", "case-2"]
+
+
 def test_system_error_is_a_failed_trial_and_later_cases_still_run() -> None:
     class FirstCaseFailsSystem(RecordingSystem):
         async def run(

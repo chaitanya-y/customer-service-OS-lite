@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { SignJWT } from 'jose';
 
 import { CustomerAuthenticationError } from '../src/customer-identity.js';
 import {
@@ -45,7 +46,7 @@ test('verifies a valid local customer access token', async () => {
   assert.deepEqual(await createVerifier()(await createToken()), TEST_IDENTITY);
 });
 
-test('issues local customer tokens with a 48-hour default lifetime', async () => {
+test('issues local customer tokens valid until the seven-day expiry boundary', async () => {
   const token = await signLocalCustomerAccessToken({
     secret: TEST_SECRET,
     issuer: 'local-auth',
@@ -53,12 +54,38 @@ test('issues local customer tokens with a 48-hour default lifetime', async () =>
     identity: TEST_IDENTITY,
     now: () => TEST_NOW,
   });
-  const justBeforeExpiry = new Date(TEST_NOW.getTime() + 172_799_000);
+  const justBeforeExpiry = new Date(TEST_NOW.getTime() + 604_799_000);
 
   assert.deepEqual(
     await createVerifier(justBeforeExpiry)(token),
     TEST_IDENTITY,
   );
+  await assert.rejects(
+    () => createVerifier(new Date(TEST_NOW.getTime() + 604_800_000))(token),
+    CustomerAuthenticationError,
+  );
+});
+
+test('refuses to issue a local customer token longer than seven days', async () => {
+  await assert.rejects(() => createToken({}, 604_801), /lifetime must be between/);
+});
+
+test('rejects correctly signed customer tokens longer than seven days', async () => {
+  const issuedAt = Math.floor(TEST_NOW.getTime() / 1_000);
+  const token = await new SignJWT({
+    tenantId: TEST_IDENTITY.tenantId,
+    environmentId: TEST_IDENTITY.environmentId,
+    customerId: TEST_IDENTITY.customerId,
+  })
+    .setProtectedHeader({ alg: 'HS256', typ: 'cso-local-customer+jwt' })
+    .setIssuer('local-auth')
+    .setAudience('edge-api')
+    .setSubject(TEST_IDENTITY.principalId)
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(issuedAt + 604_801)
+    .sign(new TextEncoder().encode(TEST_SECRET));
+
+  await assert.rejects(() => createVerifier()(token), CustomerAuthenticationError);
 });
 
 test('rejects a token for another tenant', async () => {

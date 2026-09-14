@@ -136,13 +136,27 @@ Kafka delivery, OpenTelemetry observability, the centralized Model Gateway,
 reproducible Vendure seed data, production-grade Human Operations database
 operations, or AWS infrastructure.
 
-Delivery-age eligibility is not enforced. The successful September 6 browser run
-still generated an unsupported request for a delivery date. The subsequent fix
-forbids delivery-date questions and delivery-age windows in `SYSTEM_PROMPT`;
-runtime checks reject either wording so the existing graph safely falls back.
-The full Agent Runtime suite passed 101 tests with one upstream warning. A fresh
-paid live browser recheck has not been run; these automated checks do not add
-trusted delivery-age eligibility.
+Delivery-age eligibility is not enforced. The September 10 answer boundary allows
+general delivery-policy explanations only with supporting cited customer-safe
+evidence and an application-owned qualification that delivery timing has not been
+verified. Delivery-date questions and personalized delivery-eligibility claims
+remain prohibited. These are bounded wording checks, not trusted eligibility
+decisions. A fresh paid live browser recheck remains pending. The first complete
+one-case RAGAS trial on September 11 produced all five semantic scores; recall
+and answer relevancy were below the provisional 0.70 threshold. This is a smoke
+result, not a calibrated release baseline; see
+[the baseline review](docs/evaluation/RAGAS_BASELINE_REVIEW.md).
+Earlier September 10 and 11 attempts stopped before semantic grading. The latest
+`refund-answer-v6` boundary replaces a small set of complete uncertainty sentences
+with an application-owned qualification, while still rejecting mixed unsafe
+claims. It does not implement general natural-language eligibility validation.
+Opt-in synthetic rejection diagnostics are separate from quality samples; an
+answer rejected by the production guard is not sent to RAGAS judges. Additional
+separately authorized trials and human review are needed to measure consistency
+and judge quality beyond the first completed case.
+The Evaluation Runner separates retrieved policy from independent synthetic
+application facts when judging answers. Its v2 graders have offline coverage,
+but semantic scores are not yet calibrated release gates.
 Simulated Vendure settlement does not prove real webhook delivery or bank
 settlement. Photo retention deletion remains disabled pending explicit approval.
 

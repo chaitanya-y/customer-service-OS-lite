@@ -111,7 +111,7 @@ set `REFUND_POLICY_VERSION=refund-policy-v2` in Edge and restart Edge, Human
 Operations and Workflow Workers after the code and migration are installed.
 
 There is no third manually copied login token. Customer and staff login tokens
-remain the two local 48-hour tokens. Edge automatically signs a 60-second
+remain the two local seven-day tokens. Edge automatically signs a 60-second
 `cso-evidence+jwt` assertion for audience `human-operations-evidence`, using its
 existing context secret. Workflow Workers use the separate existing Human
 Operations workflow secret and narrow evidence purposes. Never put either

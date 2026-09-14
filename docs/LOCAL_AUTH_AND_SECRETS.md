@@ -1,6 +1,6 @@
 # Local Authentication and Secrets
 
-Last updated: 2026-09-05
+Last updated: 2026-09-11
 
 ## The simple mental model
 
@@ -40,7 +40,9 @@ CSO_LOCAL_CUSTOMER_TOKEN=<generated token>
 
 It is an HS256 JWT signed with `LOCAL_AUTH_HMAC_SECRET`. It represents the one
 configured local customer and is accepted only by Edge API. Its maximum supported
-lifetime is 48 hours.
+lifetime and generator default are seven days (604800 seconds), changed from
+48 hours on September 11, 2026. The Edge verifier rejects expired tokens and
+tokens whose issued lifetime exceeds seven days.
 
 Next.js `.env.local` overrides `.env`. The September 5 owner setup keeps this
 customer token in `apps/web/customer-portal/.env.local`. Check which file supplies
@@ -65,10 +67,24 @@ CSO_LOCAL_HUMAN_TOKEN=<generated token>
 
 It is an HS256 JWT signed with `HUMAN_ACCESS_HMAC_SECRET`. It represents the local
 staff ID and role and is accepted only by Human Operations. Its maximum supported
-lifetime is 48 hours.
+generator lifetime is seven days (604800 seconds), changed from 48 hours on
+September 11, 2026. The CLI defaults to seven days and refuses a longer configured
+lifetime. Set `LOCAL_HUMAN_ACCESS_TTL_SECONDS=604800` in
+`apps/services/human-operations/.env`; an existing `172800` value would keep
+generating two-day tokens despite the new default. Human Operations verifies the
+token signature, expiry, issuer, audience, tenant, environment, and staff role.
 
 The two Next.js applications keep these server-side and expose only an HTTP-only
 local session cookie to the browser. Browser JavaScript does not need the raw JWT.
+
+Seven days is a local-development convenience, not the production token policy.
+A stolen token can be used until expiry unless its signing secret is rotated;
+there is no individual-token revocation or automatic refresh in this local adapter.
+Keep tokens and signing secrets private. Changing the configured lifetime does
+not extend an already-issued token: generate replacements, restart the affected
+web apps, and choose Continue locally again if needed. Browser session-cookie
+behavior is unchanged, so a new browser session may still require local sign-in.
+The short-lived internal assertions described below are not extended to a week.
 
 ## Internal assertions are automatic
 

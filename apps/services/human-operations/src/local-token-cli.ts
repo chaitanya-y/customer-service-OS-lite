@@ -11,7 +11,7 @@ const config = z.object({
   LOCAL_HUMAN_ROLE: z.enum(['REFUND_APPROVER', 'REFUND_SUPERVISOR']).default('REFUND_SUPERVISOR'),
   // This CLI is development-only. A longer assertion lifetime prevents a local
   // console session from outliving the static assertion it forwards upstream.
-  LOCAL_HUMAN_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).max(172_800).default(172_800),
+  LOCAL_HUMAN_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).max(604_800).default(604_800),
 }).parse(process.env);
 
 const token = await signLocalHumanAccessAssertion({
