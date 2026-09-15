@@ -9,10 +9,16 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import Field, field_validator
 
 from agent_runtime.integrations.customer_evidence import CustomerEvidence
-from agent_runtime.integrations.order_lookup import ContractModel, Money, OrderContext
+from agent_runtime.integrations.order_lookup import ContractModel, OrderContext
+from agent_runtime.refund.policy import VerifiedRefundPolicy
+from agent_runtime.refund.presentation import (
+    AnswerPurpose,
+    append_requested_amount,
+    render_customer_answer,
+)
 from agent_runtime.refund.proposal import RefundProposal
 
-REFUND_ANSWER_PROMPT_VERSION = "refund-answer-v8"
+REFUND_ANSWER_PROMPT_VERSION = "refund-answer-v9"
 
 DELIVERY_POLICY_QUALIFICATION = (
     "This is policy information, not confirmation that your request qualifies. "
@@ -39,7 +45,13 @@ Rules:
   upload starts a review, guarantees approval, or executes a refund.
 - Keep the answer focused. Include exclusions only when relevant to the question
   or supplied request, preserving any applicable exceptions. Do not list unrelated
-  product categories.
+  product categories. Keep the response short and direct; do not repeat blanket
+  disclaimers that do not help answer the customer's current question.
+- Select one presentation purpose: refund_request for general request guidance,
+  missing_details when asking for required information, amount_review when the
+  customer asks how their amount affects review, provider_timing for submission
+  or settlement timing, and policy_question for other policy guidance. Purpose
+  controls presentation only and never makes a policy decision.
 - A reported refund reason is not verified eligibility. Do not conclude that
   this customer's item qualifies for an exception, even if the reported reason
   matches a condition in the policy. Do not assume an item is final-sale from
@@ -59,8 +71,11 @@ Rules:
 - Do not write monetary amounts, currency codes, currency symbols, or money in words.
   This includes amounts in the customer message and monetary limits in evidence.
   Explain monetary policy limits qualitatively, without quoting their amounts.
-  The application appends the trusted proposed amount separately; do not invent it.
+  The application presents trusted money separately only when the selected purpose
+  requires it; do not invent it.
 - If refundRequest has missingDetails, ask for those details clearly.
+- Discuss provider submission or settlement timing only when the customer asks.
+  Keep it conditional because no verified provider submission state is supplied.
 - Explain a delivery-age window only as general published policy, only when the
   same window and its conditions are explicitly supported by evidence you cite.
 - Use the form "The published policy ... within N calendar days of delivery",
@@ -145,17 +160,28 @@ NEGATED_POLICY_CLAIM = re.compile(
     r"|\b(?:cannot|can't|won't)\b",
     re.IGNORECASE,
 )
-PERSONALIZED_DELIVERY_CONCLUSION = re.compile(
+PERSONALIZED_ELIGIBILITY_DECISION = re.compile(
     r"\b(?:your|this)\s+(?:refund\s+)?"
     r"(?:request|order|item|purchase|delivery)\b[^.!?]{0,80}\b"
     r"(?:qualif(?:y|ies|ied)|eligib(?:le|ility)|inside|outside|within|"
     r"window|deadline|meets?|falls?)\b"
+    r"|\bthe\s+(?:refund\s+)?request\b[^.!?]{0,80}\b"
+    r"(?:(?:does|did)\s+not\s+(?:meet|satisfy)\b[^.!?]{0,40}"
+    r"\beligib(?:le|ility)\b|is\s+(?:not\s+)?eligible\b|"
+    r"qualif(?:y|ies|ied)\b|fails?\b[^.!?]{0,40}\beligib(?:le|ility)\b)"
     r"|\byou\s+qualif(?:y|ied)\b"
     r"|\byou\s+(?:are|remain|fall|qualif(?:y|ied)?|meet)\b[^.!?]{0,80}\b"
     r"(?:eligible|inside|outside|within|window|deadline)\b"
     r"|\b(?:we|i)\s+(?:confirmed|verified|determined)\b[^.!?]{0,80}\b"
     r"(?:your|this)\s+(?:refund\s+)?(?:request|order|item|purchase|delivery)\b"
     r"|\bit\s+(?:is|was)\s+(?:not\s+)?eligible\b",
+    re.IGNORECASE,
+)
+PERSONALIZED_PRONOUN_ELIGIBILITY_DENIAL = re.compile(
+    r"\b(?:your|this)\s+(?:refund\s+)?"
+    r"(?:request|order|item|purchase)\b[^.!?]{0,240}\bit\s+"
+    r"(?:(?:does|did)\s+not\s+(?:meet|satisfy)|fails?)\b"
+    r"[^.!?]{0,40}\beligib(?:le|ility)\b",
     re.IGNORECASE,
 )
 BOUNDED_ELIGIBILITY_UNCERTAINTY = re.compile(
@@ -180,6 +206,15 @@ DELIVERY_POLICY_SCOPE_PATTERNS = {
     "returned": re.compile(r"\breturn(?:ed)?\b", re.IGNORECASE),
     "inspected": re.compile(r"\binspect(?:ed|ion)\b", re.IGNORECASE),
 }
+INCORRECT_OR_MISSING_SCOPE = frozenset({"incorrect", "missing"})
+EXPLICIT_INCORRECT_OR_MISSING = re.compile(
+    r"\b(?:incorrect|wrong)\s+items?\s+or\s+"
+    r"(?:an?\s+)?items?\s+(?:is|are)\s+missing\b"
+    r"|\b(?:incorrect|wrong)\s+or\s+missing\s+items?\b"
+    r"|\bmissing\s+items?\s+or\s+(?:an?\s+)?"
+    r"(?:incorrect|wrong)\s+items?\b",
+    re.IGNORECASE,
+)
 IDENTIFIER_LABEL_CONNECTORS = frozenset({"and", "or"})
 
 
@@ -208,6 +243,10 @@ class CustomerAnswer(ContractModel):
         return citations
 
 
+class DraftCustomerAnswer(CustomerAnswer):
+    purpose: AnswerPurpose = "refund_request"
+
+
 class RefundAnswerComposer(Protocol):
     async def compose(
         self,
@@ -216,6 +255,7 @@ class RefundAnswerComposer(Protocol):
         refund_proposal: RefundProposal,
         order_context: OrderContext,
         knowledge_evidence: list[CustomerEvidence],
+        refund_policy: VerifiedRefundPolicy | None = None,
     ) -> CustomerAnswer:
         """Create a grounded customer answer from approved evidence only."""
 
@@ -257,7 +297,7 @@ class LangChainRefundAnswerComposer:
     ) -> None:
         self._capture_rejected_answer = capture_rejected_answer
         self._structured_model = model.with_structured_output(
-            CustomerAnswer,
+            DraftCustomerAnswer,
             method="json_schema",
             strict=True,
         )
@@ -269,6 +309,7 @@ class LangChainRefundAnswerComposer:
         refund_proposal: RefundProposal,
         order_context: OrderContext,
         knowledge_evidence: list[CustomerEvidence],
+        refund_policy: VerifiedRefundPolicy | None = None,
     ) -> CustomerAnswer:
         intent = refund_proposal.intent
         item_ids = {item.item_id for item in order_context.items}
@@ -321,15 +362,22 @@ class LangChainRefundAnswerComposer:
                     HumanMessage(content=json.dumps(model_input)),
                 ]
             )
-            answer = CustomerAnswer.model_validate(result)
+            answer = DraftCustomerAnswer.model_validate(
+                result.model_dump(by_alias=True)
+                if isinstance(result, CustomerAnswer)
+                else result
+            )
         except Exception as error:
             raise RefundAnswerCompositionError(
                 RefundAnswerRejectionCode.MODEL_OUTPUT_INVALID
             ) from error
 
         original_answer = (
-            answer.model_copy(deep=True) if self._capture_rejected_answer else None
+            CustomerAnswer(message=answer.message, citations=answer.citations)
+            if self._capture_rejected_answer
+            else None
         )
+        purpose = answer.purpose
         try:
             if any(
                 (citation.knowledge_document_id, citation.chunk_id)
@@ -344,13 +392,22 @@ class LangChainRefundAnswerComposer:
             validate_model_money_text(
                 answer.message, order_reference=order_context.reference
             )
+            validate_personalized_eligibility_text(answer.message)
             needs_delivery_policy_qualification = validate_delivery_policy_text(
                 answer,
                 knowledge_evidence=knowledge_evidence,
             )
             if needs_delivery_policy_qualification:
+                answer = append_delivery_policy_frames(answer)
                 answer = append_delivery_policy_qualification(answer)
-            return append_requested_amount(answer, intent.requested_amount)
+            return render_customer_answer(
+                answer,
+                purpose=purpose,
+                requested_amount=intent.requested_amount,
+                proposal_scope=intent.scope,
+                missing_fields=refund_proposal.missing_fields,
+                refund_policy=refund_policy,
+            )
         except RefundAnswerCompositionError as error:
             if not self._capture_rejected_answer:
                 raise
@@ -378,9 +435,8 @@ def validate_model_money_text(message: str, *, order_reference: str) -> None:
 
     def hide_order_reference(match: re.Match[str]) -> str:
         kind, _, value = match.groups()
-        if (
-            kind.casefold() == "order"
-            and value.rstrip(".").casefold() == order_reference.casefold()
+        if kind.casefold() == "order" and _matches_expected_identifier(
+            value, order_reference
         ):
             # Only the labelled exact reference is exempt, never every occurrence
             # of a product name or number that could mask a monetary claim.
@@ -427,10 +483,37 @@ def _delivery_window_claims(text: str) -> list[tuple[int, str, str, frozenset[st
     return claims
 
 
+def _delivery_window_claims_with_explicit_alternatives(
+    text: str,
+) -> set[tuple[int, str, str, frozenset[str]]]:
+    claims = set(_delivery_window_claims(text))
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if not EXPLICIT_INCORRECT_OR_MISSING.search(sentence):
+            continue
+        for duration, basis, unit, scope in _delivery_window_claims(sentence):
+            if not INCORRECT_OR_MISSING_SCOPE.issubset(scope):
+                continue
+            shared_scope = scope - INCORRECT_OR_MISSING_SCOPE
+            claims.add((duration, basis, unit, shared_scope | {"incorrect"}))
+            claims.add((duration, basis, unit, shared_scope | {"missing"}))
+    return claims
+
+
 def _strip_bounded_eligibility_uncertainty(message: str) -> tuple[str, bool]:
     normalized_message = normalize("NFKC", message)
     stripped, count = BOUNDED_ELIGIBILITY_UNCERTAINTY.subn(" ", normalized_message)
     return stripped.strip(), count > 0
+
+
+def validate_personalized_eligibility_text(message: str) -> None:
+    text, _ = _strip_bounded_eligibility_uncertainty(message)
+    text = re.sub(r"[*`]", "", text)
+    if PERSONALIZED_ELIGIBILITY_DECISION.search(
+        text
+    ) or PERSONALIZED_PRONOUN_ELIGIBILITY_DENIAL.search(text):
+        raise RefundAnswerCompositionError(
+            RefundAnswerRejectionCode.DELIVERY_AGE_TEXT_REJECTED
+        )
 
 
 def validate_delivery_policy_text(
@@ -449,11 +532,7 @@ def validate_delivery_policy_text(
         answer.message
     )
     text = re.sub(r"[*`]", "", text)
-    if (
-        DELIVERY_DATE_REQUEST.search(text)
-        or PERSONALIZED_DELIVERY_TIMING.search(text)
-        or PERSONALIZED_DELIVERY_CONCLUSION.search(text)
-    ):
+    if DELIVERY_DATE_REQUEST.search(text) or PERSONALIZED_DELIVERY_TIMING.search(text):
         raise RefundAnswerCompositionError(
             RefundAnswerRejectionCode.DELIVERY_AGE_TEXT_REJECTED
         )
@@ -463,18 +542,14 @@ def validate_delivery_policy_text(
         return has_bounded_uncertainty
 
     answer_claims = _delivery_window_claims(text)
-    window_sentences = [
-        sentence
-        for sentence in re.split(r"(?<=[.!?])\s+", text)
-        if DELIVERY_WINDOW_MENTION.search(sentence)
-    ]
     if (
         not answer_claims
         or len(answer_claims) != len(window_mentions)
         or any(
-            not GENERAL_POLICY_FRAME.search(sentence) for sentence in window_sentences
+            NEGATED_POLICY_CLAIM.search(sentence)
+            for sentence in re.split(r"(?<=[.!?])\s+", text)
+            if DELIVERY_WINDOW_MENTION.search(sentence)
         )
-        or any(NEGATED_POLICY_CLAIM.search(sentence) for sentence in window_sentences)
     ):
         raise RefundAnswerCompositionError(
             RefundAnswerRejectionCode.DELIVERY_AGE_TEXT_REJECTED
@@ -492,7 +567,7 @@ def validate_delivery_policy_text(
                 (citation.knowledge_document_id, citation.chunk_id)
             )
         )
-        for claim in _delivery_window_claims(
+        for claim in _delivery_window_claims_with_explicit_alternatives(
             normalize("NFKC", re.sub(r"[*`]", "", evidence.content))
         )
     }
@@ -503,6 +578,25 @@ def validate_delivery_policy_text(
     return True
 
 
+def append_delivery_policy_frames(answer: CustomerAnswer) -> CustomerAnswer:
+    normalized_message = normalize("NFKC", answer.message)
+    parts = re.split(r"(?<=[.!?])(\s+)", normalized_message)
+    for index in range(0, len(parts), 2):
+        sentence = parts[index]
+        validation_sentence = re.sub(r"[*`]", "", sentence)
+        if not DELIVERY_WINDOW_MENTION.search(
+            validation_sentence
+        ) or GENERAL_POLICY_FRAME.search(validation_sentence):
+            continue
+        parts[index] = re.sub(
+            r"^(\s*(?:[-*]\s+)?)",
+            r"\1According to the published policy, ",
+            sentence,
+            count=1,
+        )
+    return CustomerAnswer(message="".join(parts), citations=answer.citations)
+
+
 def append_delivery_policy_qualification(answer: CustomerAnswer) -> CustomerAnswer:
     message, _ = _strip_bounded_eligibility_uncertainty(answer.message)
     return CustomerAnswer(
@@ -510,29 +604,6 @@ def append_delivery_policy_qualification(answer: CustomerAnswer) -> CustomerAnsw
             f"{message}\n\n{DELIVERY_POLICY_QUALIFICATION}"
             if message
             else DELIVERY_POLICY_QUALIFICATION
-        ),
-        citations=answer.citations,
-    )
-
-
-def format_requested_amount(amount: Money | None) -> str | None:
-    # This journey currently supports USD. Do not assume every currency has cents.
-    if amount is None or amount.currency != "USD":
-        return None
-    dollars, cents = divmod(amount.amount_minor, 100)
-    return f"USD {dollars:,}.{cents:02d}"
-
-
-def append_requested_amount(
-    answer: CustomerAnswer, amount: Money | None
-) -> CustomerAnswer:
-    display_amount = format_requested_amount(amount)
-    if display_amount is None:
-        return answer
-    return CustomerAnswer(
-        message=(
-            f"{answer.message}\n\nProposed refund amount: {display_amount}. "
-            "This is a request, not a refund approval."
         ),
         citations=answer.citations,
     )
@@ -551,30 +622,42 @@ def validate_customer_answer_identifiers(
     reference = order_context.reference.casefold()
     for match in IDENTIFIER_MENTION.finditer(text):
         kind, label, value = match.groups()
-        value = value.rstrip(".").casefold()
+        normalized_value = value.casefold()
         if kind.casefold() == "order":
-            if label is not None and value in IDENTIFIER_LABEL_CONNECTORS:
+            if label is not None and normalized_value in IDENTIFIER_LABEL_CONNECTORS:
                 continue
             # "Your order 3 days ago" describes time, not an order identifier.
             if (
                 label is None
-                and value.isdigit()
+                and normalized_value.isdigit()
                 and DURATION_AFTER_MENTION.match(text, match.end())
             ):
                 continue
             is_identifier = (
                 label is not None
-                or any(character.isdigit() for character in value)
-                or value == order_context.source.order_id.casefold()
+                or any(character.isdigit() for character in normalized_value)
+                or normalized_value == order_context.source.order_id.casefold()
             )
-            if is_identifier and value != reference:
+            if is_identifier and not _matches_expected_identifier(value, reference):
                 raise RefundAnswerCompositionError(
                     RefundAnswerRejectionCode.CONFLICTING_IDENTIFIER
                 )
-        elif value in internal_item_ids:
+        elif normalized_value.rstrip(".") in internal_item_ids:
             raise RefundAnswerCompositionError(
                 RefundAnswerRejectionCode.CONFLICTING_IDENTIFIER
             )
+
+
+def _matches_expected_identifier(value: str, expected: str) -> bool:
+    normalized_value = value.casefold()
+    normalized_expected = expected.casefold()
+    if normalized_value == normalized_expected:
+        return True
+    return (
+        len(normalized_value) > 1
+        and normalized_value[-1] in ".:"
+        and normalized_value[:-1] == normalized_expected
+    )
 
 
 def build_fallback_customer_answer(
@@ -598,5 +681,7 @@ def build_fallback_customer_answer(
     if refund_proposal.intent.order_id != order_context.source.order_id or not set(
         refund_proposal.intent.item_ids
     ).issubset(item.item_id for item in order_context.items):
+        return answer
+    if refund_proposal.missing_fields:
         return answer
     return append_requested_amount(answer, refund_proposal.intent.requested_amount)

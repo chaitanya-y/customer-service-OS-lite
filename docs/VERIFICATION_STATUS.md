@@ -1,10 +1,15 @@
 # Verification Status
 
-Last updated: 2026-09-13
+Last updated: 2026-09-15
 
 This file separates implementation, automated evidence, manual evidence, and work
 that still needs proof. A feature existing in code is not the same as an end-to-end
 production claim.
+
+Dated entries preserve evidence and limitations at the time of each run. Earlier
+statements about uncommitted code, prompt versions or a "next" trial are history;
+use the latest checkpoint and [evaluation strategy](evaluation/EVALUATION_STRATEGY.md)
+for current Git state and the next authorized-work boundary.
 
 ## Current verdict
 
@@ -29,6 +34,215 @@ evidence. The accurate current claim is:
 > historical verification (101 Agent Runtime tests passed). The September 10
 > refinement and its offline evidence are recorded below; no fresh paid live
 > browser recheck has been run.
+
+## Single live v4 trial and review preparation on 2026-09-15
+
+One explicitly authorized synthetic large-refund trial completed in 122 seconds.
+The quality gate failed: the answer omitted the reviewed USD 750/500 comparison
+and carried one citation, while verified policy version/hash and facts matched.
+RAGAS scores: context precision approximately 1, recall 1, faithfulness 1,
+relevance 0.5703918284251951, factual precision 0.33. All 15 recorded SDK invocations
+succeeded; total 27,907 tokens, dollar cost unknown. No retry was performed.
+
+Coordinator validated result/usage schemas, exact one-case/one-repetition coverage,
+matching run IDs, CUSTOMER_SAFE evidence and mode 0600 private artifacts. Historical
+v3 hashes remain unchanged. No application edits or new full-suite run occurred.
+Machine-assisted review is prepared; owner review and human calibration are not
+complete. No LangSmith export, Tau run, refund, token renewal, server restart,
+dependency change or Git mutation occurred. See [the full measured checkpoint](evaluation/RAGAS_CLOSURE_REVIEW.md).
+
+## Offline verification follow-up on 2026-09-15
+
+Fresh checks for the pending trusted-policy and evaluation changes completed
+without starting services or making paid calls:
+
+| Command | Result |
+| --- | --- |
+| `uv run pytest` in `apps/services/agent-runtime` | 195 passed; two existing warnings |
+| `.venv/bin/pytest -q` in `apps/services/evaluation-runner` | 268 passed; one cache warning |
+| `pnpm test` in `apps/services/edge-api` | 86 passed |
+| `pnpm test` in `apps/services/workflow-workers` | 74 passed; ephemeral Temporal test server downloaded after network approval |
+| `node --test tests/*.test.mjs` in `packages/refund-policy` | 5 passed |
+| `node --test tests/contract/*.test.mjs` | 92 passed |
+| Python Ruff (`--no-cache`) in Agent Runtime and Evaluation Runner | Passed |
+| Edge/Workflow `pnpm typecheck` and `pnpm build` | Passed |
+| `pnpm lint:proto` | Passed |
+
+The first restricted Workflow Workers attempt had 43 passes and 31 setup
+failures because the Temporal test-server download was blocked by DNS; the
+rerun passed all 74 tests. Earlier restricted builds could not write existing
+repo-local `dist/` files; approved reruns passed. Logs for the rerun commands
+are outside Git under `/private/tmp/cso-workflow-workers-test-20260915.log`,
+`/private/tmp/cso-edge-api-build-20260915.log`, and
+`/private/tmp/cso-workflow-workers-build-20260915.log`.
+
+## Source-aware v4 policy-answer evaluation on 2026-09-14
+
+The approved bounded follow-up adds a v4 fixture and a blocking deterministic
+policy-answer grader. Only the large-refund case changes; all five inputs and
+four other cases are preserved. Existing citation and prohibited-claim graders
+are unchanged. Client preflight independently resolves the configured policy
+before any paid work. Grading checks version/hash, amount/limits, reviewed band
+and exact application wording; conflicting facts and invented citations fail.
+
+Fresh coordinator evidence:
+
+| Check | Result |
+| --- | --- |
+| Complete Evaluation Runner offline suite | 268 passed in 2.57 seconds |
+| Changed Python lint and formatting | Passed for five files; formatting-only cleanup followed the full suite |
+| Core grader import with `agent_runtime` unavailable | Passed |
+| V3 preservation and v4-only case delta | Covered by passing tests; v3 SHA remains `1b128ab9db614854d5a76cc27c65966fb8fa234a2231664575f119af20b504de` |
+| Real composer/renderer and executor through new grader | Passed with external retrieval/model calls replaced by offline fakes |
+| Invalid policy/amount/band rejected before clients | Passed; missing/unknown/mismatched policy, stale limits and zero amount covered |
+| Diagnostic admission, changed/copy rejection | Passed for v4 while retaining prior pins |
+
+This adds 25 tests to the prior 243-test suite. No new Agent Runtime/product code,
+dependency, secret/token, server, provider/refund or Git operation occurred.
+Historical measured results remain unchanged. No paid v4 trial, model reliability
+claim, human calibration, LangSmith export or Tau execution is implied.
+See [the v4 guide](evaluation/RAGAS_V4_POLICY_ANSWER.md).
+
+## Trusted policy answers on 2026-09-14
+
+The approved local implementation moves the unchanged v1/v2 policy values into
+one shared JSON catalog. Edge signs its configured policy version and catalog
+fingerprint in the agent-specific assertion. Python verifies that binding and
+uses only the public currency/limits for deterministic monetary explanations.
+Prompt v9 selects an internal presentation purpose; model-output guards still
+run before rendering, and the public answer contract is unchanged. Zero,
+missing, unsupported-currency or unbound amounts cannot produce a policy band.
+
+Final fresh coordinator checks after all four implementation tasks:
+
+| Check | Fresh result |
+| --- | --- |
+| Agent Runtime full offline suite | 195 passed; one existing Starlette/httpx deprecation warning |
+| Edge API full suite | 86 passed |
+| Workflow policy, policy input, risk and evidence-policy tests | 29 passed |
+| Root contract suites plus shared policy catalog | 97 passed |
+| Edge and Workflow TypeScript checks/builds | Passed; emitted modules resolve the shared policy package |
+| Real Node signer to Python verifier, synthetic data only | Eight vectors passed: v1, v2, legacy absence, wrong hash, unknown version, wrong audience, expired token and bad signature |
+| Evaluation Runner full suite | 243 passed |
+| Changed Python lint/format | Passed for 17 files |
+| v3 dataset SHA-256 | Unchanged: `1b128ab9db614854d5a76cc27c65966fb8fa234a2231664575f119af20b504de` |
+
+Total: 650 passing tests plus eight compatibility vectors. Agent Runtime adds
+34 cases and Evaluation Runner adds three relative to the preceding offline
+checkpoint. The initial Evaluation Runner run had two stale v8 expectations;
+those were updated to v9, followed by a fresh passing full suite. No real secrets/tokens were read or
+printed by the cross-language test. No paid model calls, services, token renewal,
+refund execution, Git history or remote branches were changed by this batch.
+The optional `--refund-policy-version` resolves the local artifact before live
+provider construction, passes the verified projection to the real composer, and
+records version/hash plus independent policy limits. Legacy invocations have no
+monetary-policy authority. No historical dataset or grader was changed.
+
+See the [plan](superpowers/plans/2026-09-14-trusted-refund-answers.md) for the exact
+scope. Full Temporal test-server scenarios, live models, browser flows and
+provider operations were not exercised. This does not rewrite the prompt-v8
+measured campaign below or establish a live v9 reliability result.
+
+## Offline answer-boundary follow-up on 2026-09-14
+
+The owner approved the bounded two-worker follow-up to the v3 campaign findings.
+The local patch changes the production answer composer and its tests, plus a
+new independent Evaluation Runner regression file. It fixes terminal-colon
+reference false positives, the missed personalized eligibility denial, supported
+policy framing, and explicit incorrect OR missing condition narrowing.
+Unsupported claims and omitted conjunctive requirements remain rejected. A
+review regression also protects general procedural eligibility wording from a
+new false positive. No prompt, grader, dataset or policy threshold changed.
+
+| Check | Fresh result |
+| --- | --- |
+| Agent Runtime full offline suite | 161 passed, including 15 new unit cases |
+| Evaluation Runner full offline suite | 240 passed, including 8 new integration cases |
+| Ruff lint and formatting | Passed for the three changed Python files |
+| v3 dataset SHA-256 | Unchanged: `1b128ab9db614854d5a76cc27c65966fb8fa234a2231664575f119af20b504de` |
+
+The full suites produced sandbox pytest-cache write warnings; Agent Runtime also
+emitted its existing Starlette/httpx deprecation warning. Ruff checks were run
+without caches after the sandbox rejected cache writes. Final formatting-only
+changes received a focused test recheck. These are offline component/integration
+checks with external models and retrieval faked, not new RAGAS scores, a live
+browser refund test or production certification. No other service suites were
+rerun. The patch is uncommitted; Git, services and tokens were left unchanged.
+
+See [the v3 baseline follow-up](evaluation/RAGAS_V3_BASELINE.md) for file/function
+walkthrough. Its then-deferred monetary explanation and concise presentation are
+covered by the subsequent approved batch above. Owner review/calibration and
+separately authorized live trials remain pending. LangSmith and Tau have not started.
+
+## Completed v3 RAGAS campaign on 2026-09-14
+
+The separately owner-authorized `refund-ragas-v3-campaign-20260914-001` attempted
+all five approved seed cases three times with fixed prompt v8 and dataset v3.
+Five answers reached all five semantic graders; ten were rejected before grading
+(eight delivery-text, two identifier). Blocking pass rate was 5/15, repeated-case
+consistency 0/5. All recorded API invocations succeeded. This is a completed
+measurement with a failed reliability gate, not an evaluator crash or expired
+token, and not a production-quality pass.
+
+Usage was 204,047 tokens across 95 recorded invocations. Elapsed time was about
+12 minutes 21 seconds. Semantic means over only five scored answers were context
+precision 1.0000, recall 0.9000, faithfulness 0.8374, relevance 0.5228 and factual
+precision 0.6360. Missing scores are not zero; every scored trial missed at least
+one provisional nonblocking minimum. Cost is unknown without a pricing schedule.
+
+Result/usage/diagnostic schemas, exact 15-trial coverage, dataset pin, private
+permissions, response hashes and evidence hashes were verified. All ten captured
+rejections reproduced offline. Two were trailing-colon identifier false
+positives; the delivery failures and a personalized eligibility denial that
+escaped the guard require review. No code, prompt, guard, dataset, tokens or
+index changed. No refund, LangSmith export or follow-up paid run occurred.
+
+The complete [v3 baseline report](evaluation/RAGAS_V3_BASELINE.md) records trial
+scores, limitations and artifacts. Owner review and independent human calibration
+remain unfilled. Review these findings next, then freeze this bounded baseline;
+notify the owner before starting LangSmith. Do not repeat the paid campaign merely
+to obtain better scores. The older preparation and merge records below are dated
+history; their pending-run statements describe the time before this campaign.
+
+## Verified code commit and merge on 2026-09-14
+
+After owner approval, commit `87ab48f` (`Add evaluation regression coverage and
+strengthen local answer safeguards`) was pushed to `dev`. It was merged into
+`main` as `97028db` (`Merge dev to main and add RAG evaluation tooling and answer
+safeguards`). The following checks ran on merged `main` before it was pushed:
+
+| Boundary | Recorded result | Other verification |
+|---|---:|---|
+| Evaluation Runner | 232 passed | Ruff lint clean; all 42 Python files passed formatting |
+| Agent Runtime | 146 passed | Ruff lint clean; the two changed answer/composer test files passed formatting |
+| Knowledge/RAG | 102 passed | Ruff lint clean; the two changed embedding/provider test files passed formatting |
+| Edge API | 85 passed | TypeScript typecheck passed |
+| Human Operations | 21 passed, 4 skipped | TypeScript typecheck passed |
+
+Total: **586 passed, 4 skipped** across these five services. The four optional
+PostgreSQL tests were skipped because `HUMAN_OPERATIONS_TEST_DATABASE_URL` was
+not configured; the older isolated-database proof below is not a fresh rerun.
+Agent Runtime and Knowledge/RAG each emitted an existing Starlette/httpx
+deprecation warning. Full-repository formatting was not claimed: four untouched
+Agent Runtime files had the previously recorded formatting differences.
+
+The earlier pre-commit checks encountered sandbox socket restrictions in Human
+Operations and public tokenizer-cache network restrictions in Knowledge/RAG.
+The reruns with the needed access passed without application changes. No paid
+models or RAGAS judges were called. Gateway, Workflow Workers, Conversation
+Runtime, root contracts and frontend builds/browser suites were not rerun in
+this changed-service merge check; their dated evidence below remains historical.
+
+Remote refs were verified after pushing. `dev` and `main` had the same tree,
+`48269d1b118c0f51728a06b861526c00dfaa8575`, and the working branch returned to
+`dev`. `.superpowers/` remained untracked and excluded. No environment files,
+tokens, local databases or runtime artifacts were committed. No new model trial,
+browser journey, migration, refund or provider settlement accompanied the merge.
+
+This documentation-only follow-up records those prior results; it does not claim
+another application test run. The v3 paid campaign, human calibration, LangSmith
+export and external Tau benchmark are still pending. A fresh browser wording
+check is also pending, separately from the completed September 6 refund proof.
 
 ## Approved dataset v3 preparation on 2026-09-13
 
@@ -552,9 +766,10 @@ then [the evaluation run guide](../apps/services/evaluation-runner/README.md).
 Both scoped Sol workers finished; the coordinator reviewed their diffs and ran
 the final suites. No paid APIs, model calls, provider/refund actions, secrets,
 datasets, indexed documents, service processes, or Git history were changed in
-this batch. The code and documentation remain uncommitted. The running Agent
-Runtime was not restarted; a fresh browser recheck needs it to load v5. An isolated
-evaluation command imports the current source in a new process.
+this batch. The code and documentation were uncommitted at that checkpoint and
+are now included in the September 14 pushed history. The running Agent
+Runtime was not restarted in that batch; a browser recheck then needed it to load
+v5. An isolated evaluation command imports the current source in a new process.
 
 At that checkpoint, the next step was a separately authorized one-case live trial.
 The later v6 trial above completed that step. The bounded dataset/repetition run,
@@ -839,8 +1054,8 @@ formatted proposed USD amount. The underlying structured proposal is unchanged.
 Agent Runtime Ruff and all 97 tests passed on 2026-09-05, including order-reference,
 money formatting, safe-fallback, and graph regressions. The real two-turn browser
 test retained the reference and displayed the correct USD 1,683.80. These fixes
-were in the local working tree during the proof; inspect Git before assuming
-they are committed or available in a fresh clone.
+were in the local working tree during the proof and are now included in the
+September 14 pushed history. Local data and secrets still do not travel with a clone.
 
 At this checkpoint the remaining gaps included generated technical field labels,
 missing photo intake/gating, delivery-age checks and a premature preview timeline

@@ -1,8 +1,85 @@
 # Codex Handoff
 
-Last updated: 2026-09-13
+Last updated: 2026-09-15
 
-Latest checkpoint: the approved offline dataset v3 preparation is complete.
+Git checkpoint: code commit `87ab48f` is pushed to `dev` and is included in
+pushed `main` merge `97028db`. Both branches had identical code trees at this
+checkpoint. Verification on merged `main` recorded 586 passing tests and four
+optional Human Operations database skips across five changed services. See
+[Verification Status](VERIFICATION_STATUS.md) for exact scope and warnings.
+This documentation follow-up does not authorize another commit, push or paid run.
+Older dated paragraphs below describe their checkpoint, not current Git state.
+
+Latest evaluation checkpoint: two approved Sol workers completed one live v4
+large-refund trial and independent preparation for the remaining v3 owner review.
+The trial executed successfully but failed the blocking reviewed-policy answer
+check: correct policy/facts were present, but the answer stayed generic and
+retained one RAG citation instead of the required USD 750/500 explanation.
+Faithfulness/recall were 1.0, relevance 0.5704 and factual precision 0.33. The 122-second
+run used 27,907 tokens across 15 successful recorded SDK invocations. No retries,
+refunds, code changes, secret/token renewals, service restarts or Git mutations
+occurred. Purpose selection was not retained, so the exact cause is not proven.
+Read [the measured checkpoint](evaluation/RAGAS_CLOSURE_REVIEW.md).
+Owner review/calibration remain incomplete; no LangSmith export or Tau run started.
+
+Preceding local evaluation follow-up: the approved source-aware v4 change is
+implemented and the full Evaluation Runner suite passed **268 tests**. Only the
+large-refund case changes from v3; its application-owned USD 750/500 comparison
+has a blocking reviewed-policy grader instead of requiring a RAG citation.
+Preflight checks configured policy version, limits and amount/band before clients;
+the grader verifies catalog hash, independent facts, exact wording and no invented
+citations. A model-selected purpose is not an exemption. Historical fixtures,
+graders and scores are unchanged. No paid trial, service/token operation, refund
+or Git mutation occurred. Read [the v4 guide](evaluation/RAGAS_V4_POLICY_ANSWER.md)
+for the files, functions, example and remaining boundary. Live v4 reliability
+and human calibration are not yet established.
+
+Preceding local implementation: the owner approved the trusted policy explanation
+and concise-answer design. All four tasks are implemented locally: shared v1/v2
+catalog, agent-specific signed policy binding, prompt v9 purpose-aware
+presentation and optional Evaluation Runner policy wiring.
+Edge, Agent Runtime and Workflow Workers use the same policy bytes; monetary
+comparisons are application-owned and cannot approve a refund. The public answer
+contract and policy thresholds are unchanged. No new manual token is needed.
+Final fresh checks passed 195 Agent Runtime, 243 Evaluation Runner, 86 Edge,
+29 workflow-policy and 97 shared/contract tests: 650 total, plus eight
+Node-to-Python compatibility vectors. Changed-file lint/format and both Node
+typechecks/builds passed. The two stale v8 test expectations found during
+integration were updated; the subsequent full suite is green. No paid rerun,
+token/service operation, refund or Git mutation occurred. See
+[the plan](superpowers/plans/2026-09-14-trusted-refund-answers.md).
+
+Earlier local code checkpoint: after reviewing the v3 findings, the owner approved
+a bounded answer-validator fix and independent evaluation regression batch.
+The uncommitted patch accepts punctuation-equivalent trusted references, rejects
+the missed personalized-denial wording, and adds source-validated policy framing
+with narrowly supported incorrect OR missing alternatives. Essential conditions,
+money authorization, prompt v8 and the pinned dataset remain unchanged.
+Fresh offline results: 161 Agent Runtime and 240 Evaluation Runner tests passed
+(23 new cases), with changed-file lint/format checks. No paid rerun, token/server
+change, refund, commit or push occurred. See the final section of
+[the v3 report](evaluation/RAGAS_V3_BASELINE.md) for functions, examples and limits.
+The trusted USD 500 comparison and shorter context-specific footer were deferred
+at that checkpoint; the subsequent approved batch above implements them. Neither
+offline change establishes improved live scores.
+
+Campaign checkpoint: the authorized v3 campaign completed on September 14 as
+`refund-ragas-v3-campaign-20260914-001`: 15 attempted trials, five scored answers,
+ten validator rejections and zero cases passing all three repetitions. All 95
+recorded provider invocations succeeded, with 204,047 measured tokens; dollar
+cost is unknown. This is not token expiry or a passing release baseline.
+See [the v3 report](evaluation/RAGAS_V3_BASELINE.md) for exact outcomes, private
+artifact hashes, offline rejection replay and human-review questions. Application
+code and guards were unchanged. Do not launch another paid run automatically.
+
+Next: review the actual answers and validator false positives with the owner,
+record human/judge disagreements, and freeze the measured baseline. Human ratings
+and independent calibration are not complete. Tell the owner before starting
+LangSmith; no export or Tau run has happened. Fixes to the answer boundary are
+separate scoped work requiring approval. The entries below preserve earlier
+checkpoints, not a request to repeat the completed campaign.
+
+Earlier checkpoint: the approved offline dataset v3 preparation is complete.
 `refund-rag-answer-v3.json` retains the damaged-item reference and applies the
 four owner-approved, source-aligned reference corrections. Historical v1/v2,
 development/held-out fixtures, the answer prompt and all guards are unchanged.
@@ -16,7 +93,7 @@ refund-reason scope. Usage was 4,129 tokens, two calls and zero judges/refunds.
 The earlier v7 failed on a personalized eligibility conclusion; v6/v2 has one
 completed, uncalibrated trial. No v3 scores exist. Stop prompt-only retry loops.
 
-Next: obtain separate approval for a fixed-version v3 campaign (five cases times
+At that earlier checkpoint, the proposed next step was approval for a v3 campaign (five cases times
 three repetitions, including private synthetic rejection capture), then review
 the actual answers with the owner and report failures, scored coverage and
 semantic results separately. Fifteen trials is not a provider-call or cost cap;
@@ -54,6 +131,9 @@ diagnosed, but the earlier uncaptured response cannot be reconstructed.
 This is the shortest reliable handoff for a new Codex account or engineer. The
 repository itself is the durable source of context; chat history is supplementary.
 
+For evaluation work, use the [evaluation entrypoint](evaluation/README.md) for
+the current frozen baseline, exact measured limits, and the safe reading order.
+
 Read in this order:
 
 1. `AGENTS.md` for working rules and safety invariants.
@@ -76,10 +156,13 @@ agents without approval for the current batch.
 - Development branch: `dev`
 - Stable integration branch: `main`
 - Commit `e5fbe50` (`Preserve customer context across refund chat turns`) contains
-  the verified conversation-context regression fix and its tests. The September 5–6
-  answer, photo-gate, order-contract and UI updates were verified in the local
-  working tree; do not assume they are on GitHub. Inspect `git status --short` and recent commits before
-  changing, committing, resetting, or switching branches.
+  the verified conversation-context regression fix and its tests. It and the
+  September 5–6 answer, photo-gate, order-contract and UI updates are ancestors
+  of the September 14 pushed checkpoint above. The later evaluation work is
+  included in `87ab48f`. Inspect current Git status before changing files;
+  recorded branch pointers are a dated snapshot, not permission for Git writes.
+- At the checkpoint, `.superpowers/` remained untracked and was deliberately
+  excluded. Preserve it; local runtime artifacts are not release documentation.
 - Local process, database, OpenSearch index, browser-session, and `.env` state
   are machine-local. A new account must follow the runbook rather than assuming
   that a currently running local server or token exists.
@@ -161,11 +244,11 @@ remains pending. A one-case v6 synthetic RAGAS run now exists, but it is not a
 calibrated or production baseline; see `docs/evaluation/RAGAS_BASELINE_REVIEW.md`
 and the latest verification entry.
 
-Recent evaluation code is present locally beyond the committed runner foundation:
-five reviewed RAG answer cases, seven deterministic intake/proposal cases, RAGAS
-adapters, repeated trials and baseline comparison. This is not full workflow
-evaluation or a completed public benchmark. Inspect Git before assuming these
-changes are committed. The immediate priority is evaluation before observability;
+Evaluation code is now committed and pushed in `87ab48f`: five owner-approved v3
+RAG answer references, seven deterministic intake/proposal cases plus a separate
+retrieval-outage case, RAGAS adapters, repeated trials, usage reporting and baseline
+comparison. This is not full workflow evaluation or a completed public benchmark.
+The immediate priority is evaluation before observability;
 LangSmith, full workflow simulations and the public benchmark adapter remain
 future steps.
 
@@ -220,15 +303,15 @@ failed with `DELIVERY_AGE_TEXT_REJECTED`, no sample and no semantic grades. The
 exact answer was not retained. A separate offline probe demonstrated that a safe
 uncertainty sentence was also rejected; do not assume this was the live answer.
 
-The latest approved Batch 1 uses `refund-answer-v6` and a narrowly bounded
+The historical September 11 Batch 1 used `refund-answer-v6` and a narrowly bounded
 uncertainty replacement with application-owned qualification. Unsupported
 personalized decisions, delivery-date requests and the historical rejected answer
 remain regression cases. The evaluation diagnostic mode retains rejected
 schema-valid synthetic answers separately, never as scored successful samples.
 Read the Evaluation Runner README for its explicit opt-in and dataset restrictions,
 and `VERIFICATION_STATUS.md` for the completed checks and remaining limits.
-The next paid step requires fresh owner authorization for an expanded synthetic
-run, after independent human review of the completed one-case result. Do not
+That checkpoint proposed human review followed by a separately authorized expanded
+run. The current fixed-version v3 campaign is described at the top of this file. Do not
 authorize other cases/repetitions solely because the blocking gate passed.
 Do not treat earlier paid-test permission as reusable. See the evaluation strategy
 for limitations and exact metric inputs, and the verification status for checks.
@@ -335,8 +418,8 @@ with zero money executions in that smoke. The later September 6 browser proof
 also completed the photo-gated provider path. New local Edge requests now use v2; old workflows do
 not change. Both 48-hour local login tokens were renewed on September 5 without
 rotating signing secrets. See `VERIFICATION_STATUS.md` for expiry times, test
-counts, browser/API distinction and fixture IDs. Changes remain uncommitted;
-inspect Git before assuming these updates exist remotely.
+counts, browser/API distinction and fixture IDs. Those changes were uncommitted
+at the September 5 checkpoint; they are included in the pushed history above.
 
 ### Observed local timing baseline
 
@@ -373,14 +456,26 @@ behavior are unchanged. Treat the earlier September 5 48-hour renewal as history
 not the current lifetime. Always recheck expiry instead of relying on this date.
 See `LOCAL_AUTH_AND_SECRETS.md` for the development-only security tradeoff.
 
-1. Review and commit the approved local answer/display changes and verification
-   documentation before assuming a fresh clone contains them.
-2. Plan the legacy parked-workflow rollout, then address remaining customer
-   wording, delivery-age eligibility and production evidence storage; extend evaluations
-   without weakening authorization.
+1. Review the completed v3 campaign and its offline follow-up fixes; do not repeat
+   the already completed 15-trial run. Finish the remaining owner/judge review
+   while preserving its failed reliability gate and recorded scores.
+2. Review the completed trusted-answer implementation and
+   [new v4 policy-answer criterion](evaluation/RAGAS_V4_POLICY_ANSWER.md) before any
+   further paid trial. The authorized single v4 trial is complete and failed;
+   do not repeat it automatically. See the measured checkpoint above. The immutable v3 fixture requires at least one RAG citation
+   even for amount-only answers; that historical check remains informational.
+   V4's large-refund case instead verifies application-owned policy provenance
+   with a blocking grade. A new paid trial needs explicit
+   scope/approval. Notify the owner before LangSmith experiments,
+   then proceed to the external Tau retail benchmark. Reference approval is not
+   completed human calibration. Full Temporal/human/provider evaluation remains
+   a separate extension; perfect RAGAS scores are not a prerequisite for moving on.
 3. Add reproducible Vendure seed/bootstrap and one-command local orchestration.
 4. Add browser end-to-end tests for confirmation, approval, takeover, processing,
-   provider completion, and failure.
+   provider completion, and failure. The fresh paid browser wording check remains
+   pending; the September 6 positive refund proof is already complete. Plan the
+   legacy parked-workflow rollout, trusted delivery-age eligibility and production
+   evidence storage separately, without weakening authorization.
 5. Add OpenTelemetry tracing and metrics, then CloudWatch dashboards/alarms for
    the AWS deployment.
 6. Connect existing transactional outboxes to Kafka/MSK for projections and audit

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { z } from 'zod';
 
+import type { RefundPolicyBinding } from '../../../../packages/refund-policy/index.mjs';
 import type { AuthenticatedCustomer } from './customer-identity.js';
 
 export const CONTEXT_ASSERTION_HEADER = 'x-cso-context-assertion';
@@ -73,6 +74,7 @@ type ContextAssertionSignerOptions = {
     homeCell: string;
     routingEpoch: number;
   };
+  refundPolicy?: RefundPolicyBinding;
   lifetimeSeconds?: number;
   now?: () => Date;
   createContextId?: () => string;
@@ -92,6 +94,7 @@ export function createHmacContextAssertionSigner({
   issuer,
   audience,
   route,
+  refundPolicy,
   lifetimeSeconds = 60,
   now = () => new Date(),
   createContextId = randomUUID,
@@ -116,6 +119,12 @@ export function createHmacContextAssertionSigner({
     })
     .strict()
     .parse(route);
+  const parsedRefundPolicy = refundPolicy === undefined
+    ? undefined
+    : z.object({
+        policyVersion: z.string().min(1).max(160),
+        catalogSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      }).strict().parse(refundPolicy);
 
   const signingKey = new TextEncoder().encode(secret);
 
@@ -147,6 +156,9 @@ export function createHmacContextAssertionSigner({
         traceId: input.traceId,
         channelId: input.channelId,
       },
+      ...(parsedRefundPolicy === undefined
+        ? {}
+        : { refundPolicy: parsedRefundPolicy }),
     })
       .setProtectedHeader({
         alg: 'HS256',

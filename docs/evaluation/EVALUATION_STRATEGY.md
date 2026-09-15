@@ -2,6 +2,7 @@
 
 Status: Approved design direction
 Date: 2026-09-06
+Last updated: 2026-09-14
 
 ## Purpose
 
@@ -13,6 +14,23 @@ The first evaluated journey is the governed refund flow. A later read-only order
 status journey will test supervisor routing without delaying evaluation of the
 already-complete refund vertical slice.
 
+Current implementation checkpoint: the offline tooling is committed in `87ab48f`
+and included in pushed `main` merge `97028db`. Evaluation Runner passed 232 tests
+in the September 14 merged-code check. The separately authorized v3 campaign
+is complete: 15 attempts, five scored answers, ten validator rejections and zero
+cases passing all three repetitions. See [the measured baseline](RAGAS_V3_BASELINE.md).
+Human review/calibration remain pending; no LangSmith export or Tau run occurred.
+Notify the owner before starting LangSmith. The five-case scope below controls
+the immediate sequence; older dated
+sections preserve earlier plans and measurements, not new paid-call permission.
+
+Subsequent approved scope: [source-aware v4 policy-answer evaluation](RAGAS_V4_POLICY_ANSWER.md)
+retains the five scenarios while changing only the large-refund reference and
+its source expectations. It adds a blocking check of verified policy provenance,
+amounts and deterministic wording. The four knowledge cases retain their citation
+criteria; a model-selected purpose never exempts an answer. This is an offline
+implementation follow-up, not a new measured campaign or permission for paid calls.
+
 ## Approved five-case baseline scope, September 13
 
 The owner approved dataset v3 with the existing damaged-item reference and four
@@ -20,10 +38,10 @@ source-aligned reference corrections. See `RAGAS_DATASET_REVIEW.md` for the exac
 texts. The older v1/v2 files and the development/held-out sets stay unchanged.
 This does not change production prompts, guards, policy or retrieval.
 
-The existing runner can evaluate all five cases with three repetitions. The
-remaining empirical work is a separately authorized paid campaign, human review
-of representative answers and judge disagreements, and a baseline report that
-shows completion/rejection rates alongside semantic scores and scored coverage.
+The existing runner completed all five cases with three repetitions on September
+14 after separate paid/capture approval. The report shows completion/rejection
+rates alongside semantic scores and scored coverage. Remaining work is human
+review of representative answers and judge disagreements, not another campaign.
 Human reference approval is not calibration. Report failures; do not repeatedly
 tune and rerun one case until it passes. A v3 result is a new baseline, not a
 direct improvement comparison with v2. Five cases cannot establish production
@@ -33,8 +51,9 @@ The hybrid answer-composer design is a separate product change, not a prerequisi
 for recording honest failures. After this bounded baseline report, continue to
 LangSmith experiments and then the external Tau retail benchmark. Their scores,
 full-workflow evaluations and expanded/held-out evaluation remain separate work.
-No paid v3 run, human ratings, LangSmith export or Tau execution is implied by
-the fixture and diagnostic changes.
+The fixture changes alone did not authorize the paid run; the owner approved it
+separately. No human ratings, LangSmith export or Tau execution are implied by
+either the fixture changes or the completed campaign.
 
 ## Approved reference revision, September 12
 
@@ -95,8 +114,8 @@ The repository now also contains the first answer-evaluation foundation:
   and factual correctness adapters;
 - an isolated executor that reuses production retrieval, proposal, and answer
   components with synthetic order facts and no commerce boundary;
-- a guarded one-case live command that refuses to construct external clients
-  unless `ALLOW_PAID_API_CALLS=true`.
+- a guarded live command supporting selected cases and repeated trials that
+  refuses to construct external clients unless `ALLOW_PAID_API_CALLS=true`.
 
 Automated tests remain offline. Paid one-case attempts on September 7 and 10,
 and the earlier September 11 v5 attempt, failed in the production answer composer
@@ -105,6 +124,9 @@ trials, not zero-valued RAGAS scores. The September 11 v6 run completed one
 synthetic case and produced the first measured semantic baseline. It is still only
 one case/repetition: semantic grades remain informational, provisional minima are
 not calibrated release thresholds, and no production-quality claim follows.
+The later September 13 v2 trial on prompt v6 also completed one case; v7 and v8
+then failed before judging. These are different-version observations, not a
+fixed-configuration repeated baseline. See [the verification record](../VERIFICATION_STATUS.md).
 
 ### Initial measured RAGAS cycle, September 11
 
@@ -129,7 +151,8 @@ only the pinned built-in synthetic dataset and writes a private separate sidecar
 It never turns a rejected answer into a sample or calls semantic judges on it.
 Evidence scope is checked before answer composition as well as at the final adapter.
 
-The next measured cycle is staged:
+The historical September 11 cycle was staged as follows. The current five-case
+v3 campaign above supersedes this one-case-first plan:
 
 1. Finish offline checks for the answer boundary, opt-in diagnostic capture,
    existing five-case dataset, metric input separation, and honest failure reporting.
@@ -170,8 +193,9 @@ dataset references are not rewritten to make a trial pass. The grounding
 refinement below adds independently derived application facts only at the answer
 grading boundary.
 
-The next paid step is one separately authorized synthetic case, not an automatic
-rerun of the dataset. Offline adapter tests cannot establish live model quality.
+At that September 10 checkpoint, the proposed next paid step was one separately
+authorized synthetic case. The current v3 campaign replaces that plan; offline
+adapter tests still cannot establish live model quality or authorize paid work.
 
 ### Independent application grounding, September 10
 
@@ -203,9 +227,9 @@ Grader version `ragas-0.4-adapter-v2` marks the changed semantics. Baseline
 comparison rejects mismatched grader versions, including nonblocking metrics.
 The tests prove input separation and that a generated "$999 approved" answer
 cannot replace independent "$120 proposed, no approval" facts. Offline judge
-doubles do not establish semantic accuracy. The next paid step remains one
-separately authorized expanded run; one live synthetic score exists, but it is not
-yet a calibrated release baseline.
+doubles do not establish semantic accuracy. The separately authorized v3 campaign
+at the top of this document is the current next step. Historical one-case scores
+do not constitute a calibrated release baseline.
 
 The repository now contains a seven-case synthetic refund-agent dataset and a
 deterministic in-process adapter for the existing LangGraph intake/proposal
@@ -488,21 +512,20 @@ before measuring the dataset would create misleading gates.
 
 ## Delivery sequence
 
-1. Build framework-neutral evaluation case, trial, grader, and report contracts.
-2. Connect the existing Knowledge/RAG retrieval evaluator through an adapter.
-3. Add RAGAS answer and context graders with deterministic fakes for tests.
-   Implemented offline; the one-case completed baseline is recorded, while a
-   complete/full-dataset paid baseline remains pending.
-4. Create the reviewed refund RAG and answer dataset. The five-case seed and
-   candidate 10-development/5-held-out expansion are implemented offline; owner
-   review, broader coverage, and the complete/full-dataset paid baseline remain
-   pending.
-5. Expand refund-agent sandbox coverage beyond the current deterministic
-   intake/proposal adapter.
-6. Add Temporal, approval, confirmation, provider, and reconciliation
+1. Framework-neutral case, trial, grader and report contracts: implemented.
+2. Knowledge/RAG retrieval adapter: implemented with offline tests.
+3. RAGAS answer/context graders and test doubles: implemented. Historical
+   one-case semantic results exist, not a calibrated full-dataset baseline.
+4. Dataset preparation: five v3 seed references approved; ten development and
+   five held-out candidates implemented but still pending owner review. Next,
+   review the completed fixed-version 15-trial campaign's actual answers and judge
+   disagreements, then freeze the bounded report. Do not silently retry failures.
+5. Notify the owner, obtain export approval, then add LangSmith experiments.
+6. Add the official tau-three Retail adapter and keep its scores separate.
+7. Expand refund-agent sandbox coverage beyond the current seven core intake
+   cases and separate retrieval-outage case.
+8. Add Temporal, approval, confirmation, provider, and reconciliation
    simulations, then expand trajectory coverage and repeated trials.
-7. Export experiments and traces to LangSmith.
-8. Add the official tau-three Retail adapter and keep its scores separate.
 9. Add a read-only order-status journey to evaluate supervisor routing.
 10. Add production sampling and online evaluation after observability exists.
 

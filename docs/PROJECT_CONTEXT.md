@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-09-12
+Last updated: 2026-09-14
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -18,6 +18,37 @@ Read it before changing code. It records:
 - the working agreements for making changes.
 
 No credentials or `.env` values belong in this file or in Git.
+
+Current checkpoint: evaluation code and answer safeguards are pushed on `dev`
+at `87ab48f` and included in pushed `main` merge `97028db`. Merged-code checks
+recorded 586 passing tests across five services, with four optional Human
+Operations database tests skipped. See [Verification Status](VERIFICATION_STATUS.md)
+for the exact scope; this is not a new full-stack or paid-model test.
+
+The current seed is `refund-rag-answer-v3.json`, with five owner-approved
+references. The measured answer prompt was `refund-answer-v8`. The authorized September 14
+campaign attempted five cases three times: five answers scored, ten rejected,
+zero cases passed all repetitions. It used 204,047 measured tokens and all 95
+recorded provider invocations succeeded. See
+[the v3 baseline](evaluation/RAGAS_V3_BASELINE.md) for scores, offline diagnosis
+and private artifacts. The next work is owner review and human/judge comparison,
+not another paid campaign. Human calibration remains pending. Notify the owner
+before LangSmith begins; no export or Tau run has happened. Code, guards and
+fixtures were unchanged during measurement. See
+[the evaluation strategy](evaluation/EVALUATION_STRATEGY.md).
+
+The subsequent approved local answer change uses `refund-answer-v9`. One shared
+policy catalog supplies Node workflow rules and Python monetary explanations;
+Edge signs its configured policy version and catalog hash in the agent-specific
+assertion. A presentation purpose can select concise wording, never approval.
+See [the implementation plan](superpowers/plans/2026-09-14-trusted-refund-answers.md)
+and [Verification Status](VERIFICATION_STATUS.md) for its current checks. No v9
+live scores replace the measured v3 campaign.
+
+The dated notes below preserve implementation history. Older test counts, prompt
+versions and proposed next steps are not the current checkpoint. The positive
+photo-gated refund test is complete; a fresh paid browser answer-wording check
+remains pending separately.
 
 Local login tokens now default to seven days (604800 seconds), as requested on
 September 11. Both configured customer and staff tokens were renewed with the
@@ -60,7 +91,7 @@ diagnostic captured "Ensure your request is within 30 calendar days of delivery.
 The guard rejected personalized, unqualified wording despite the supported
 general policy window. The earlier September 11 prompt `refund-answer-v5` added
 conditional examples, but its live trial was also rejected before grading.
-The latest `refund-answer-v6` change distinguishes a bounded set of complete
+The September 11 `refund-answer-v6` change distinguished a bounded set of complete
 uncertainty sentences from customer-eligibility decisions, replacing accepted
 uncertainty with an application-owned qualification. Mixed unsafe claims remain
 blocked. Explicitly enabled synthetic diagnostics preserve rejected answers in
@@ -90,8 +121,9 @@ execution was performed for this offline expansion.
 The same follow-up adds opt-in content-free provider usage (`usage.py` and
 `--usage-output-path`), optional versioned cost estimates, and stricter
 `compare_runs()` compatibility/system-error reporting. The full Evaluation
-Runner suite passed 208 tests. These are evaluation-tooling improvements, not
-production tracing or proof that the remaining cases have achieved good scores.
+Runner suite passed 208 tests at that checkpoint. These are evaluation-tooling
+improvements, not production tracing or proof that the remaining cases have
+achieved good scores.
 
 September 12 adds the owner-approved `refund-rag-answer-v2.json` seed revision:
 only the damaged-item expected answer and dataset version change. Historical v1
@@ -293,6 +325,7 @@ apps/
     control-knowledge/   control-plane contracts and source-document fixtures
     conversation-runtime/ Node/Fastify conversation service and outbox
     edge-api/            Node/Fastify customer auth, context signing, routing
+    evaluation-runner/   Python datasets, graders, repeated trials, and reports
     human-operations/    staff authorization and Temporal decision API
     integration-gateway/ Node/Fastify Vendure adapter, REST projection, MCP server
     knowledge-rag/       Python ingestion, retrieval, reranking, and RAG evaluation
@@ -392,8 +425,9 @@ The Python Agent Runtime contains:
 - a grounded answer composer that can cite only chunks returned by that retrieval;
 - trusted public order references and product names in answer input, with safe
   fallback on explicit conflicting order labels;
-- application-owned proposed USD formatting, prompt `refund-answer-v6`, and
-  bounded monetary-prose checks; these do not replace factuality evaluations;
+- application-owned USD formatting and policy comparisons, prompt
+  `refund-answer-v9`, internal answer purposes and bounded monetary-prose checks;
+  these do not replace factuality evaluations or authorize refunds;
 - a separately configured answer-model deadline, defaulting to 30 seconds through
   `REFUND_ANSWER_MODEL_TIMEOUT_SECONDS`, with no automatic retry on the
   synchronous customer turn;
@@ -476,6 +510,22 @@ production retrieval quality on a large real corpus.
 Local RAG tests do not make paid API calls. A real evaluation or release
 compilation with `OpenAIEmbeddingProvider` does, so it requires explicit approval
 and a local `OPENAI_API_KEY`.
+
+### Evaluation Runner: committed offline tooling, live qualification pending
+
+`apps/services/evaluation-runner` is a separate Python workload in the Control
+and Knowledge boundary. It owns versioned cases, trial records, deterministic
+graders, RAGAS adapters, repeated runs, usage sidecars and compatible baseline
+comparison. The runtime does not import its grading logic.
+
+The current reviewed RAG seed has five v3 references. Historical v1/v2 remain
+preserved; ten development and five held-out references still need owner review.
+Seven core agent cases plus a separate retrieval-outage case exercise the real
+LangGraph intake with synthetic dependencies, not Temporal or provider execution.
+Offline tests validate this tooling, not model quality. Completed historical
+one-case semantic measurements do not establish calibrated release gates.
+Read [the Evaluation Runner guide](../apps/services/evaluation-runner/README.md)
+for case locations, commands, metric inputs and paid-run safeguards.
 
 ### Conversation Runtime: committed and pushed
 
@@ -658,6 +708,11 @@ migration to gain autonomous timeout behavior. See `VERIFICATION_STATUS.md`.
 
 ## 8. Current Git state
 
+As recorded on September 14, `dev`/`origin/dev` point to `87ab48f` and
+`main`/`origin/main` to merge `97028db`, with identical trees. Work returned to
+`dev`. Local `.superpowers/` artifacts were preserved and excluded. This is a
+dated snapshot: always inspect Git before changing or publishing new work.
+
 The repository workflow is:
 
 - implementation branch: `dev`
@@ -731,7 +786,7 @@ cd apps/services/agent-runtime
 uv sync --dev
 cd ../knowledge-rag
 uv sync --dev
-cd ../..
+cd ../../..
 ```
 
 ## 11. Local environment files
@@ -1053,7 +1108,7 @@ pnpm --silent local:token
 cd ../human-operations
 pnpm --silent local:token
 
-cd ../..
+cd ../../..
 pnpm dev:customer
 pnpm dev:operations
 ```
@@ -1139,6 +1194,19 @@ uv run pytest
 
 These tests use deterministic local embedding and reranking providers where
 appropriate and do not call OpenAI.
+
+From the repository root, enter Evaluation Runner and run its checks:
+
+```bash
+cd apps/services/evaluation-runner
+uv run ruff check .
+uv run ruff format --check .
+RAGAS_DO_NOT_TRACK=true LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false uv run pytest
+```
+
+These are offline checks, including simulated judge responses, not paid quality
+trials. See [the service guide](../apps/services/evaluation-runner/README.md) for
+optional dependency setup and separately authorized live evaluation.
 
 Run the browser-surface checks from the repository root:
 
@@ -1284,7 +1352,10 @@ parts remain:
 - live model evaluation and release gating for the refund specialist;
 - Kafka topics, event schemas, consumers, and outbox delivery;
 - OpenTelemetry traces, metrics, logs, and audit projections;
-- evaluation datasets, trajectory/tool/policy/safety evaluations, and gates;
+- expanded reference review, live repeated RAGAS measurement, human calibration,
+  LangSmith experiments, public Tau execution and full-workflow evaluation gates;
+  versioned datasets and deterministic intake/tool/policy/safety graders already
+  exist in Evaluation Runner;
 - Admin Console release-management screens and control-plane publication APIs;
 - reproducible Vendure migration/seed/bootstrap;
 - one-command local orchestration for Temporal, OpenSearch, and the application
@@ -1299,21 +1370,30 @@ parts remain:
 
 ## 16. Recommended next sequence
 
-The first local vertical slice is complete. The recommended hardening sequence is:
+The positive local refund slice is verified. Evaluation comes before production
+observability. The current sequence is:
 
-1. Make the local stack reproducible: commit a Vendure bootstrap/seed path and
+1. Review the completed five-case, three-repetition v3 RAGAS campaign with the
+   owner. Keep all failures visible, record human/judge disagreements, and freeze
+   the measured baseline. No perfect score or automatic rerun is required before
+   moving on. Answer-boundary fixes require separate scoped approval.
+2. Notify the owner before starting LangSmith experiment export and inspection,
+   obtain export approval, then add the external Tau retail
+   benchmark adapter. Keep public benchmark scores separate from internal refund
+   cases; full Temporal/human/provider sandbox evaluation remains an extension.
+3. Make the local stack reproducible: commit a Vendure bootstrap/seed path and
    one-command dependency orchestration. A contributor should not need the owner's
    local database to run the browser test.
-2. Add browser component, accessibility, and end-to-end tests for customer intake,
-   confirmation, approval, takeover, and reconciliation status.
-3. Introduce Kafka delivery for the existing transactional Human Operations
+4. Add browser component, accessibility, and end-to-end tests for customer intake,
+   confirmation, approval, takeover, and reconciliation status, including the
+   pending fresh paid browser wording check with separate approval.
+5. Introduce Kafka delivery for the existing transactional Human Operations
    outbox and workflow/audit projections, then add operational monitoring and
    recovery drills for PostgreSQL.
-4. Add OpenTelemetry traces, metrics, structured logs, and the remaining governed
-   evaluation suites before introducing more journeys.
-5. Build the Control Plane and Admin Console release views, then replace local
+6. Add OpenTelemetry traces, metrics and structured logs before production.
+7. Build the Control Plane and Admin Console release views, then replace local
    authentication with Cognito and deploy the single-region AWS slice.
-6. Add the centralized Model Gateway behind the existing model-client interface,
+8. Add the centralized Model Gateway behind the existing model-client interface,
    then move routing, budget enforcement, provider fallback, and model audit
    policy out of individual runtimes.
 

@@ -1,6 +1,6 @@
 # Local Authentication and Secrets
 
-Last updated: 2026-09-11
+Last updated: 2026-09-14
 
 ## The simple mental model
 
@@ -110,6 +110,37 @@ customer ID, conversation ID, workflow ID, request ID, purpose, issuer, audience
 issued-at time, and expiration. The receiver verifies every claim relevant to its
 boundary before using it.
 
+### Automatic refund policy binding
+
+The Agent Runtime assertion also carries an optional `refundPolicy` object:
+
+```json
+{
+  "policyVersion": "refund-policy-v2",
+  "catalogSha256": "<SHA-256 of the exact shared releases.json bytes>"
+}
+```
+
+The placeholder above illustrates the shape, not a usable hash or token. Edge
+chooses the version from `REFUND_POLICY_VERSION`, the same setting used to start
+the refund workflow. The catalog lives in `packages/refund-policy/releases.json`.
+Agent Runtime first verifies the existing signature, identity, audience and
+expiry checks, then verifies the version and catalog fingerprint before using
+its public monetary limits in an answer. The fingerprint is not a secret.
+
+You do not generate, paste or renew this binding. It is created automatically
+inside the existing short-lived assertion. There is no new signing key, login
+token, environment variable or token lifetime. Other service audiences do not
+receive the policy claim. A legacy assertion without it can still authenticate,
+but cannot authorize a monetary-policy explanation. The claim does not approve
+or execute a refund; deterministic policy and Temporal retain that authority.
+
+Deploy Edge, Agent Runtime and Workflow Workers with matching catalog bytes.
+Even a whitespace-only catalog edit changes the fingerprint. Do not work around
+a catalog mismatch by changing tokens or removing the hash check. The package
+must be included in the deployment; the default readers expect the monorepo
+layout, and the Python reader also accepts an explicit catalog path.
+
 ## Signing secret relationships
 
 Values marked "must match" must be identical in the listed services. Every row
@@ -186,6 +217,12 @@ Console was not restarted after `.env` changed.
 An internal `401` or `403` usually means one of the paired service secrets differs,
 an issuer/audience differs, the token expired, or tenant/environment claims do not
 match service configuration.
+
+An Agent Runtime assertion can also be rejected when its signed policy version
+is unknown or its catalog fingerprint differs from the local artifact. This is
+a release/deployment mismatch, not login-token expiry. Check the configured
+version and matching catalog bytes without printing the assertion. Renewing a
+customer token will not repair it.
 
 Use this recovery order:
 

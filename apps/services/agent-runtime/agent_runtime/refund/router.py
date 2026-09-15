@@ -60,9 +60,7 @@ def get_agent_runtime_context_verifier() -> AgentRuntimeContextVerifier:
     return HmacAgentRuntimeContextVerifier(
         secret=settings.context_assertion_hmac_secret.get_secret_value(),
         expected_issuer=settings.context_assertion_issuer,
-        expected_audience=(
-            settings.agent_runtime_context_assertion_audience
-        ),
+        expected_audience=(settings.agent_runtime_context_assertion_audience),
         expected_tenant_id=settings.tenant_id,
         expected_environment_id=settings.environment_id,
     )
@@ -119,9 +117,7 @@ async def intake_refund(
         )
 
     try:
-        trusted_context = context_verifier.verify(
-            agent_runtime_context_assertion
-        )
+        trusted_context = context_verifier.verify(agent_runtime_context_assertion)
     except AgentRuntimeContextAssertionError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -154,6 +150,7 @@ async def intake_refund(
                 "request_id": trusted_context.request_id,
                 "turn_id": str(uuid4()),
                 "trace_id": trusted_context.trace_id,
+                "refund_policy": trusted_context.refund_policy,
             }
         )
     except OrderLookupUnauthorizedError as error:

@@ -5,6 +5,7 @@ from agent_runtime.integrations.order_lookup import OrderContext
 from agent_runtime.refund.answer import CustomerAnswer
 from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.intent import RefundIntentExtraction
+from agent_runtime.refund.policy import VerifiedRefundPolicy
 from agent_runtime.refund.proposal import RefundProposal
 
 
@@ -15,6 +16,7 @@ class RefundState(TypedDict, total=False):
     order_context: OrderContext | None
     refund_intent: RefundIntentExtraction | None
     refund_proposal: RefundProposal | None
+    refund_policy: VerifiedRefundPolicy | None
     knowledge_evidence: list[CustomerEvidence]
     knowledge_retrieval_status: Literal["retrieved", "unavailable"]
     customer_answer: CustomerAnswer

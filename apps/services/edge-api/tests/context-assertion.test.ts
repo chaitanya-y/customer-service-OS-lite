@@ -60,6 +60,66 @@ test('creates an assertion accepted by the Integration Gateway', async () => {
   });
 });
 
+test('signs a policy binding only when configured for the agent audience', async () => {
+  const refundPolicy = {
+    policyVersion: 'refund-policy-v1',
+    catalogSha256: 'a'.repeat(64),
+  } as const;
+  const signAgentAssertion = createHmacContextAssertionSigner({
+    secret: TEST_SECRET,
+    issuer: 'edge-api',
+    audience: 'agent-runtime',
+    route: {
+      homeRegion: 'local',
+      homeCell: 'local-cell-1',
+      routingEpoch: 1,
+    },
+    refundPolicy,
+    now: () => TEST_NOW,
+    createContextId: () => 'context-1',
+  });
+  const signKnowledgeAssertion = createHmacContextAssertionSigner({
+    secret: TEST_SECRET,
+    issuer: 'edge-api',
+    audience: 'knowledge-rag',
+    route: {
+      homeRegion: 'local',
+      homeCell: 'local-cell-1',
+      routingEpoch: 1,
+    },
+    now: () => TEST_NOW,
+    createContextId: () => 'context-1',
+  });
+  const input = {
+    identity: TEST_IDENTITY,
+    requestId: 'request-1',
+    traceId: 'trace-1',
+    channelId: 'web',
+  };
+
+  const agentPayload = (
+    await jwtVerify(await signAgentAssertion(input), new TextEncoder().encode(TEST_SECRET), {
+      algorithms: ['HS256'],
+      issuer: 'edge-api',
+      audience: 'agent-runtime',
+      currentDate: TEST_NOW,
+      typ: 'cso-context+jwt',
+    })
+  ).payload;
+  const knowledgePayload = (
+    await jwtVerify(await signKnowledgeAssertion(input), new TextEncoder().encode(TEST_SECRET), {
+      algorithms: ['HS256'],
+      issuer: 'edge-api',
+      audience: 'knowledge-rag',
+      currentDate: TEST_NOW,
+      typ: 'cso-context+jwt',
+    })
+  ).payload;
+
+  assert.deepEqual(agentPayload.refundPolicy, refundPolicy);
+  assert.equal(Object.hasOwn(knowledgePayload, 'refundPolicy'), false);
+});
+
 test('refuses to create a self-service assertion for another customer', async () => {
   const sign = createHmacContextAssertionSigner({
     secret: TEST_SECRET,

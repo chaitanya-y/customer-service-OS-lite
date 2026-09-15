@@ -279,6 +279,30 @@ def test_refund_intake_rejects_empty_message() -> None:
     assert response.status_code == 422
 
 
+def test_refund_intake_rejects_public_policy_injection() -> None:
+    response = client.post(
+        "/refunds/intake",
+        headers={
+            CONTEXT_ASSERTION_HEADER: TEST_CONTEXT_ASSERTION,
+            AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER: (
+                TEST_AGENT_RUNTIME_CONTEXT_ASSERTION
+            ),
+            KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
+                TEST_KNOWLEDGE_RAG_CONTEXT_ASSERTION
+            ),
+        },
+        json={
+            "customer_message": "I want a refund.",
+            "refund_policy": {
+                "automatic_maximum_minor": 999_999,
+                "approval_maximum_minor": 999_999,
+            },
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_refund_intake_returns_a_safe_answer_when_order_reference_is_missing() -> None:
     response = client.post(
         "/refunds/intake",

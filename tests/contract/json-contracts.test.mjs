@@ -93,6 +93,46 @@ for (const [contractName, schemaPath] of Object.entries(contracts)) {
   });
 }
 
+test("context assertion accepts only a well-formed optional refund policy binding", async () => {
+  const validate = ajv.getSchema(pathToSchemaId(contracts.contextAssertion));
+  const valid = await readJson(
+    `tests/contract/fixtures/${fixtures.contextAssertion}/valid.json`,
+  );
+
+  assert.equal(
+    validate({
+      ...valid,
+      refundPolicy: {
+        policyVersion: "refund-policy-v1",
+        catalogSha256: "a".repeat(64),
+      },
+    }),
+    true,
+    ajv.errorsText(validate.errors),
+  );
+  assert.equal(
+    validate({
+      ...valid,
+      refundPolicy: {
+        policyVersion: "refund-policy-v1",
+        catalogSha256: "not-a-hash",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    validate({
+      ...valid,
+      refundPolicy: {
+        policyVersion: "refund-policy-v1",
+        catalogSha256: "a".repeat(64),
+        threshold: 1,
+      },
+    }),
+    false,
+  );
+});
+
 function pathToSchemaId(schemaPath) {
   const ids = {
     [contracts.contextAssertion]:

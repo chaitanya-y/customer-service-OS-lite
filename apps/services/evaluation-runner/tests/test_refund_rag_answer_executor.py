@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from agent_runtime.refund.answer import (
     RefundAnswerCompositionError,
     RefundAnswerRejectionCode,
 )
+from agent_runtime.refund.policy import VerifiedRefundPolicy
 from agent_runtime.refund.proposal import RefundProposalBuilder, RefundProposalVersions
 from knowledge_rag.embeddings import EmbeddingModel
 from knowledge_rag.hybrid_retrieval import FusedEvidence
@@ -26,7 +28,16 @@ from evaluation_runner.adapters.refund_rag_answer import (
     RefundRagAnswerExecutor,
     RefundRagAnswerExecutorError,
 )
-from evaluation_runner.models import EvaluationCapability, EvaluationCase
+from evaluation_runner.answer_graders import (
+    PolicyAnswerAuthority,
+    ReviewedPolicyAnswerGrader,
+    read_reviewed_policy_answer,
+)
+from evaluation_runner.models import (
+    EvaluationCapability,
+    EvaluationCase,
+    EvaluationDataset,
+)
 from evaluation_runner.ragas_graders import RagasGrader, RagasMetricName
 
 
@@ -47,6 +58,16 @@ def make_request() -> KnowledgeAnswerRequest:
             "scope": "FULL_ORDER",
             "requested_amount_minor": 12000,
         },
+    )
+
+
+def make_verified_policy() -> VerifiedRefundPolicy:
+    return VerifiedRefundPolicy(
+        policy_version="refund-policy-v1",
+        catalog_sha256="a" * 64,
+        currency="USD",
+        automatic_maximum_minor=10_000,
+        approval_maximum_minor=50_000,
     )
 
 
@@ -248,7 +269,7 @@ def test_refund_rag_executor_reuses_retrieval_and_production_answer_contracts() 
     assert result.versions == {
         "application_facts": "synthetic-refund-facts-v1",
         "answer_model": "fake-answer-model",
-        "answer_prompt": "refund-answer-v8",
+        "answer_prompt": "refund-answer-v9",
         "embedding_model": "fake:fake-embedding:v1:3",
         "knowledge_release": "refund-policy-2026-08-01",
         "reranker_model": "fake:fake-reranker:v1",
@@ -360,13 +381,154 @@ def test_refund_rag_executor_attaches_privacy_safe_rejected_answer_diagnostic() 
         "versions": {
             "application_facts": "synthetic-refund-facts-v1",
             "answer_model": "fake-answer-model",
-            "answer_prompt": "refund-answer-v8",
+            "answer_prompt": "refund-answer-v9",
             "embedding_model": "fake:fake-embedding:v1:3",
             "knowledge_release": "refund-policy-2026-08-01",
             "reranker_model": "fake:fake-reranker:v1",
         },
     }
     assert "Photo evidence" not in diagnostic.model_dump_json()
+
+
+def test_executor_passes_verified_policy_and_reports_independent_policy_facts() -> None:
+    composer = RecordingAnswerComposer()
+    executor = RefundRagAnswerExecutor(
+        retrieval_executor=RecordingRetrievalExecutor(),
+        embedding_model=EmbeddingModel(
+            provider="fake",
+            model_name="fake-embedding",
+            model_version="v1",
+            dimension=3,
+        ),
+        answer_composer=composer,
+        proposal_builder=make_proposal_builder(),
+        answer_model="fake-answer-model",
+        refund_policy=make_verified_policy(),
+    )
+
+    result = asyncio.run(executor.execute(make_request(), repetition=1))
+
+    assert composer.calls[0]["refund_policy"] == make_verified_policy()
+    assert "Automatic-approval limit: USD 100.00." in result.application_facts
+    assert "Specialist-review threshold: USD 500.00." in result.application_facts
+    assert result.versions["refund_policy"] == "refund-policy-v1"
+    assert result.versions["refund_policy_catalog_sha256"] == "a" * 64
+
+
+def test_executor_uses_production_amount_renderer_without_model_money_input() -> None:
+    class AmountReviewModel:
+        def __init__(self) -> None:
+            self.messages = []
+
+        def with_structured_output(self, *args, **kwargs):
+            del args, kwargs
+            return self
+
+        async def ainvoke(self, messages):
+            self.messages = messages
+            return {
+                "message": "The requested amount needs review.",
+                "citations": [],
+                "purpose": "amount_review",
+            }
+
+    model = AmountReviewModel()
+    executor = RefundRagAnswerExecutor(
+        retrieval_executor=RecordingRetrievalExecutor(),
+        embedding_model=EmbeddingModel(
+            provider="fake",
+            model_name="fake-embedding",
+            model_version="v1",
+            dimension=3,
+        ),
+        answer_composer=LangChainRefundAnswerComposer(model),  # type: ignore[arg-type]
+        proposal_builder=make_proposal_builder(),
+        answer_model="fake-answer-model",
+        refund_policy=make_verified_policy(),
+    )
+
+    result = asyncio.run(executor.execute(make_request(), repetition=1))
+
+    assert result.response == (
+        "Your requested refund of $120 is above the $100 automatic-approval limit "
+        "and at or below the $500 specialist-review threshold, so it requires "
+        "human approval."
+    )
+    assert result.citations == []
+    model_input = model.messages[1].content
+    assert "requestedAmount" not in model_input
+    assert "10000" not in model_input
+    assert "50000" not in model_input
+
+
+def test_v4_policy_grader_accepts_real_executor_and_production_renderer() -> None:
+    class AmountReviewModel:
+        def with_structured_output(self, *args, **kwargs):
+            del args, kwargs
+            return self
+
+        async def ainvoke(self, messages):
+            del messages
+            return {
+                "message": "Untrusted model wording is replaced.",
+                "citations": [],
+                "purpose": "amount_review",
+            }
+
+    fixture_path = (
+        Path(__file__).parent.parent
+        / "fixtures"
+        / "evaluation-datasets"
+        / "refund-rag-answer-v4.json"
+    )
+    dataset = EvaluationDataset.model_validate_json(fixture_path.read_bytes())
+    case = next(
+        item
+        for item in dataset.cases
+        if item.case_id == "large-refund-review-answer-v1"
+    )
+    catalog_sha256 = "d8d4d4075c18462e9ba455d61edf2b80dd6d89259ff01fadcd5042b35d8bd1e7"
+    policy = VerifiedRefundPolicy(
+        policy_version="refund-policy-v2",
+        catalog_sha256=catalog_sha256,
+        currency="USD",
+        automatic_maximum_minor=10_000,
+        approval_maximum_minor=50_000,
+    )
+    executor = RefundRagAnswerExecutor(
+        retrieval_executor=RecordingRetrievalExecutor(),
+        embedding_model=EmbeddingModel(
+            provider="fake",
+            model_name="fake-embedding",
+            model_version="v1",
+            dimension=3,
+        ),
+        answer_composer=LangChainRefundAnswerComposer(AmountReviewModel()),  # type: ignore[arg-type]
+        proposal_builder=make_proposal_builder(),
+        answer_model="fake-answer-model",
+        refund_policy=policy,
+    )
+    sample = asyncio.run(
+        KnowledgeAnswerEvaluatedSystem(executor=executor).run(case, repetition=1)
+    )
+    expected = read_reviewed_policy_answer(case)
+
+    result = asyncio.run(
+        ReviewedPolicyAnswerGrader(
+            authority=PolicyAnswerAuthority(
+                expectation=expected,
+                catalog_sha256=catalog_sha256,
+            )
+        ).grade(case, sample)
+    )
+
+    assert sample.output["response"] == (
+        "Your requested refund of $750 is above the $500 specialist-review "
+        "threshold, so it requires specialist review before it can be approved."
+    )
+    assert sample.output["citations"] == []
+    assert result.passed is True
+    assert result.blocking is True
 
 
 @pytest.mark.parametrize(

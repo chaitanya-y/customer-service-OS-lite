@@ -9,12 +9,14 @@ from agent_runtime.integrations.customer_evidence import CustomerEvidence
 from agent_runtime.integrations.order_lookup import Money, OrderContext
 from agent_runtime.refund.answer import (
     CustomerAnswer,
+    DraftCustomerAnswer,
     LangChainRefundAnswerComposer,
     RefundAnswerCompositionError,
     build_fallback_customer_answer,
-    format_requested_amount,
 )
 from agent_runtime.refund.intent import RefundIntentExtraction
+from agent_runtime.refund.policy import VerifiedRefundPolicy
+from agent_runtime.refund.presentation import format_requested_amount
 from agent_runtime.refund.proposal import (
     RefundProposalBuilder,
     RefundProposalVersions,
@@ -34,9 +36,11 @@ class FakeStructuredModel:
 class FakeChatModel:
     def __init__(self, structured_model: FakeStructuredModel) -> None:
         self.structured_model = structured_model
+        self.output_schema = None
 
     def with_structured_output(self, *args, **kwargs):
-        del args, kwargs
+        self.output_schema = args[0]
+        del kwargs
         return self.structured_model
 
 
@@ -91,6 +95,110 @@ def make_evidence(
             "reranker_rank": 1,
         }
     )
+
+
+def make_verified_policy() -> VerifiedRefundPolicy:
+    return VerifiedRefundPolicy(
+        policy_version="refund-policy-v1",
+        catalog_sha256="a" * 64,
+        currency="USD",
+        automatic_maximum_minor=10_000,
+        approval_maximum_minor=50_000,
+    )
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_uses_internal_purpose_without_changing_public_shape(
+    order_context: OrderContext,
+) -> None:
+    structured_model = FakeStructuredModel(
+        {
+            "message": "This general guidance is replaced after validation.",
+            "citations": [],
+            "purpose": "amount_review",
+        }
+    )
+    chat_model = FakeChatModel(structured_model)
+    composer = LangChainRefundAnswerComposer(chat_model)  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="Does this amount need review?",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[make_evidence()],
+        refund_policy=make_verified_policy(),
+    )
+
+    assert chat_model.output_schema is DraftCustomerAnswer
+    assert set(answer.model_dump(by_alias=True)) == {"message", "citations"}
+    assert answer.message.startswith("Your requested refund of $100")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "rejection_code"),
+    [
+        ("Order WRONG-1 needs review.", "CONFLICTING_IDENTIFIER"),
+        ("Your $100 request needs review.", "MONEY_TEXT_REJECTED"),
+        ("Your request is eligible.", "DELIVERY_AGE_TEXT_REJECTED"),
+    ],
+)
+async def test_amount_review_still_rejects_unsafe_raw_model_output_before_rendering(
+    order_context: OrderContext,
+    message: str,
+    rejection_code: str,
+) -> None:
+    composer = LangChainRefundAnswerComposer(
+        FakeChatModel(
+            FakeStructuredModel(
+                {"message": message, "citations": [], "purpose": "amount_review"}
+            )
+        )  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RefundAnswerCompositionError) as captured:
+        await composer.compose(
+            customer_message="Does this amount need review?",
+            refund_proposal=make_proposal(order_context),
+            order_context=order_context,
+            knowledge_evidence=[make_evidence()],
+            refund_policy=make_verified_policy(),
+        )
+
+    assert captured.value.reason_code.value == rejection_code
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_keeps_policy_and_trusted_money_out_of_model_input(
+    order_context: OrderContext,
+) -> None:
+    model = FakeStructuredModel(
+        {
+            "message": "The amount needs review.",
+            "citations": [],
+            "purpose": "amount_review",
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    await composer.compose(
+        customer_message="Does this amount need review?",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[make_evidence()],
+        refund_policy=make_verified_policy(),
+    )
+
+    model_input = model.messages[1].content
+    for forbidden in [
+        "requestedAmount",
+        "amountMinor",
+        "refund-policy-v1",
+        "catalogSha256",
+        "10000",
+        "50000",
+    ]:
+        assert forbidden not in model_input
 
 
 @pytest.mark.asyncio
@@ -189,10 +297,7 @@ async def test_answer_composer_sends_display_facts_without_execution_identifiers
     assert proposal.model_dump() == original_proposal
     assert proposal.intent.order_id == "3"
     assert proposal.intent.item_ids == ["3"]
-    assert answer.message == (
-        f"{message}\n\nProposed refund amount: USD 100.00. "
-        "This is a request, not a refund approval."
-    )
+    assert answer.message == (f"{message}\n\nProposed refund: USD 100.00.")
 
 
 @pytest.mark.asyncio
@@ -281,6 +386,81 @@ async def test_answer_composer_allows_order_reference_as_a_policy_noun_phrase(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Order ORDER-123: we will review your request.",
+        "Order reference ORDER-123: we will review your request.",
+    ],
+)
+async def test_answer_composer_allows_valid_order_reference_before_colon(
+    order_context: OrderContext,
+    message: str,
+) -> None:
+    """Removing terminal-delimiter handling would reject a trusted reference."""
+    model = FakeStructuredModel({"message": message, "citations": []})
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="The item arrived damaged.",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[make_evidence()],
+    )
+
+    assert answer.message.startswith(message)
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_rejects_wrong_order_reference_before_colon(
+    order_context: OrderContext,
+) -> None:
+    """Stripping punctuation must not turn a conflicting reference into a match."""
+    model = FakeStructuredModel(
+        {"message": "Order reference WRONGREFERENCE: review pending.", "citations": []}
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    with pytest.raises(RefundAnswerCompositionError) as captured:
+        await composer.compose(
+            customer_message="The item arrived damaged.",
+            refund_proposal=make_proposal(order_context),
+            order_context=order_context,
+            knowledge_evidence=[make_evidence()],
+        )
+
+    assert captured.value.reason_code.value == "CONFLICTING_IDENTIFIER"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reference", "message"),
+    [
+        ("ORDER-123:", "Order reference ORDER-123: review pending."),
+        ("USD123", "Order reference USD123: review pending."),
+    ],
+)
+async def test_answer_composer_preserves_exact_and_money_like_trusted_references(
+    order_context: OrderContext,
+    reference: str,
+    message: str,
+) -> None:
+    """Changing exact-first matching or money masking would reject trusted text."""
+    order_context = order_context.model_copy(update={"reference": reference})
+    model = FakeStructuredModel({"message": message, "citations": []})
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="The item arrived damaged.",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[make_evidence()],
+    )
+
+    assert answer.message.startswith(message)
+
+
+@pytest.mark.asyncio
 async def test_answer_composer_exposes_safe_identifier_rejection_code_internally(
     order_context: OrderContext,
 ) -> None:
@@ -343,10 +523,7 @@ async def test_answer_composer_keeps_legitimate_quantities_and_amounts(
         knowledge_evidence=[make_evidence()],
     )
 
-    assert answer.message == (
-        f"{message}\n\nProposed refund amount: USD 33.30. "
-        "This is a request, not a refund approval."
-    )
+    assert answer.message == (f"{message}\n\nProposed refund: USD 33.30.")
 
 
 @pytest.mark.asyncio
@@ -403,9 +580,7 @@ def test_fallback_preserves_missing_details_and_public_order_reference(
 
     assert fallback.message == (
         "I have captured your refund request for order ORDER-123. "
-        "To continue, please provide: refund reason.\n\n"
-        "Proposed refund amount: USD 100.00. "
-        "This is a request, not a refund approval."
+        "To continue, please provide: refund reason."
     )
     assert fallback.citations == []
 
@@ -492,9 +667,209 @@ async def test_answer_composer_accepts_cited_general_delivery_policy_window(
         f"{message}\n\n"
         "This is policy information, not confirmation that your request qualifies. "
         "Your delivery timing has not been verified.\n\n"
-        "Proposed refund amount: USD 100.00. "
-        "This is a request, not a refund approval."
+        "Proposed refund: USD 100.00."
     )
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_adds_policy_frame_to_supported_delivery_window(
+    order_context: OrderContext,
+) -> None:
+    """Removing app-owned framing would expose an unframed delivery-window claim."""
+    message = (
+        "Damaged-item refund requests are allowed within 30 calendar days of delivery."
+    )
+    model = FakeStructuredModel(
+        {
+            "message": message,
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-003-chunk-001",
+                }
+            ],
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="Refund my damaged item.",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[
+            make_evidence(
+                content=(
+                    "Damaged-item refund requests are allowed within 30 calendar "
+                    "days of delivery."
+                )
+            )
+        ],
+    )
+
+    assert answer.message.startswith(f"According to the published policy, {message}")
+    assert "Your delivery timing has not been verified." in answer.message
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_frames_the_same_normalized_text_it_validates(
+    order_context: OrderContext,
+) -> None:
+    """Repairing raw text would let markdown-obscured unframed policy escape."""
+    message = (
+        "Damaged-item refunds are allowed within **３０** calendar days of delivery."
+    )
+    model = FakeStructuredModel(
+        {
+            "message": message,
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-003-chunk-001",
+                }
+            ],
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="Refund my damaged item.",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[
+            make_evidence(
+                content="Damaged-item refunds are allowed within 30 calendar days of delivery."
+            )
+        ],
+    )
+
+    assert answer.message.startswith(
+        "According to the published policy, Damaged-item refunds are allowed "
+        "within **30** calendar days of delivery."
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer_scope", ["incorrect", "missing"])
+async def test_answer_composer_accepts_one_explicit_incorrect_or_missing_alternative(
+    order_context: OrderContext,
+    answer_scope: str,
+) -> None:
+    """Removing explicit-OR support would reject a valid policy specialization."""
+    message = (
+        f"The published policy allows {answer_scope}-item refund requests within "
+        "30 calendar days of delivery."
+    )
+    model = FakeStructuredModel(
+        {
+            "message": message,
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-004-chunk-001",
+                }
+            ],
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message=f"My item is {answer_scope}.",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[
+            make_evidence(
+                chunk_id="section-004-chunk-001",
+                content=(
+                    "Customers may request a refund within 30 calendar days of "
+                    "delivery when Acme shipped an incorrect item or an item is "
+                    "missing from the delivered order."
+                ),
+            )
+        ],
+    )
+
+    assert answer.message.startswith(message)
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_does_not_narrow_incorrect_and_missing_conjunction(
+    order_context: OrderContext,
+) -> None:
+    """Replacing explicit-OR proof with subset matching would drop a prerequisite."""
+    model = FakeStructuredModel(
+        {
+            "message": (
+                "The published policy allows incorrect-item refund requests within "
+                "30 calendar days of delivery."
+            ),
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-004-chunk-001",
+                }
+            ],
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    with pytest.raises(RefundAnswerCompositionError) as captured:
+        await composer.compose(
+            customer_message="My item is incorrect.",
+            refund_proposal=make_proposal(order_context),
+            order_context=order_context,
+            knowledge_evidence=[
+                make_evidence(
+                    chunk_id="section-004-chunk-001",
+                    content=(
+                        "Customers may request a refund within 30 calendar days of "
+                        "delivery when an item is both incorrect and missing."
+                    ),
+                )
+            ],
+        )
+
+    assert captured.value.reason_code.value == "DELIVERY_AGE_TEXT_REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_does_not_treat_an_unrelated_or_as_policy_alternatives(
+    order_context: OrderContext,
+) -> None:
+    """Matching any nearby OR would incorrectly authorize condition narrowing."""
+    model = FakeStructuredModel(
+        {
+            "message": (
+                "The published policy allows incorrect-item refund requests within "
+                "30 calendar days of delivery."
+            ),
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-004-chunk-001",
+                }
+            ],
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    with pytest.raises(RefundAnswerCompositionError) as captured:
+        await composer.compose(
+            customer_message="My item is incorrect.",
+            refund_proposal=make_proposal(order_context),
+            order_context=order_context,
+            knowledge_evidence=[
+                make_evidence(
+                    chunk_id="section-004-chunk-001",
+                    content=(
+                        "Customers may request a refund within 30 calendar days of "
+                        "delivery when an incorrect item needs photos or a missing "
+                        "item needs an inventory check."
+                    ),
+                )
+            ],
+        )
+
+    assert captured.value.reason_code.value == "DELIVERY_AGE_TEXT_REJECTED"
 
 
 @pytest.mark.asyncio
@@ -809,6 +1184,88 @@ async def test_answer_composer_rejects_personalized_delivery_conclusions_and_dat
 @pytest.mark.parametrize(
     "message",
     [
+        "The request does not meet standard refund eligibility.",
+        (
+            "Since your request concerns a final-sale product and no governed "
+            "exception has yet been verified for the supplied item, it does not "
+            "meet the standard refund eligibility."
+        ),
+    ],
+)
+async def test_answer_composer_rejects_singular_personalized_eligibility_denial(
+    order_context: OrderContext,
+    message: str,
+) -> None:
+    """Dropping the singular subject guard would allow an individual denial."""
+    composer = LangChainRefundAnswerComposer(
+        FakeChatModel(FakeStructuredModel({"message": message, "citations": []}))  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RefundAnswerCompositionError) as captured:
+        await composer.compose(
+            customer_message="What does the final-sale policy mean for me?",
+            refund_proposal=make_proposal(order_context),
+            order_context=order_context,
+            knowledge_evidence=[make_evidence()],
+        )
+
+    assert captured.value.reason_code.value == "DELIVERY_AGE_TEXT_REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_allows_general_plural_eligibility_policy(
+    order_context: OrderContext,
+) -> None:
+    """Broadening the denial matcher to generic policy would create false positives."""
+    message = "Requests that do not meet the published policy are not eligible."
+    model = FakeStructuredModel({"message": message, "citations": []})
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="What does the refund policy say?",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[make_evidence()],
+    )
+
+    assert answer.message.startswith(message)
+
+
+@pytest.mark.asyncio
+async def test_answer_composer_allows_singular_procedural_eligibility_wording(
+    order_context: OrderContext,
+) -> None:
+    """Matching any later eligibility word would reject supported procedure."""
+    message = (
+        "The request must identify the affected item before eligibility can be checked."
+    )
+    model = FakeStructuredModel(
+        {
+            "message": message,
+            "citations": [
+                {
+                    "knowledgeDocumentId": "refund-policy-current-2026-08-01",
+                    "chunkId": "section-003-chunk-001",
+                }
+            ],
+        }
+    )
+    composer = LangChainRefundAnswerComposer(FakeChatModel(model))  # type: ignore[arg-type]
+
+    answer = await composer.compose(
+        customer_message="What information does the request need?",
+        refund_proposal=make_proposal(order_context),
+        order_context=order_context,
+        knowledge_evidence=[make_evidence(content=message)],
+    )
+
+    assert answer.message.startswith(message)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
         # Exact synthetic response from refund-ragas-v7-20260913-001.
         (
             "To request a damaged-item refund, please follow these prerequisites "
@@ -961,8 +1418,7 @@ async def test_answer_composer_accepts_general_policy_exception_without_deciding
         f"{message}\n\n"
         "This is policy information, not confirmation that your request qualifies. "
         "Your delivery timing has not been verified.\n\n"
-        "Proposed refund amount: USD 100.00. "
-        "This is a request, not a refund approval."
+        "Proposed refund: USD 100.00."
     )
     assert [citation.chunk_id for citation in answer.citations] == [
         "section-003-chunk-001",
@@ -1120,7 +1576,7 @@ async def test_answer_composer_captures_original_rejected_answer_only_when_enabl
     assert rejected_answer is not model_answer
     model_answer.message = "Provider object mutated after rejection."
     assert rejected_answer.message == message
-    assert "Proposed refund amount" not in rejected_answer.message
+    assert "Proposed refund:" not in rejected_answer.message
 
 
 @pytest.mark.asyncio
@@ -1301,7 +1757,7 @@ async def test_product_and_order_codes_are_not_mistaken_for_currency(
     )
 
     assert answer.message.startswith(message)
-    assert "Proposed refund amount: USD 100.00." in answer.message
+    assert "Proposed refund: USD 100.00." in answer.message
 
 
 @pytest.mark.asyncio
@@ -1340,9 +1796,7 @@ async def test_composer_appends_trusted_money_without_sending_it_to_model(
     assert "167880" not in model.messages[1].content
     assert "1,678.80" not in model.messages[1].content
     assert answer.message == (
-        "Please provide photos of the damage.\n\n"
-        "Proposed refund amount: USD 1,678.80. "
-        "This is a request, not a refund approval."
+        "Please provide photos of the damage.\n\nProposed refund: USD 1,678.80."
     )
     assert answer.citations[0].chunk_id == "section-003-chunk-001"
     assert proposal.model_dump() == original_proposal
@@ -1374,7 +1828,7 @@ async def test_absent_or_unsupported_money_is_not_invented(
     assert format_requested_amount(amount) is None
     assert answer.message == "Please provide photos."
     fallback = build_fallback_customer_answer(proposal, order_context=order_context)
-    assert "Proposed refund amount" not in fallback.message
+    assert "Proposed refund:" not in fallback.message
 
 
 @pytest.mark.asyncio
@@ -1406,7 +1860,7 @@ def test_fallback_does_not_show_amount_from_another_order(
     fallback = build_fallback_customer_answer(proposal, order_context=order_context)
 
     assert "order ORDER-123" in fallback.message
-    assert "Proposed refund amount" not in fallback.message
+    assert "Proposed refund:" not in fallback.message
 
 
 @pytest.mark.asyncio

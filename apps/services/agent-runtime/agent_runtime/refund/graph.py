@@ -263,6 +263,7 @@ def create_compose_customer_answer_node(
                 refund_proposal=refund_proposal,
                 order_context=order_context,
                 knowledge_evidence=knowledge_evidence,
+                refund_policy=state.get("refund_policy"),
             )
         except RefundAnswerCompositionError:
             return {
