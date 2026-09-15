@@ -22,6 +22,7 @@ from agent_runtime.refund.answer import (
     RefundAnswerRejectionCode,
 )
 from agent_runtime.refund.intent import RefundIntentExtraction, RefundReasonCode
+from agent_runtime.refund.policy import VerifiedRefundPolicy
 from agent_runtime.refund.proposal import RefundProposalBuilder
 from knowledge_rag.embeddings import EmbeddingModel
 from knowledge_rag.evaluation import EvidenceReference
@@ -105,6 +106,7 @@ class RefundRagAnswerExecutor:
         proposal_builder: RefundProposalBuilder,
         answer_model: str,
         top_k: int = 3,
+        refund_policy: VerifiedRefundPolicy | None = None,
     ) -> None:
         if not answer_model.strip():
             raise ValueError("answer_model must be non-empty")
@@ -117,6 +119,7 @@ class RefundRagAnswerExecutor:
         self._proposal_builder = proposal_builder
         self._answer_model = answer_model
         self._top_k = top_k
+        self._refund_policy = refund_policy
 
     async def execute(
         self,
@@ -134,7 +137,9 @@ class RefundRagAnswerExecutor:
             ) from error
 
         # Snapshot independent facts before any answer/proposal component runs.
-        application_facts = _build_application_facts(system_context)
+        application_facts = _build_application_facts(
+            system_context, refund_policy=self._refund_policy
+        )
         order_context = _build_synthetic_order_context(
             request=request,
             context=system_context,
@@ -184,6 +189,7 @@ class RefundRagAnswerExecutor:
             request=request,
             result=retrieval_result,
             answer_model=self._answer_model,
+            refund_policy=self._refund_policy,
         )
         try:
             answer = await self._answer_composer.compose(
@@ -191,6 +197,7 @@ class RefundRagAnswerExecutor:
                 refund_proposal=proposal,
                 order_context=order_context,
                 knowledge_evidence=customer_evidence,
+                refund_policy=self._refund_policy,
             )
         except RefundAnswerCompositionError as error:
             raise RefundRagAnswerExecutorError(
@@ -278,8 +285,9 @@ def _build_versions(
     request: KnowledgeAnswerRequest,
     result: RetrievalExecutionResult,
     answer_model: str,
+    refund_policy: VerifiedRefundPolicy | None = None,
 ) -> dict[str, str]:
-    return {
+    versions = {
         "application_facts": "synthetic-refund-facts-v1",
         "answer_model": answer_model,
         "answer_prompt": REFUND_ANSWER_PROMPT_VERSION,
@@ -287,12 +295,24 @@ def _build_versions(
         "knowledge_release": request.knowledge_release_id,
         "reranker_model": _reranker_model_version(result),
     }
+    if refund_policy is not None:
+        versions.update(
+            {
+                "refund_policy": refund_policy.policy_version,
+                "refund_policy_catalog_sha256": refund_policy.catalog_sha256,
+            }
+        )
+    return versions
 
 
-def _build_application_facts(context: RefundAnswerSystemContext) -> list[str]:
+def _build_application_facts(
+    context: RefundAnswerSystemContext,
+    *,
+    refund_policy: VerifiedRefundPolicy | None = None,
+) -> list[str]:
     """Describe fixture truth, not a model verdict or a live workflow outcome."""
     dollars, cents = divmod(context.requested_amount_minor, 100)
-    return [
+    facts = [
         f"Order reference: {context.order_reference}.",
         f"Item name: {context.item_name}.",
         f"Customer-reported refund reason: {context.reason_code}.",
@@ -301,6 +321,26 @@ def _build_application_facts(context: RefundAnswerSystemContext) -> list[str]:
         "No refund has been approved or executed in this evaluation.",
         "Customer delivery timing has not been verified.",
     ]
+    if refund_policy is not None:
+        automatic_dollars, automatic_cents = divmod(
+            refund_policy.automatic_maximum_minor, 100
+        )
+        approval_dollars, approval_cents = divmod(
+            refund_policy.approval_maximum_minor, 100
+        )
+        facts.extend(
+            [
+                (
+                    "Automatic-approval limit: "
+                    f"USD {automatic_dollars:,}.{automatic_cents:02d}."
+                ),
+                (
+                    "Specialist-review threshold: "
+                    f"USD {approval_dollars:,}.{approval_cents:02d}."
+                ),
+            ]
+        )
+    return facts
 
 
 def _build_synthetic_order_context(

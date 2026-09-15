@@ -1,6 +1,6 @@
 # Reference Document Manifest
 
-Last updated: 2026-09-05
+Last updated: 2026-09-14
 
 ## Precedence
 
@@ -26,10 +26,13 @@ any deliberate architecture change.
 - `../architecture/KLEEM_AI_ARCHITECTURE_V1_1.md` is the searchable authoritative
   source for current decisions.
 
-The PDF bytes and checksums above are unchanged. September 5 refund verification
-and subsequent display fixes are in `../VERIFICATION_STATUS.md` and the current
-Markdown, not the older PDF snapshot. Share those Markdown files alongside the
-PDFs when handing off work.
+The PDF bytes and checksums above are unchanged. Later refund/photo verification,
+the separate Evaluation Runner, current RAGAS status and the September 14 Git/test
+checkpoint are recorded in [Verification Status](../VERIFICATION_STATUS.md),
+[the handoff](../CODEX_HANDOFF.md) and
+[the evaluation strategy](../evaluation/EVALUATION_STRATEGY.md), not the older
+PDF snapshot. Share those Markdown files alongside the PDFs when handing off
+work. This documentation update did not regenerate or revalidate PDF rendering.
 
 ## Product files
 

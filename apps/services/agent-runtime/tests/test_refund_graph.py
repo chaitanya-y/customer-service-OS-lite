@@ -29,6 +29,7 @@ from agent_runtime.refund.intent import (
     RefundIntentExtraction,
     RefundIntentExtractionError,
 )
+from agent_runtime.refund.policy import VerifiedRefundPolicy
 from agent_runtime.refund.proposal import (
     RefundProposalBuilder,
     RefundProposalVersions,
@@ -454,6 +455,13 @@ async def test_refund_graph_uses_composer_only_when_rag_evidence_exists(
             "order_reference": "ORDER-123",
             "turn_id": "turn-1",
             "trace_id": "trace-1",
+            "refund_policy": VerifiedRefundPolicy(
+                policy_version="refund-policy-v1",
+                catalog_sha256="a" * 64,
+                currency="USD",
+                automatic_maximum_minor=10_000,
+                approval_maximum_minor=50_000,
+            ),
         }
     )
 
@@ -461,6 +469,7 @@ async def test_refund_graph_uses_composer_only_when_rag_evidence_exists(
     assert result["customer_answer"].citations[0].chunk_id == ("section-003-chunk-001")
     assert composer.calls[0]["knowledge_evidence"] == evidence_lookup.result.evidence
     assert composer.calls[0]["order_context"] is order_context
+    assert composer.calls[0]["refund_policy"].policy_version == "refund-policy-v1"
 
 
 @pytest.mark.asyncio
@@ -571,8 +580,7 @@ async def test_answer_node_falls_back_to_trusted_reference_after_wrong_model_ord
     assert result["customer_answer"].message == (
         "I have captured your refund request for order AVV8JSZH8G6ZZDMX. "
         "We will now continue with the next processing step.\n\n"
-        "Proposed refund amount: USD 1,678.80. "
-        "This is a request, not a refund approval."
+        "Proposed refund: USD 1,678.80."
     )
     assert result["customer_answer"].citations == []
     assert proposal.intent.order_id == "3"

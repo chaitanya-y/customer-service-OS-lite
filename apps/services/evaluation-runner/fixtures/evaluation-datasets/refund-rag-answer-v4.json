@@ -1,0 +1,239 @@
+{
+  "dataset_id": "tenant-local-refund-rag-answer",
+  "dataset_version": "v4",
+  "cases": [
+    {
+      "case_id": "damaged-item-evidence-answer-v1",
+      "name": "Explain damaged-item evidence requirements",
+      "capability": "ANSWER",
+      "input": {
+        "user_input": "My item arrived damaged. What do I need to request a refund?",
+        "tenant_id": "tenant-local",
+        "environment_id": "local",
+        "knowledge_release_id": "refund-policy-2026-08-01",
+        "allowed_classifications": ["CUSTOMER_SAFE"],
+        "locale": "en-US",
+        "as_of": "2026-08-12T12:00:00Z",
+        "system_context": {
+          "order_reference": "EVAL-REFUND-001",
+          "item_name": "Evaluation item",
+          "reason_code": "DAMAGED",
+          "scope": "FULL_ORDER",
+          "requested_amount_minor": 12000
+        }
+      },
+      "expectations": {
+        "reference": "For an item that arrived damaged, the policy allows a refund request within 30 calendar days of delivery. The request must identify the order and affected item. Photo evidence is required before a damaged-item refund can be approved.",
+        "expected_evidence": [
+          {
+            "knowledge_document_id": "refund-policy-current-2026-08-01",
+            "chunk_id": "section-003-chunk-001"
+          }
+        ],
+        "forbidden_classifications": ["INTERNAL"],
+        "minimum_citation_count": 1,
+        "prohibited_claims": [
+          "Your refund is approved",
+          "Photos guarantee a refund"
+        ],
+        "ragas_metrics": [
+          "context_precision",
+          "context_recall",
+          "faithfulness",
+          "response_relevancy",
+          "factual_correctness"
+        ],
+        "semantic_scores_blocking": false
+      },
+      "tags": ["rag", "answer", "refund", "damaged-item", "evidence"]
+    },
+    {
+      "case_id": "incorrect-item-verification-answer-v1",
+      "name": "Explain incorrect-item verification",
+      "capability": "ANSWER",
+      "input": {
+        "user_input": "Acme sent me the wrong item. Can I request a refund?",
+        "tenant_id": "tenant-local",
+        "environment_id": "local",
+        "knowledge_release_id": "refund-policy-2026-08-01",
+        "allowed_classifications": ["CUSTOMER_SAFE"],
+        "locale": "en-US",
+        "as_of": "2026-08-12T12:00:00Z",
+        "system_context": {
+          "order_reference": "EVAL-REFUND-002",
+          "item_name": "Evaluation item",
+          "reason_code": "WRONG_ITEM",
+          "scope": "FULL_ORDER",
+          "requested_amount_minor": 8500
+        }
+      },
+      "expectations": {
+        "reference": "The published policy allows a refund request within 30 calendar days of delivery. Support must verify the order and affected item before considering the refund.",
+        "expected_evidence": [
+          {
+            "knowledge_document_id": "refund-policy-current-2026-08-01",
+            "chunk_id": "section-004-chunk-001"
+          }
+        ],
+        "forbidden_classifications": ["INTERNAL"],
+        "minimum_citation_count": 1,
+        "prohibited_claims": [
+          "Your refund is approved",
+          "Order verification is unnecessary"
+        ],
+        "ragas_metrics": [
+          "context_precision",
+          "context_recall",
+          "faithfulness",
+          "response_relevancy",
+          "factual_correctness"
+        ],
+        "semantic_scores_blocking": false
+      },
+      "tags": ["rag", "answer", "refund", "incorrect-item", "verification"]
+    },
+    {
+      "case_id": "final-sale-exception-answer-v1",
+      "name": "Explain final-sale exceptions",
+      "capability": "ANSWER",
+      "input": {
+        "user_input": "Can I get a refund for a final-sale product?",
+        "tenant_id": "tenant-local",
+        "environment_id": "local",
+        "knowledge_release_id": "refund-policy-2026-08-01",
+        "allowed_classifications": ["CUSTOMER_SAFE"],
+        "locale": "en-US",
+        "as_of": "2026-08-12T12:00:00Z",
+        "system_context": {
+          "order_reference": "EVAL-REFUND-003",
+          "item_name": "Evaluation item",
+          "reason_code": "NO_LONGER_NEEDED",
+          "scope": "FULL_ORDER",
+          "requested_amount_minor": 7500
+        }
+      },
+      "expectations": {
+        "reference": "Final-sale products are excluded unless the item arrived damaged or Acme sent the wrong item. This describes policy, not this customer’s eligibility.",
+        "expected_evidence": [
+          {
+            "knowledge_document_id": "refund-policy-current-2026-08-01",
+            "chunk_id": "section-006-chunk-001"
+          }
+        ],
+        "forbidden_classifications": ["INTERNAL"],
+        "minimum_citation_count": 1,
+        "prohibited_claims": [
+          "Final-sale products are always refundable",
+          "Final-sale products can never be refunded"
+        ],
+        "ragas_metrics": [
+          "context_precision",
+          "context_recall",
+          "faithfulness",
+          "response_relevancy",
+          "factual_correctness"
+        ],
+        "semantic_scores_blocking": false
+      },
+      "tags": ["rag", "answer", "refund", "final-sale", "exception"]
+    },
+    {
+      "case_id": "large-refund-review-answer-v1",
+      "name": "Explain specialist review for a larger refund",
+      "capability": "ANSWER",
+      "input": {
+        "user_input": "Will my larger refund request be approved automatically?",
+        "tenant_id": "tenant-local",
+        "environment_id": "local",
+        "knowledge_release_id": "refund-policy-2026-08-01",
+        "allowed_classifications": ["CUSTOMER_SAFE"],
+        "locale": "en-US",
+        "as_of": "2026-08-12T12:00:00Z",
+        "system_context": {
+          "order_reference": "EVAL-REFUND-004",
+          "item_name": "Evaluation item",
+          "reason_code": "OTHER",
+          "scope": "FULL_ORDER",
+          "requested_amount_minor": 75000
+        }
+      },
+      "expectations": {
+        "reference": "Your requested refund of $750 is above the $500 specialist-review threshold, so it requires specialist review before it can be approved.",
+        "expected_evidence": [
+          {
+            "knowledge_document_id": "refund-policy-current-2026-08-01",
+            "chunk_id": "section-007-chunk-001"
+          }
+        ],
+        "forbidden_classifications": ["INTERNAL"],
+        "minimum_citation_count": 0,
+        "prohibited_claims": [
+          "Your refund is automatically approved"
+        ],
+        "reviewed_policy_answer": {
+          "policy_version": "refund-policy-v2",
+          "currency": "USD",
+          "amount_minor": 75000,
+          "automatic_maximum_minor": 10000,
+          "approval_maximum_minor": 50000,
+          "band": "SPECIALIST_REVIEW",
+          "response": "Your requested refund of $750 is above the $500 specialist-review threshold, so it requires specialist review before it can be approved."
+        },
+        "ragas_metrics": [
+          "context_precision",
+          "context_recall",
+          "faithfulness",
+          "response_relevancy",
+          "factual_correctness"
+        ],
+        "semantic_scores_blocking": false
+      },
+      "tags": ["rag", "answer", "refund", "human-review", "customer-safe"]
+    },
+    {
+      "case_id": "provider-processing-answer-v1",
+      "name": "Explain provider refund processing",
+      "capability": "ANSWER",
+      "input": {
+        "user_input": "My refund was submitted. When will it appear in my bank account?",
+        "tenant_id": "tenant-local",
+        "environment_id": "local",
+        "knowledge_release_id": "refund-policy-2026-08-01",
+        "allowed_classifications": ["CUSTOMER_SAFE"],
+        "locale": "en-US",
+        "as_of": "2026-08-12T12:00:00Z",
+        "system_context": {
+          "order_reference": "EVAL-REFUND-005",
+          "item_name": "Evaluation item",
+          "reason_code": "OTHER",
+          "scope": "FULL_ORDER",
+          "requested_amount_minor": 12500
+        }
+      },
+      "expectations": {
+        "reference": "After approval, the general policy says refunds go to the original payment method. Providers may take 5–10 business days to show them; settlement time is not guaranteed.",
+        "expected_evidence": [
+          {
+            "knowledge_document_id": "refund-policy-current-2026-08-01",
+            "chunk_id": "section-008-chunk-001"
+          }
+        ],
+        "forbidden_classifications": ["INTERNAL"],
+        "minimum_citation_count": 1,
+        "prohibited_claims": [
+          "Your bank has completed the refund",
+          "The refund will appear immediately"
+        ],
+        "ragas_metrics": [
+          "context_precision",
+          "context_recall",
+          "faithfulness",
+          "response_relevancy",
+          "factual_correctness"
+        ],
+        "semantic_scores_blocking": false
+      },
+      "tags": ["rag", "answer", "refund", "provider-processing", "settlement"]
+    }
+  ]
+}

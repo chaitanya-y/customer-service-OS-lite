@@ -9,6 +9,11 @@ from jwt import InvalidTokenError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from agent_runtime.integrations.order_lookup import OpaqueId
+from agent_runtime.refund.policy import (
+    RefundPolicyBinding,
+    VerifiedRefundPolicy,
+    verify_refund_policy,
+)
 
 AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER = "x-cso-agent-context-assertion"
 
@@ -71,6 +76,9 @@ class ContextAssertionClaims(BaseModel):
     purpose: Literal["customer_support"]
     route: ContextRoute
     request: ContextRequest
+    refund_policy: RefundPolicyBinding | None = Field(
+        default=None, alias="refundPolicy"
+    )
     iss: str = Field(min_length=1, max_length=200)
     aud: str = Field(min_length=1, max_length=200)
     iat: int = Field(ge=0)
@@ -79,9 +87,7 @@ class ContextAssertionClaims(BaseModel):
     @model_validator(mode="after")
     def validate_self_service_binding(self) -> ContextAssertionClaims:
         if self.actor.principal_id != self.subject.customer_id:
-            raise ValueError(
-                "Self-service principal must match the subject customer"
-            )
+            raise ValueError("Self-service principal must match the subject customer")
 
         return self
 
@@ -98,6 +104,7 @@ class VerifiedAgentRuntimeContext(BaseModel):
     request_id: str = Field(min_length=1)
     trace_id: str = Field(min_length=1)
     routing_epoch: int = Field(ge=1)
+    refund_policy: VerifiedRefundPolicy | None = None
 
 
 class AgentRuntimeContextVerifier(Protocol):
@@ -117,9 +124,7 @@ class HmacAgentRuntimeContextVerifier:
         now: Callable[[], datetime] | None = None,
     ) -> None:
         if len(secret.encode("utf-8")) < 32:
-            raise ValueError(
-                "Context assertion secret must contain at least 32 bytes"
-            )
+            raise ValueError("Context assertion secret must contain at least 32 bytes")
 
         self._secret = secret
         self._expected_issuer = expected_issuer
@@ -134,10 +139,7 @@ class HmacAgentRuntimeContextVerifier:
                 raise AgentRuntimeContextAssertionError()
 
             header = jwt.get_unverified_header(assertion)
-            if (
-                header.get("alg") != "HS256"
-                or header.get("typ") != "cso-context+jwt"
-            ):
+            if header.get("alg") != "HS256" or header.get("typ") != "cso-context+jwt":
                 raise AgentRuntimeContextAssertionError()
 
             payload = jwt.decode(
@@ -157,14 +159,19 @@ class HmacAgentRuntimeContextVerifier:
 
             if (
                 claims.tenant.tenant_id != self._expected_tenant_id
-                or claims.tenant.environment_id
-                != self._expected_environment_id
+                or claims.tenant.environment_id != self._expected_environment_id
                 or claims.iat > now_seconds + 30
                 or claims.exp <= now_seconds
                 or claims.exp <= claims.iat
                 or claims.exp - claims.iat > 300
             ):
                 raise AgentRuntimeContextAssertionError()
+
+            refund_policy = (
+                verify_refund_policy(claims.refund_policy)
+                if claims.refund_policy is not None
+                else None
+            )
 
             return VerifiedAgentRuntimeContext(
                 context_id=claims.context_id,
@@ -174,6 +181,7 @@ class HmacAgentRuntimeContextVerifier:
                 request_id=claims.request.request_id,
                 trace_id=claims.request.trace_id,
                 routing_epoch=claims.route.routing_epoch,
+                refund_policy=refund_policy,
             )
         except AgentRuntimeContextAssertionError:
             raise

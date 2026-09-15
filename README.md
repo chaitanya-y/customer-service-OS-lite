@@ -27,6 +27,8 @@ earlier September 5 proof and the later automated wording-safeguard checks.
 | Local customer sign-in and refund intake | Implemented |
 | LangGraph proposal generation, read-only order lookup, and grounded answer | Implemented |
 | Customer-safe RAG over OpenSearch | Implemented |
+| Evaluation Runner, RAGAS adapters, repeated trials, and deterministic agent intake checks | Implemented; v3 campaign measured 15 trials, five scored and ten rejected; human calibration pending |
+| LangSmith experiments and external Tau retail benchmark | Planned; no export or benchmark run yet |
 | Versioned deterministic refund policy | Implemented |
 | Private damage photos and staff evidence review | Local policy v2 slice, including a photo-gated browser-to-provider proof; see the [photo guide](docs/REFUND_PHOTO_EVIDENCE.md) |
 | Temporal confirmation, approval, takeover, provider processing, and reconciliation paths | Implemented |
@@ -42,6 +44,12 @@ The running Human Operations service uses PostgreSQL. Case state, audit events,
 idempotency records, and pending decisions survive service restarts. Its in-memory
 repository remains only as a test and dependency-injection adapter. Production
 deployment, backup, high availability, and Kafka delivery are still future work.
+
+September 14 code checkpoint: `87ab48f` was pushed to `dev` and merged into
+`main` as `97028db`, then pushed after verification. The merged code passed
+586 tests across five changed services; four optional Human Operations database
+tests were skipped. This was not a new browser test or paid evaluation. See
+[the verification record](docs/VERIFICATION_STATUS.md) for scope and warnings.
 
 ## The governed refund boundary
 
@@ -113,6 +121,15 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
   explanation of signing secrets, login tokens, internal assertions, and rotation.
 - [Verification status](docs/VERIFICATION_STATUS.md), what is automated, what has
   been proved manually, and remaining hardening and production work.
+- [Evaluation strategy](docs/evaluation/EVALUATION_STRATEGY.md), the current
+  RAGAS campaign, human review, LangSmith, and Tau sequence.
+- [Evaluation entrypoint](docs/evaluation/README.md), the latest frozen baseline,
+  measured limits, and links to the detailed reports.
+- [Evaluation Runner guide](apps/services/evaluation-runner/README.md), datasets,
+  offline checks, paid-run safeguards, measured usage, and result interpretation.
+- [RAGAS reference review](docs/evaluation/RAGAS_DATASET_REVIEW.md) and
+  [historical baseline review](docs/evaluation/RAGAS_BASELINE_REVIEW.md), approved
+  references versus still-pending human calibration.
 - [Refund photo evidence](docs/REFUND_PHOTO_EVIDENCE.md), upload/review flow,
   code reading order, local setup, limits, and safety boundaries.
 - [Decision log](docs/DECISION_LOG.md), accepted, implemented, and planned choices.
@@ -141,19 +158,32 @@ general delivery-policy explanations only with supporting cited customer-safe
 evidence and an application-owned qualification that delivery timing has not been
 verified. Delivery-date questions and personalized delivery-eligibility claims
 remain prohibited. These are bounded wording checks, not trusted eligibility
-decisions. A fresh paid live browser recheck remains pending. The first complete
-one-case RAGAS trial on September 11 produced all five semantic scores; recall
-and answer relevancy were below the provisional 0.70 threshold. This is a smoke
-result, not a calibrated release baseline; see
-[the baseline review](docs/evaluation/RAGAS_BASELINE_REVIEW.md).
-Earlier September 10 and 11 attempts stopped before semantic grading. The latest
-`refund-answer-v6` boundary replaces a small set of complete uncertainty sentences
-with an application-owned qualification, while still rejecting mixed unsafe
-claims. It does not implement general natural-language eligibility validation.
+decisions. A fresh paid live browser wording recheck remains pending, separately
+from the completed photo-gated refund proof. Historical one-case RAGAS trials
+on September 11 and 13 produced semantic scores, but neither is a calibrated
+release baseline. The measured campaign used `refund-answer-v8`; its September
+13 trial failed at the answer guard before judging, as did v7. The later local
+answer implementation uses `refund-answer-v9`, a signed shared-policy binding
+and purpose-aware presentation. The authorized September 15 v4 trial is the
+first live observation against this boundary and failed its blocking reviewed-
+policy answer check; the baseline is now frozen with human review unresolved.
+See [the closure review](docs/evaluation/RAGAS_CLOSURE_REVIEW.md),
+[the baseline review](docs/evaluation/RAGAS_BASELINE_REVIEW.md) and
+[the trusted-answer design](docs/superpowers/specs/2026-09-14-trusted-refund-answer-design.md).
+The boundary still replaces a small set of complete uncertainty sentences with
+an application-owned qualification and rejects unsafe claims. It does not
+implement general natural-language eligibility validation.
 Opt-in synthetic rejection diagnostics are separate from quality samples; an
-answer rejected by the production guard is not sent to RAGAS judges. Additional
-separately authorized trials and human review are needed to measure consistency
-and judge quality beyond the first completed case.
+answer rejected by the production guard is not sent to RAGAS judges. The September
+14 authorized v3 campaign completed all 15 attempts: five were scored, ten were
+rejected and no case passed all three repetitions. All recorded provider calls
+succeeded; offline replay exposed brittle wording checks, and a scored answer
+exposed missed eligibility wording. See
+[the v3 measured baseline](docs/evaluation/RAGAS_V3_BASELINE.md).
+Human review and judge calibration remain pending. Proceed to LangSmith and Tau
+only after notifying the owner and obtaining any required export approval; no
+automatic paid retry or export is authorized. Fifteen trials is not a fifteen-call
+cost cap.
 The Evaluation Runner separates retrieved policy from independent synthetic
 application facts when judging answers. Its v2 graders have offline coverage,
 but semantic scores are not yet calibrated release gates.

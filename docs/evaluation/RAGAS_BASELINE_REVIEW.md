@@ -6,8 +6,9 @@ Run: `refund-ragas-baseline-20260911-v6-4096-001`
 
 This document preserves historical measured results. The current approved seed
 is dataset v3, which changes four more references and therefore requires a new
-baseline. Its offline preparation passed 232 Evaluation Runner tests; no v3 live
-campaign or human calibration has run. Follow
+baseline. Its offline preparation passed 232 Evaluation Runner tests. The
+September 14 [v3 campaign](RAGAS_V3_BASELINE.md) completed 15 attempts with five
+scored answers and ten validator rejections; human calibration remains pending. Follow
 [Verification Status](../VERIFICATION_STATUS.md) for the latest checkpoint and
 [the reference decisions](RAGAS_DATASET_REVIEW.md) for the approved wording.
 
@@ -118,8 +119,11 @@ does not calibrate the judge, establish production reliability, or set release
 thresholds. Candidate expansion is implemented offline as 10 development and 5
 held-out cases, but all expanded cases remain
 `AGENT_AUTHORED_PENDING_OWNER_REVIEW`; the held-out split is not an independently
-validated benchmark. The next step is independent human double-scoring and
-adjudication, followed by a separately authorized expanded run. LangSmith or
-tau-three integration, observability, and full agent/workflow evaluation remain
-pending. This result uses dataset v1 and grader v2; do not compare across different
-dataset or grader versions.
+validated benchmark. This historical trial still needs independent human
+double-scoring and adjudication. The current project sequence is the separately
+authorized five-case v3 campaign with three repetitions, human review and a
+bounded report, then LangSmith and tau-three integration. Observability and full
+agent/workflow evaluation remain pending. Follow
+[the evaluation strategy](EVALUATION_STRATEGY.md) rather than restarting this
+older one-case plan. This result uses dataset v1 and grader v2; do not compare
+across different dataset or grader versions.

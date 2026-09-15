@@ -2,7 +2,7 @@
 
 Version: 1.1 current architecture edition
 Date: 2026-09-03
-Verification status updated: 2026-09-05
+Implementation and verification status updated: 2026-09-14
 Status: Authoritative for the implemented repository and accepted near-term plan
 
 ## Document authority
@@ -59,6 +59,25 @@ boundaries and safety controls without claiming production scale or reliability.
 9. Customer answers receive only customer-safe knowledge.
 10. Add infrastructure only when the walking journey reaches the boundary.
 
+### Shared policy data for customer explanations
+
+The September 14 approved local change places the unchanged v1/v2 refund rules
+in `packages/refund-policy/releases.json`. Node Workflow Workers read the rules;
+Agent Runtime reads only a verified public projection for monetary explanations.
+Edge signs `refundPolicy.policyVersion` and `catalogSha256` in the agent-specific
+context assertion, using the same configured version that starts Temporal.
+The Python verifier checks the signed binding against the exact catalog bytes.
+Missing legacy bindings carry no monetary-policy authority; unknown versions and
+hash mismatches fail closed. Matching catalog artifacts are required at deployment.
+
+Prompt v9 adds an internal presentation purpose. Application code renders amount
+comparisons and omits irrelevant amount footers; all model-output guards still
+run first. The public answer contract and Temporal's decision authority are
+unchanged. This does not add a Model Gateway, a new login token or another model
+call. See the [design](../superpowers/specs/2026-09-14-trusted-refund-answer-design.md)
+and [verification status](../VERIFICATION_STATUS.md); offline checks are not a
+new RAGAS reliability result.
+
 ## High-level system
 
 ```text
@@ -95,6 +114,7 @@ Agent Runtime 8000                              |
 | Workflow Workers | Node.js, TypeScript, Temporal | Deterministic policy, preview, confirmation, approval, takeover, execution, retries, and reconciliation |
 | Integration Gateway | Node.js, TypeScript, Fastify, PostgreSQL | Vendure adapter, MCP server, authorization, idempotency, refund write, provider events, and audit evidence |
 | Human Operations | Node.js, TypeScript, Fastify, PostgreSQL | Durable cases, staff authorization, claim/reassign, decisions, audit, and Temporal outbox delivery |
+| Evaluation Runner, within Control and Knowledge | Python, RAGAS adapters | Versioned datasets, deterministic and semantic graders, repeated trials, usage reports, and compatible baseline comparison; separate from online runtime |
 
 ## Governed refund sequence
 
@@ -285,9 +305,15 @@ without a canonical schema and compatibility tests.
 
 ## Observability and evaluation
 
-Current code records version evidence and structured service outcomes, and the RAG
-service includes focused retrieval and answer evaluation components. Full
-production observability is not implemented.
+Current code records version evidence and structured service outcomes. Knowledge/RAG
+owns retrieval metrics; the separate Python Evaluation Runner reuses production
+retrieval and answer components with synthetic application facts. It implements
+RAGAS context precision/recall, faithfulness, response relevancy and factual
+correctness, deterministic safety/citation checks, repeated trials, usage sidecars
+and baseline comparison. Seven core intake cases plus a separate retrieval-outage
+case exercise LangGraph with synthetic dependencies, not the full refund workflow.
+Full production observability is not implemented; evaluation usage reports are
+not distributed tracing or a provider bill.
 
 Planned observability:
 
@@ -298,10 +324,13 @@ Planned observability:
   latency, token usage, and cost;
 - audit projections with sensitive-data controls.
 
-Planned evaluation includes retrieval recall and rank metrics, reranker quality,
-answer grounding and citation correctness, specialist and supervisor routing,
-tool selection, trajectory, deterministic policy regression, guardrail/safety,
-human handoff, adversarial cases, and release gates.
+Dataset v3 has five owner-approved references and needs a new live baseline.
+The proposed next step is a separately authorized five-case campaign with three
+repetitions, human review and a bounded report, then LangSmith and the external
+Tau retail benchmark. Historical one-case scores and 232 passing evaluator
+tests do not prove calibration. Full workflow/human/provider simulations, broader
+specialist routing, adversarial coverage and calibrated release gates remain
+pending. See [the evaluation strategy](../evaluation/EVALUATION_STRATEGY.md).
 
 ## Initial AWS target
 
@@ -343,13 +372,19 @@ Implemented and substantially exercised locally:
   retain their original rules; see `docs/REFUND_PHOTO_EVIDENCE.md`.
 
 The positive local exceptional-refund browser-to-provider path passed on
-2026-09-05: supervisor approval, exact customer confirmation, one execution,
-authorized simulated Vendure settlement, normal reconciliation, and an automatic
-completed customer display. This does not prove real bank settlement or all
-production scenarios. See `docs/VERIFICATION_STATUS.md`.
+2026-09-05. A later September 6 proof included the photo gate: replacement-photo
+acceptance, separate supervisor monetary approval, exact customer confirmation,
+one refund and authorized settlement of that existing Vendure refund, followed
+by completed workflow/customer state. A fresh paid browser wording check remains
+pending; real bank settlement and all production scenarios are not proved.
+The September 14 merge check recorded 586 passing tests and four optional
+database skips across five changed services. See
+[Verification Status](../VERIFICATION_STATUS.md) for scope and historical evidence.
 
 Still pending:
 
+- v3 repeated live RAGAS campaign and human calibration, LangSmith, external Tau
+  execution and full refund-workflow evaluation;
 - reproducible Vendure/OpenSearch bootstrap and one-command stack startup;
 - broad browser end-to-end coverage;
 - deterministic delivery-age eligibility and production photo storage, scanning,

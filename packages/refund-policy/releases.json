@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1",
+  "releases": [
+    {
+      "policyVersion": "refund-policy-v1",
+      "supportedCurrency": "USD",
+      "automaticMaximumMinor": 10000,
+      "approvalMaximumMinor": 50000,
+      "elevatedRiskPriorRefundCount": 1,
+      "highRiskPriorRefundCount": 2,
+      "decisionValiditySeconds": 900,
+      "permittedReasonCodes": [
+        "DAMAGED",
+        "DEFECTIVE",
+        "WRONG_ITEM",
+        "NOT_AS_DESCRIBED",
+        "MISSING_ITEM",
+        "LATE_DELIVERY",
+        "NO_LONGER_NEEDED",
+        "OTHER"
+      ]
+    },
+    {
+      "policyVersion": "refund-policy-v2",
+      "supportedCurrency": "USD",
+      "automaticMaximumMinor": 10000,
+      "approvalMaximumMinor": 50000,
+      "elevatedRiskPriorRefundCount": 1,
+      "highRiskPriorRefundCount": 2,
+      "decisionValiditySeconds": 900,
+      "permittedReasonCodes": [
+        "DAMAGED",
+        "DEFECTIVE",
+        "WRONG_ITEM",
+        "NOT_AS_DESCRIBED",
+        "MISSING_ITEM",
+        "LATE_DELIVERY",
+        "NO_LONGER_NEEDED",
+        "OTHER"
+      ],
+      "requireDamagePhoto": true
+    }
+  ]
+}

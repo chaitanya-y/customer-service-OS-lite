@@ -194,6 +194,31 @@ def test_live_run_refuses_before_constructing_external_clients(tmp_path: Path) -
     assert not config.output_path.exists()
 
 
+def test_live_factory_rejects_unknown_policy_before_provider_construction(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pytest.importorskip("agent_runtime")
+    constructed = False
+
+    class RecordingSettings:
+        def __init__(self, **kwargs) -> None:
+            nonlocal constructed
+            del kwargs
+            constructed = True
+
+    monkeypatch.setattr(
+        "knowledge_rag.config.KnowledgeRetrievalSettings", RecordingSettings
+    )
+    config = make_config(tmp_path, allow_paid_api_calls=True).model_copy(
+        update={"refund_policy_version": "refund-policy-unknown"}
+    )
+
+    with pytest.raises(LiveRagEvaluationError, match="construct"):
+        live_module.create_live_refund_answer_system(config)
+
+    assert constructed is False
+
+
 def test_diagnostic_mode_rejects_non_builtin_dataset_before_clients(
     tmp_path: Path,
 ) -> None:
@@ -216,7 +241,7 @@ def test_diagnostic_mode_rejects_non_builtin_dataset_before_clients(
     assert scorer_factory.configs == []
 
 
-@pytest.mark.parametrize("dataset_version", ["v1", "v2", "v3"])
+@pytest.mark.parametrize("dataset_version", ["v1", "v2", "v3", "v4"])
 def test_diagnostic_mode_rejects_changed_builtin_dataset_before_clients(
     monkeypatch,
     tmp_path: Path,
@@ -249,7 +274,7 @@ def test_diagnostic_mode_rejects_changed_builtin_dataset_before_clients(
     assert scorer_factory.configs == []
 
 
-@pytest.mark.parametrize("dataset_version", ["v1", "v2", "v3"])
+@pytest.mark.parametrize("dataset_version", ["v1", "v2", "v3", "v4"])
 def test_diagnostic_mode_rejects_copied_reviewed_dataset_before_clients(
     tmp_path: Path,
     dataset_version: str,

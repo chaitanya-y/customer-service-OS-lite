@@ -1,5 +1,6 @@
 import { createAgentRuntimeClient } from './agent-runtime-client.js';
 import { Connection, WorkflowClient } from '@temporalio/client';
+import { getRefundPolicyBinding } from '../../../../packages/refund-policy/index.mjs';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createConversationRuntimeClient } from './conversation-runtime-client.js';
@@ -38,6 +39,7 @@ const signAgentRuntimeContextAssertion = createHmacContextAssertionSigner({
     homeCell: config.HOME_CELL,
     routingEpoch: config.ROUTING_EPOCH,
   },
+  refundPolicy: getRefundPolicyBinding(config.REFUND_POLICY_VERSION),
 });
 const signKnowledgeRagContextAssertion = createHmacContextAssertionSigner({
   secret: config.CONTEXT_ASSERTION_HMAC_SECRET,

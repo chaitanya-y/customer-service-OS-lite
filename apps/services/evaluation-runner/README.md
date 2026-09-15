@@ -7,30 +7,73 @@ contracts without changing the runner.
 
 ## Current RAG evaluation checkpoint
 
-The owner-approved five-case seed is now
+The newest owner-approved five-case seed is
+`fixtures/evaluation-datasets/refund-rag-answer-v4.json`. Only the large-refund
+case changes from v3: its reviewed application-policy explanation replaces the
+old knowledge-only expectation. See [the v4 source-aware criterion](../../../docs/evaluation/RAGAS_V4_POLICY_ANSWER.md)
+for implementation and verification status. A separately approved single v4
+trial completed on September 15 but failed its blocking policy-answer check:
+the answer stayed generic and retained a RAG citation instead of the required
+USD 750/500 application explanation. See [the measured checkpoint](../../../docs/evaluation/RAGAS_CLOSURE_REVIEW.md)
+for scores, usage and review limits. No retry was performed.
+
+The measured historical seed is
 `fixtures/evaluation-datasets/refund-rag-answer-v3.json`. It retains the v2
 damaged-item reference and corrects the other four references against the
 CUSTOMER_SAFE policy. Inputs, application facts, evidence targets, safety checks
 and grader settings are unchanged. Historical v1/v2 fixtures remain intact.
-Dataset v3 needs a fresh baseline; do not compare its scores to v2 as a prompt
-improvement. See [the reference decisions](../../../docs/evaluation/RAGAS_DATASET_REVIEW.md).
+Dataset v3 has its own measured baseline below; do not compare its scores to v2
+as a prompt improvement. See [the reference decisions](../../../docs/evaluation/RAGAS_DATASET_REVIEW.md).
 
-No v3 paid campaign or human calibration has run. The existing runner supports
-all five cases and repeated trials; no new runner is needed. The proposed bounded
-campaign is five cases times three repetitions, with separate paid-call and
-private-capture approval. Fifteen trials is not a fifteen-call cap: each passing
+The separately authorized v3 campaign completed on September 14: 15 attempts,
+five scored answers, ten validator rejections and no case passing all three
+repetitions. See [the measured report](../../../docs/evaluation/RAGAS_V3_BASELINE.md)
+for scores, 204,047 measured tokens, private artifacts and offline replay findings.
+Human review/calibration remain pending; the next step is reviewing these results,
+not an automatic paid rerun. No new runner is needed. Fifteen trials is not a
+fifteen-call cap: each passing
 answer can trigger multiple judge calls. Answer/query clients disable SDK retries;
 the judge client does not explicitly disable them. Do not promise a hard call or
 cost cap from `--repetitions`.
 
-The current prompt is v8. Its latest v2 trial failed before grading, as did v7;
+The measured campaign used v8. Its historical v2 trial failed before grading, as did v7;
 the v6/v2 damaged-item trial has measured scores. Preserve every failure, report
 the number of scored trials separately, and never average missing scores as
 zero or report only the successful subset as overall reliability. A completed
 trial's pass flag reflects blocking checks, not all semantic minima. Human
-review is still needed. The answer-composer redesign, LangSmith and Tau work are
-separate from this baseline campaign; do not restart prompt-only retries while
-collecting the fixed-version baseline.
+review is still needed. The later local answer implementation uses v9 and the
+trusted policy/purpose boundary described below. LangSmith and Tau work remain
+separate from this completed baseline campaign; do not restart prompt-only retry
+cycles. Notify the owner before beginning LangSmith and obtain export approval.
+
+### Optional trusted refund policy
+
+The live CLI accepts `--refund-policy-version refund-policy-v2` as an explicit
+operator choice. It resolves the shared policy catalog before constructing
+provider clients. This flag is not permission to make paid calls; existing owner
+approval and paid-call controls still apply. Omit it for legacy behavior, which
+has no authority to quote monetary-policy thresholds.
+
+The executor passes the verified projection to the production answer composer.
+Result versions record `refund_policy` and `refund_policy_catalog_sha256`;
+`application_facts` include the independently resolved public limits. Neither
+dataset reference answers nor model-written text supplies those facts. The model
+does not receive this projection or the trusted proposed amount as prompt fields.
+
+Application-only amount explanations intentionally carry no RAG citations. The
+historical v3 fixture still requires at least one citation, so such an answer can
+fail its informational citation check. V4's large-refund case instead requires a
+blocking, independently verified policy-answer check: configured policy version
+and catalog hash, reviewed request amount and limits, correct band, exact reviewed
+text, and zero fabricated RAG citations. Choosing an `amount_review` purpose does
+not satisfy that check. Four other cases retain their existing citation criteria.
+No historical fixture or citation grader is weakened.
+
+For the new large-refund case, explicitly configure
+`--refund-policy-version refund-policy-v2`. Its reviewed expectations are checked before either answer or
+judge clients are constructed. The pre-v4 full suite had 243 passing tests;
+current verification is recorded in [Verification Status](../../../docs/VERIFICATION_STATUS.md).
+Offline checks are not new live RAGAS scores or permission to run paid trials.
 
 ## The evaluation flow
 
@@ -237,7 +280,7 @@ judge embedding model from the guarded command in its version evidence before
 the result artifact is written.
 
 The current seed dataset is
-`fixtures/evaluation-datasets/refund-rag-answer-v3.json`. It contains five
+`fixtures/evaluation-datasets/refund-rag-answer-v4.json`. It contains five
 customer-safe cases: damaged-item evidence, incorrect-item verification,
 final-sale exceptions, larger-refund review wording, and provider-processing
 expectations.
@@ -254,7 +297,7 @@ The evaluator/grader version remains `refund-ragas-v2`; dataset and evaluator
 versions are independent.
 
 Normal runs may enable usage recording. Optional `--rejection-diagnostics-path`
-accepts the exact pinned v1, v2 and v3 fixtures; the path and content pins are
+accepts the exact pinned v1, v2, v3 and v4 fixtures; the path and content pins are
 separate from permission to run a paid trial or retain a rejected answer.
 
 Diagnostic boundary checked on September 13: the live CLI is **not** an
@@ -351,6 +394,7 @@ content pins:
 | `refund-rag-answer-v1.json` | `00aa539c014dfd3d45944c5f8bacc327e1c79dfdaf04b44027bd26a107f533d6` |
 | `refund-rag-answer-v2.json` | `06679dfeb9e3279c29127233e6b694c3eb4a3c1583e334df3cfe4a37f1c7b7b3` |
 | `refund-rag-answer-v3.json` | `1b128ab9db614854d5a76cc27c65966fb8fa234a2231664575f119af20b504de` |
+| `refund-rag-answer-v4.json` | `f080c7c0f5f58cf560e3854a6454c97262bcd260f1af3168fdc6fbca2cea7681` |
 
 Copied/custom datasets and changed fixture content are rejected before clients
 are created. Validation reads the bytes once and passes those verified bytes to

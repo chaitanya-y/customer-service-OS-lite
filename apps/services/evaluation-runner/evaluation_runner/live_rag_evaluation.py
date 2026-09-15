@@ -13,9 +13,14 @@ from knowledge_rag.evaluation import EvidenceReference
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .answer_graders import (
+    AnswerGraderError,
     ExpectedAnswerEvidenceGrader,
     MinimumCitationCountGrader,
+    PolicyAnswerAuthority,
     ProhibitedClaimGrader,
+    ReviewedPolicyAnswerGrader,
+    policy_answer_band,
+    read_reviewed_policy_answer,
 )
 from .models import (
     EvaluationCase,
@@ -66,6 +71,7 @@ class LiveRagEvaluationConfig(BaseModel):
     rejection_diagnostics_path: Path | None = None
     usage_output_path: Path | None = None
     price_schedule_path: Path | None = None
+    refund_policy_version: str | None = Field(default=None, min_length=1)
 
 
 class SyntheticRejectedEvidence(BaseModel):
@@ -134,6 +140,12 @@ _BUILT_IN_REVIEWED_SYNTHETIC_DATASET_SHA256_BY_PATH = {
     / "evaluation-datasets"
     / "refund-rag-answer-v3.json": (
         "1b128ab9db614854d5a76cc27c65966fb8fa234a2231664575f119af20b504de"
+    ),
+    Path(__file__).resolve().parent.parent
+    / "fixtures"
+    / "evaluation-datasets"
+    / "refund-rag-answer-v4.json": (
+        "f080c7c0f5f58cf560e3854a6454c97262bcd260f1af3168fdc6fbca2cea7681"
     ),
 }
 
@@ -274,6 +286,7 @@ async def _run_live_rag_evaluation(
     reviewed_configs = {
         case.case_id: _reviewed_ragas_configuration(case) for case in dataset.cases
     }
+    policy_authorities = _preflight_policy_answer_authorities(dataset, config)
     try:
         underlying_system = system_factory(config)
         captured_rejections: list[SyntheticRejectionDiagnostic] = []
@@ -305,6 +318,11 @@ async def _run_live_rag_evaluation(
             ExpectedAnswerEvidenceGrader(blocking=False),
             MinimumCitationCountGrader(blocking=False),
             ProhibitedClaimGrader(blocking=True),
+            *(
+                [ReviewedPolicyAnswerGrader(authority=policy_authorities[case.case_id])]
+                if case.case_id in policy_authorities
+                else []
+            ),
             *[
                 RagasGrader(
                     metric=metric,
@@ -471,6 +489,83 @@ def _load_selected_dataset(
     return dataset.model_copy(update={"cases": selected_cases})
 
 
+def _preflight_policy_answer_authorities(
+    dataset: EvaluationDataset,
+    config: LiveRagEvaluationConfig,
+) -> dict[str, PolicyAnswerAuthority]:
+    reviewed_cases = [
+        case for case in dataset.cases if "reviewed_policy_answer" in case.expectations
+    ]
+    if not reviewed_cases:
+        return {}
+    if config.refund_policy_version is None:
+        raise LiveRagEvaluationError(
+            "A reviewed policy-answer case requires refund_policy_version."
+        )
+
+    try:
+        from agent_runtime.refund.policy import resolve_refund_policy
+
+        resolved_policy = resolve_refund_policy(config.refund_policy_version)
+    except Exception as error:
+        raise LiveRagEvaluationError(
+            "Could not resolve configured refund policy for reviewed policy answers."
+        ) from error
+
+    authorities: dict[str, PolicyAnswerAuthority] = {}
+    for case in reviewed_cases:
+        try:
+            expected = read_reviewed_policy_answer(case)
+        except AnswerGraderError as error:
+            raise LiveRagEvaluationError(
+                f"Case {case.case_id!r} has malformed reviewed policy answer: {error}."
+            ) from error
+        if expected.policy_version != resolved_policy.policy_version:
+            raise LiveRagEvaluationError(
+                f"Case {case.case_id!r} does not match reviewed policy version."
+            )
+
+        system_context = case.input.get("system_context")
+        input_amount_minor = (
+            system_context.get("requested_amount_minor")
+            if isinstance(system_context, dict)
+            else None
+        )
+        if (
+            isinstance(input_amount_minor, bool)
+            or not isinstance(input_amount_minor, int)
+            or input_amount_minor != expected.amount_minor
+        ):
+            raise LiveRagEvaluationError(
+                f"Case {case.case_id!r} reviewed amount does not match case input."
+            )
+        if expected.currency != resolved_policy.currency:
+            raise LiveRagEvaluationError(
+                f"Case {case.case_id!r} reviewed currency does not match resolved policy."
+            )
+        if (
+            expected.automatic_maximum_minor != resolved_policy.automatic_maximum_minor
+            or expected.approval_maximum_minor != resolved_policy.approval_maximum_minor
+        ):
+            raise LiveRagEvaluationError(
+                f"Case {case.case_id!r} does not match resolved policy limits."
+            )
+        resolved_band = policy_answer_band(
+            amount_minor=input_amount_minor,
+            automatic_maximum_minor=resolved_policy.automatic_maximum_minor,
+            approval_maximum_minor=resolved_policy.approval_maximum_minor,
+        )
+        if expected.band is not resolved_band:
+            raise LiveRagEvaluationError(
+                f"Case {case.case_id!r} does not match resolved policy band."
+            )
+        authorities[case.case_id] = PolicyAnswerAuthority(
+            expectation=expected,
+            catalog_sha256=resolved_policy.catalog_sha256,
+        )
+    return authorities
+
+
 def _reviewed_ragas_configuration(case) -> tuple[tuple[RagasMetricName, ...], bool]:
     raw_metrics = case.expectations.get("ragas_metrics")
     if not isinstance(raw_metrics, list) or not raw_metrics:
@@ -630,6 +725,7 @@ def create_live_refund_answer_system(
     """Assemble the existing production RAG and answer components for evaluation."""
     try:
         from agent_runtime.config import RefundProposalSettings
+        from agent_runtime.refund.policy import resolve_refund_policy
         from agent_runtime.refund.proposal import RefundProposalBuilder
         from knowledge_rag.config import KnowledgeRetrievalSettings
         from knowledge_rag.embeddings import OpenAIEmbeddingProvider
@@ -648,6 +744,11 @@ def create_live_refund_answer_system(
             RefundRagAnswerExecutor,
         )
 
+        refund_policy = (
+            resolve_refund_policy(config.refund_policy_version)
+            if config.refund_policy_version is not None
+            else None
+        )
         settings = KnowledgeRetrievalSettings(
             _env_file=config.knowledge_env_path,
         )
@@ -717,6 +818,7 @@ def create_live_refund_answer_system(
             ),
             answer_model=config.answer_model,
             top_k=settings.customer_evidence_top_k,
+            refund_policy=refund_policy,
         )
     except Exception as error:
         raise LiveRagEvaluationError(
@@ -806,6 +908,7 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rejection-diagnostics-path", type=Path)
     parser.add_argument("--usage-output-path", type=Path)
     parser.add_argument("--price-schedule-path", type=Path)
+    parser.add_argument("--refund-policy-version")
     return parser.parse_args(arguments)
 
 
@@ -825,6 +928,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         rejection_diagnostics_path=args.rejection_diagnostics_path,
         usage_output_path=args.usage_output_path,
         price_schedule_path=args.price_schedule_path,
+        refund_policy_version=args.refund_policy_version,
         allow_paid_api_calls=(
             os.environ.get("ALLOW_PAID_API_CALLS", "").lower() == "true"
         ),
