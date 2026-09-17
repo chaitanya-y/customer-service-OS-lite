@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyReply } from 'fastify';
 import { z } from 'zod';
+import type { RequestInstrumentation } from '@cso/observability-node';
 
 import type {
   AgentRuntimeResponse,
@@ -41,6 +42,7 @@ import {
   resolveOrderReference,
   resolveOrderReferenceFromCustomerMessages,
 } from './order-reference.js';
+import { instrumentHttpServer } from './observability.js';
 
 const refundIntakeRequestSchema = z
   .object({
@@ -187,6 +189,7 @@ type BuildAppOptions = {
   now?: () => Date;
   refundJourneyPollIntervalMilliseconds?: number;
   logger?: boolean;
+  telemetry?: RequestInstrumentation;
 };
 
 function extractBearerToken(authorization: string | undefined): string | undefined {
@@ -335,8 +338,23 @@ function buildWorkflowStartInput({
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger
+      ? {
+          serializers: {
+            err: () => ({
+              type: 'application_error',
+              message: 'application error',
+              stack: '',
+            }),
+            req: () => ({}),
+            res: () => ({}),
+          },
+        }
+      : false,
+    logController: new LogController({ disableRequestLogging: true }),
+    forceCloseConnections: true,
   });
+  instrumentHttpServer(app, options.telemetry);
   const createCorrelationId = options.createCorrelationId ?? randomUUID;
   const refundPolicyVersion = options.refundPolicyVersion ?? 'refund-policy-v1';
   const now = options.now ?? (() => new Date());

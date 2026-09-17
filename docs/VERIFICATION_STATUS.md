@@ -1,6 +1,27 @@
 # Verification Status
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
+
+## Latest local observability foundation checkpoint
+
+The first opt-in Edge API / Agent Runtime telemetry slice is implemented on dev
+but not committed. It does not mean platform-wide production observability is
+complete. Historical statements below saying no OpenTelemetry existed predate
+this checkpoint.
+
+A synthetic real-HTTP check produced one three-span trace across Node and Python,
+both services' operation metrics, and correlated fixed completion logs. These
+were retrieved from local Tempo, Prometheus and Loki through Grafana APIs.
+Trace ID: `bc6963ced4e7b904ec335109ee30d5ad`. Canary content was absent before
+export; unauthenticated intake still returned 401. The measured 37 ms includes
+synthetic request checks and is not LLM or refund performance evidence.
+
+The existing project services were not restarted and real `.env` files/tokens
+were not changed. No paid model calls or refund actions occurred. A separate
+local backend is running on loopback 3300/4318. See the
+[runbook](observability/README.md) and [verification ledger](superpowers/plans/2026-09-16-observability-foundation.md)
+for exact tests and remaining checks. LangSmith/Tau and the recorded RAGAS
+outcomes are unchanged.
 
 This file separates implementation, automated evidence, manual evidence, and work
 that still needs proof. A feature existing in code is not the same as an end-to-end

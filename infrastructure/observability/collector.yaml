@@ -1,0 +1,95 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+    path: /ready
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  filter/span_events:
+    error_mode: propagate
+    trace_conditions:
+      - context: spanevent
+        conditions: ['true']
+  transform/privacy:
+    error_mode: propagate
+    trace_statements:
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name", "service.version", "deployment.environment.name"])
+      - context: span
+        statements:
+          - keep_keys(attributes, ["operation", "outcome", "http.request.method", "http.response.status_code", "http.route", "dependency.name", "error.type"])
+          - set(status.message, "")
+    metric_statements:
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name", "service.version", "deployment.environment.name"])
+      - context: datapoint
+        statements:
+          - keep_keys(attributes, ["operation", "outcome", "http.response.status_code"])
+    log_statements:
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name", "service.version", "deployment.environment.name"])
+      - context: log
+        statements:
+          - keep_keys(attributes, ["operation", "outcome", "http.response.status_code", "error.type"])
+          - set(body, "request.completed")
+  batch:
+    timeout: 1s
+    send_batch_size: 128
+    send_batch_max_size: 256
+
+exporters:
+  otlp_http/traces:
+    endpoint: http://127.0.0.1:4418
+    timeout: 2s
+    sending_queue:
+      queue_size: 256
+    retry_on_failure:
+      initial_interval: 1s
+      max_interval: 2s
+      max_elapsed_time: 10s
+  otlp_http/metrics:
+    endpoint: http://127.0.0.1:9090/api/v1/otlp
+    timeout: 2s
+    sending_queue:
+      queue_size: 256
+    retry_on_failure:
+      initial_interval: 1s
+      max_interval: 2s
+      max_elapsed_time: 10s
+  otlp_http/logs:
+    endpoint: http://127.0.0.1:3100/otlp
+    timeout: 2s
+    sending_queue:
+      queue_size: 256
+    retry_on_failure:
+      initial_interval: 1s
+      max_interval: 2s
+      max_elapsed_time: 10s
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/span_events, transform/privacy, batch]
+      exporters: [otlp_http/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/privacy, batch]
+      exporters: [otlp_http/metrics]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/privacy, batch]
+      exporters: [otlp_http/logs]

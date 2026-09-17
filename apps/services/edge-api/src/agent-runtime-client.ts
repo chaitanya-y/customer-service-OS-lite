@@ -3,6 +3,7 @@ import {
   CONTEXT_ASSERTION_HEADER,
   KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER,
 } from './context-assertion.js';
+import type { RequestInstrumentation } from '@cso/observability-node';
 
 export type RefundIntakeRequest = {
   customer_message: string;
@@ -38,6 +39,7 @@ type AgentRuntimeClientOptions = {
   baseUrl: string;
   timeoutMilliseconds?: number;
   fetchImpl?: FetchLike;
+  telemetry?: RequestInstrumentation;
 };
 
 export class AgentRuntimeUnavailableError extends Error {
@@ -51,6 +53,7 @@ export function createAgentRuntimeClient({
   baseUrl,
   timeoutMilliseconds = 10_000,
   fetchImpl = fetch,
+  telemetry,
 }: AgentRuntimeClientOptions): { intakeRefund: IntakeRefund } {
   if (!Number.isInteger(timeoutMilliseconds) || timeoutMilliseconds < 1) {
     throw new Error('Agent Runtime timeout must be a positive integer');
@@ -61,17 +64,25 @@ export function createAgentRuntimeClient({
   return {
     async intakeRefund(request, assertions) {
       try {
-        const response = await fetchImpl(endpoint, {
+        const headers = {
+          'content-type': 'application/json',
+          [AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER]: assertions.agentRuntime,
+          [CONTEXT_ASSERTION_HEADER]: assertions.integrationGateway,
+          [KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER]: assertions.knowledgeRag,
+        };
+        const performRequest = (outgoingHeaders: Headers) => fetchImpl(endpoint, {
           method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            [AGENT_RUNTIME_CONTEXT_ASSERTION_HEADER]: assertions.agentRuntime,
-            [CONTEXT_ASSERTION_HEADER]: assertions.integrationGateway,
-            [KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER]: assertions.knowledgeRag,
-          },
+          headers: outgoingHeaders,
           body: JSON.stringify(request),
           signal: AbortSignal.timeout(timeoutMilliseconds),
         });
+        const response = telemetry?.enabled
+          ? await telemetry.withClientRequest(
+              { operation: 'agent-runtime', method: 'POST' },
+              headers,
+              performRequest,
+            )
+          : await performRequest(new Headers(headers));
 
         return {
           statusCode: response.status,

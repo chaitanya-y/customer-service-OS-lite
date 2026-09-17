@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: CSO
+    orgId: 1
+    folder: Customer Service
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /otel-lgtm/cso-dashboards

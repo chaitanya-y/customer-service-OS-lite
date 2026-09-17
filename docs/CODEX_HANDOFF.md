@@ -1,6 +1,17 @@
 # Codex Handoff
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
+
+Latest local work: the owner approved the first observability foundation batch.
+Edge API and Agent Runtime now have opt-in safe OpenTelemetry instrumentation;
+a separate loopback-only Grafana LGTM backend runs on 3300 with OTLP HTTP on
+4318. The synthetic integration check stored linked spans, metrics and correlated
+logs without paid calls or refunds. See [the observability runbook](observability/README.md)
+and [implementation ledger](superpowers/plans/2026-09-16-observability-foundation.md).
+These changes are uncommitted on dev based on `69dc0354`; existing project
+services and real environment files were not changed or restarted. RAGAS results
+are unchanged; LangSmith, Tau and later observability batches remain deferred.
+Historical Git checkpoints below are not the current worktree status.
 
 Git checkpoint: code commit `87ab48f` is pushed to `dev` and is included in
 pushed `main` merge `97028db`. Both branches had identical code trees at this
