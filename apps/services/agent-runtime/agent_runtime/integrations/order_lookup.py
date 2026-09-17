@@ -1,11 +1,14 @@
 from typing import Annotated, Literal, Protocol
 
 import httpx
+from cso_observability import TelemetryRuntime
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
+
+from agent_runtime.observability import telemetry_runtime
 
 OpaqueId = Annotated[
     str,
@@ -148,6 +151,7 @@ class McpOrderLookupClient:
         context_assertion: str,
         endpoint: str = "http://127.0.0.1:3002/mcp",
         timeout_seconds: float = 10.0,
+        telemetry: TelemetryRuntime | None = None,
     ) -> None:
         assertion = context_assertion.strip()
 
@@ -157,8 +161,13 @@ class McpOrderLookupClient:
         self._context_assertion = assertion
         self._endpoint = endpoint
         self._timeout_seconds = timeout_seconds
+        self._telemetry = telemetry if telemetry is not None else telemetry_runtime
 
     async def lookup_order(self, order_reference: str) -> OrderContext:
+        with self._telemetry.operation("mcp.lookup_order"):
+            return await self._lookup_order(order_reference)
+
+    async def _lookup_order(self, order_reference: str) -> OrderContext:
         reference = order_reference.strip()
 
         if not reference:
@@ -169,6 +178,7 @@ class McpOrderLookupClient:
                 httpx.AsyncClient(
                     timeout=self._timeout_seconds,
                     headers={
+                        **self._telemetry.trace_headers(),
                         CONTEXT_ASSERTION_HEADER: self._context_assertion,
                     },
                 ) as http_client,

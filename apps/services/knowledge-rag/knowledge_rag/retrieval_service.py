@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from cso_observability import TelemetryRuntime
 from pydantic import BaseModel, ConfigDict, Field
 
 from .embeddings import EmbeddingModel, EmbeddingProvider
@@ -57,6 +58,7 @@ class KnowledgeRetrievalService:
         embedding_provider: EmbeddingProvider,
         reranking_provider: RerankingProvider,
         candidate_pool_size: int = 20,
+        telemetry_runtime: TelemetryRuntime | None = None,
     ) -> None:
         if not index_name.strip():
             raise ValueError("index_name must be non-empty")
@@ -69,6 +71,7 @@ class KnowledgeRetrievalService:
         self._embedding_provider = embedding_provider
         self._reranking_provider = reranking_provider
         self._candidate_pool_size = candidate_pool_size
+        self._telemetry_runtime = telemetry_runtime or TelemetryRuntime(enabled=False)
 
     def retrieve(
         self,
@@ -85,34 +88,39 @@ class KnowledgeRetrievalService:
                 "Retrieval request top_k cannot exceed candidate_pool_size."
             )
 
-        query_vector = self._embed_query(request.query_text)
+        with self._telemetry_runtime.operation("rag.query_embedding"):
+            query_vector = self._embed_query(request.query_text)
         candidate_request = request.model_copy(
             update={"top_k": self._candidate_pool_size}
         )
 
-        vector_response = self._client.search(
-            index=self._index_name,
-            body=build_filtered_knn_query(
-                candidate_request,
-                query_vector,
-            ),
-        )
-        keyword_response = self._client.search(
-            index=self._index_name,
-            body=build_filtered_keyword_query(candidate_request),
-        )
+        with self._telemetry_runtime.operation("rag.vector_search"):
+            vector_response = self._client.search(
+                index=self._index_name,
+                body=build_filtered_knn_query(
+                    candidate_request,
+                    query_vector,
+                ),
+            )
+        with self._telemetry_runtime.operation("rag.keyword_search"):
+            keyword_response = self._client.search(
+                index=self._index_name,
+                body=build_filtered_keyword_query(candidate_request),
+            )
 
-        fused_evidence = fuse_retrieval_responses(
-            vector_response=vector_response,
-            keyword_response=keyword_response,
-            top_k=self._candidate_pool_size,
-        )
-        reranked_evidence = rerank_fused_evidence(
-            query_text=request.query_text,
-            candidates=fused_evidence,
-            provider=self._reranking_provider,
-            top_k=request.top_k,
-        )
+        with self._telemetry_runtime.operation("rag.fusion"):
+            fused_evidence = fuse_retrieval_responses(
+                vector_response=vector_response,
+                keyword_response=keyword_response,
+                top_k=self._candidate_pool_size,
+            )
+        with self._telemetry_runtime.operation("rag.rerank"):
+            reranked_evidence = rerank_fused_evidence(
+                query_text=request.query_text,
+                candidates=fused_evidence,
+                provider=self._reranking_provider,
+                top_k=request.top_k,
+            )
 
         return RetrievalExecutionResult(
             request=request,

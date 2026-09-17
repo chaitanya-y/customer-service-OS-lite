@@ -1,8 +1,19 @@
+import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from cso_observability import TelemetryState, initialize_telemetry
+from opentelemetry.sdk._logs.export import (
+    InMemoryLogRecordExporter,
+    SimpleLogRecordProcessor,
+)
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from knowledge_rag.embeddings import (
     DeterministicEmbeddingProvider,
@@ -10,7 +21,7 @@ from knowledge_rag.embeddings import (
 )
 from knowledge_rag.ingestion import KnowledgeDocumentClassification
 from knowledge_rag.opensearch_retrieval import RetrievalRequest
-from knowledge_rag.reranking import DeterministicRerankingProvider
+from knowledge_rag.reranking import DeterministicRerankingProvider, RerankerModel
 from knowledge_rag.retrieval_service import (
     KnowledgeRetrievalService,
     RetrievalServiceError,
@@ -30,6 +41,32 @@ class FakeSearchClient:
     ) -> Mapping[str, Any]:
         self.calls.append({"index": index, "body": dict(body)})
         return self._responses.pop(0)
+
+
+def enabled_runtime():
+    span_exporter = InMemorySpanExporter()
+    metric_reader = InMemoryMetricReader()
+    log_exporter = InMemoryLogRecordExporter()
+    runtime = initialize_telemetry(
+        enabled=True,
+        service_name="knowledge-rag",
+        service_version="test",
+        environment_name="test",
+        state=TelemetryState(),
+        span_processor=SimpleSpanProcessor(span_exporter),
+        metric_reader=metric_reader,
+        log_processor=SimpleLogRecordProcessor(log_exporter),
+    )
+    return runtime, span_exporter, metric_reader, log_exporter
+
+
+def serialized(value: Any) -> str:
+    def default(item: Any) -> Any:
+        if hasattr(item, "__dict__"):
+            return vars(item)
+        return str(item)
+
+    return json.dumps(value, default=default, sort_keys=True)
 
 
 def make_request(
@@ -144,6 +181,126 @@ def test_retrieve_runs_governed_hybrid_retrieval_and_reranking() -> None:
     assert {
         "term": {"knowledge_release_id": "refund-policy-2026-08-01"}
     } in vector_filters
+
+
+def test_retrieve_emits_five_safe_child_stage_spans() -> None:
+    class FakeEmbeddingProvider:
+        model = EmbeddingModel(
+            provider="test",
+            model_name="fake-embedding",
+            model_version="v1",
+            dimension=2,
+        )
+
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[0.25, 0.75]]
+
+    class FakeRerankingProvider:
+        model = RerankerModel(
+            provider="test",
+            model_name="fake-reranker",
+            model_version="v1",
+        )
+
+        def score_documents(
+            self,
+            *,
+            query_text: str,
+            documents: list[str],
+        ) -> list[float]:
+            return [1.0 for _ in documents]
+
+    runtime, span_exporter, metric_reader, log_exporter = enabled_runtime()
+    embedding_provider = FakeEmbeddingProvider()
+    client = FakeSearchClient(
+        make_response(
+            make_hit(
+                chunk_id="damaged-items",
+                content="RAW-CONTENT-CANARY",
+                score=0.9,
+            )
+        ),
+        make_response(
+            make_hit(
+                chunk_id="damaged-items",
+                content="RAW-CONTENT-CANARY",
+                score=12.0,
+            )
+        ),
+    )
+    service = KnowledgeRetrievalService(
+        client=client,
+        index_name="cso-knowledge-acme-local-v1",
+        embedding_provider=embedding_provider,
+        reranking_provider=FakeRerankingProvider(),
+        telemetry_runtime=runtime,
+    )
+    request = make_request(embedding_provider.model, top_k=1).model_copy(
+        update={"query_text": "RAW-QUERY-CANARY"}
+    )
+
+    with runtime.operation("knowledge.retrieve"):
+        result = service.retrieve(request)
+
+    assert len(result.evidence) == 1
+    assert runtime.force_flush() is True
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    parent = spans["knowledge.retrieve"]
+    stage_names = {
+        "rag.query_embedding",
+        "rag.vector_search",
+        "rag.keyword_search",
+        "rag.fusion",
+        "rag.rerank",
+    }
+    assert set(spans) == {"knowledge.retrieve", *stage_names}
+    assert all(
+        spans[name].parent is not None
+        and spans[name].parent.span_id == parent.context.span_id
+        for name in stage_names
+    )
+    exported = serialized(
+        [spans, metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "RAW-QUERY-CANARY" not in exported
+    assert "RAW-CONTENT-CANARY" not in exported
+
+
+def test_retrieve_stage_error_is_recorded_safely_and_propagates_unchanged() -> None:
+    class FailingSearchClient:
+        def __init__(self, error: Exception) -> None:
+            self.error = error
+
+        def search(self, *, index: str, body: Mapping[str, Any]):
+            raise self.error
+
+    runtime, span_exporter, metric_reader, log_exporter = enabled_runtime()
+    embedding_provider = DeterministicEmbeddingProvider(dimension=8)
+    error = RuntimeError("RAW-STAGE-CANARY")
+    service = KnowledgeRetrievalService(
+        client=FailingSearchClient(error),
+        index_name="cso-knowledge-acme-local-v1",
+        embedding_provider=embedding_provider,
+        reranking_provider=DeterministicRerankingProvider(),
+        telemetry_runtime=runtime,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        service.retrieve(make_request(embedding_provider.model))
+
+    assert caught.value is error
+    assert runtime.force_flush() is True
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    assert set(spans) == {"rag.query_embedding", "rag.vector_search"}
+    failed = spans["rag.vector_search"]
+    assert failed.attributes["outcome"] == "server_error"
+    assert failed.attributes["error.type"] == "application_error"
+    assert failed.events == ()
+    assert failed.status.description is None
+    exported = serialized(
+        [spans, metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "RAW-STAGE-CANARY" not in exported
 
 
 def test_retrieve_rejects_an_embedding_model_mismatch() -> None:

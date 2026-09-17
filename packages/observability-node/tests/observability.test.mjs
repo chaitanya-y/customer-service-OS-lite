@@ -106,3 +106,101 @@ test('accepts an IPv6 loopback collector endpoint', async () => {
   assert.equal(telemetry.enabled, true);
   await telemetry.shutdown();
 });
+
+test('inherits only a valid explicitly supplied W3C trace parent', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  const inheritedTraceId = '11111111111111111111111111111111';
+  const request = telemetry.startServerRequest({
+    operation: 'POST /mcp',
+    method: 'POST',
+    traceparent: `00-${inheritedTraceId}-2222222222222222-01`,
+  }, () => {});
+  request.end({ statusCode: 200 });
+
+  const span = exporters.spans.getFinishedSpans()[0];
+  assert.equal(span.spanContext().traceId, inheritedTraceId);
+  assert.equal(span.parentSpanContext?.spanId, '2222222222222222');
+  await telemetry.shutdown();
+});
+
+test('invalid explicitly supplied trace context starts a new root without leaking the value', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  const request = telemetry.startServerRequest({
+    operation: 'GET /health',
+    method: 'GET',
+    traceparent: 'invalid-CANARY-secret',
+  }, () => {});
+  request.end({ statusCode: 200 });
+
+  const span = exporters.spans.getFinishedSpans()[0];
+  assert.equal(span.parentSpanContext, undefined);
+  assert.equal(JSON.stringify({ attributes: span.attributes, events: span.events }).includes('CANARY'), false);
+  await telemetry.shutdown();
+});
+
+test('client observation can preserve provider headers without propagating trace context', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  const response = await telemetry.withClientRequest(
+    { operation: 'vendure.order_lookup', method: 'POST', propagate: false },
+    { 'vendure-api-key': 'CANARY-provider-secret', 'content-type': 'application/json' },
+    async (headers) => {
+      assert.equal(headers.get('traceparent'), null);
+      assert.equal(headers.get('vendure-api-key'), 'CANARY-provider-secret');
+      return { status: 200 };
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const span = exporters.spans.getFinishedSpans()[0];
+  assert.equal(span.name, 'vendure.order_lookup');
+  assert.equal(JSON.stringify({ attributes: span.attributes, events: span.events }).includes('CANARY'), false);
+  await telemetry.shutdown();
+});
+
+test('a server request without a response status is a transport failure without an invented HTTP status', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  const request = telemetry.startServerRequest(
+    { operation: 'GET /test-abort', method: 'GET' },
+    () => {},
+  );
+  request.end({ errorCategory: 'transport_error' });
+
+  const span = exporters.spans.getFinishedSpans()[0];
+  assert.equal(span.status.code, 2);
+  assert.equal(span.attributes.outcome, 'server_error');
+  assert.equal(span.attributes['error.type'], 'transport_error');
+  assert.equal('http.response.status_code' in span.attributes, false);
+  await telemetry.shutdown();
+});

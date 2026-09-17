@@ -32,12 +32,19 @@
       "id": 4, "type": "logs", "title": "Safe correlated request logs",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [{ "refId": "A", "expr": "{service_name=~\"edge-api|agent-runtime\"}", "queryType": "range" }]
+      "targets": [{ "refId": "A", "expr": "{service_name=~\"edge-api|agent-runtime|knowledge-rag|integration-gateway\"}", "queryType": "range" }]
     },
     {
       "id": 5, "type": "text", "title": "Read this dashboard correctly",
       "gridPos": { "x": 0, "y": 16, "w": 24, "h": 4 },
-      "options": { "mode": "markdown", "content": "Local foundation: Edge API and Agent Runtime only. Use Explore with Tempo to search traces and follow correlated logs. Synthetic smoke traffic is not live model performance. Empty rate panels need multiple export samples; no data does not mean zero errors. Refund business decisions and durable audit remain separate." }
+      "options": { "mode": "markdown", "content": "Local opt-in telemetry: Edge API, Agent Runtime, Knowledge/RAG and Integration Gateway. Use Explore with Tempo for dependency spans including Vendure order lookup. Synthetic smoke traffic is not live model performance. Empty rate panels need multiple export samples; no data does not mean zero errors. Refund business decisions and durable audit remain separate." }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "RAG phase duration p95",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(cso_operation_duration_seconds_bucket{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[5m])))", "legendFormat": "{{operation}}" }]
     }
   ]
 }

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Production-oriented knowledge ingestion, retrieval, and evaluation workload"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "cso-observability",
   "beautifulsoup4>=4.13,<5",
   "fastapi>=0.140,<1",
   "pydantic>=2.13,<3",
@@ -29,6 +30,9 @@ dev = [
   "pytest>=9.1,<10",
   "ruff>=0.16,<1"
 ]
+
+[tool.uv.sources]
+cso-observability = { path = "../../../packages/python-observability", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

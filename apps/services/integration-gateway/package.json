@@ -8,14 +8,15 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "node --watch --env-file=.env --import tsx src/server.ts",
+    "dev": "node --watch --env-file=.env --import tsx src/bootstrap.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/bootstrap.js",
     "migrate": "node --env-file=.env --import tsx src/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
+    "@cso/observability-node": "workspace:*",
     "@temporalio/client": "^1.22.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "fastify": "^5.10.0",
@@ -25,6 +26,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@opentelemetry/sdk-trace-base": "2.11.0",
+    "@opentelemetry/sdk-metrics": "2.11.0",
+    "@opentelemetry/sdk-logs": "0.222.0",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.4",
     "@types/pg": "^8.20.4",

@@ -1,12 +1,47 @@
 # Verification Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
-## Latest local observability foundation checkpoint
+## Latest dependency observability checkpoint
 
-The first opt-in Edge API / Agent Runtime telemetry slice is implemented on dev
-but not committed. It does not mean platform-wide production observability is
-complete. Historical statements below saying no OpenTelemetry existed predate
+Second batch approved September 16, with checks September 17 UTC. Uncommitted
+on dev after pushed foundation `4a5cc58` / main merge `cc36be6`.
+
+Passing automated suites: Agent Runtime **200**, Knowledge/RAG **106**, Gateway
+**51**, Edge compatibility **91**, shared Python telemetry **13**, shared Node
+telemetry **8**: **469 tests** across this scope. Gateway typecheck and build,
+scoped Python lint/format and independent review passed. Existing Starlette/httpx
+deprecation warnings remain. No platform-wide test claim is implied.
+
+Final synthetic real-HTTP/MCP dependency check: **14 linked spans**, all three
+services' traces/metrics/logs, canaries absent, **70 ms** synthetic request.
+Trace: `4119c3de1c5ee4526936821287c4a438`. An earlier 14-span run was read back
+from Tempo; Prometheus contains Agent Runtime, RAG and Gateway operation series.
+These timings use fake provider/model/search implementations, not real latency.
+
+The original Edge-to-Agent synthetic smoke also passed after integration: three
+linked spans, all three signals, canaries absent and unauthorized intake 401
+(40 ms synthetic request, no Grafana forwarding on this compatibility run).
+
+Review regression tests cover premature socket close (one error, no fabricated
+HTTP status) and Vendure response-body timeout preservation. Shutdown bounds
+cleanup waits, not guaranteed process termination. No paid calls or refunds occurred.
+
+The owner then approved the local rollout. The observability container was
+recreated without removing its named volume; browser verification showed the
+new RAG phase p95 panel and all four service series. Edge API, Agent Runtime,
+Knowledge/RAG and Integration Gateway were opted in through their ignored local
+`.env` files and restarted. All four health endpoints returned OK. The final
+safe dependency smoke produced 14 linked spans in 73 ms, all three signals,
+canaries absent and trace `4f58122299800dbcdb7d256786b1b3d6` forwarded to
+Grafana. Existing signing secrets and login tokens were not changed.
+See [dependency tracing](observability/DEPENDENCY_TRACING.md).
+
+## Earlier local observability foundation checkpoint
+
+The first opt-in Edge API / Agent Runtime telemetry slice was subsequently
+committed and pushed as `4a5cc58` (main `cc36be6`). Platform-wide production
+observability is not complete. Historical statements saying no OpenTelemetry existed predate
 this checkpoint.
 
 A synthetic real-HTTP check produced one three-span trace across Node and Python,

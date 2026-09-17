@@ -1,17 +1,23 @@
 # Codex Handoff
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
-Latest local work: the owner approved the first observability foundation batch.
-Edge API and Agent Runtime now have opt-in safe OpenTelemetry instrumentation;
-a separate loopback-only Grafana LGTM backend runs on 3300 with OTLP HTTP on
-4318. The synthetic integration check stored linked spans, metrics and correlated
-logs without paid calls or refunds. See [the observability runbook](observability/README.md)
-and [implementation ledger](superpowers/plans/2026-09-16-observability-foundation.md).
-These changes are uncommitted on dev based on `69dc0354`; existing project
-services and real environment files were not changed or restarted. RAGAS results
-are unchanged; LangSmith, Tau and later observability batches remain deferred.
-Historical Git checkpoints below are not the current worktree status.
+Latest local work: the second observability batch extends opt-in tracing to
+Knowledge/RAG phases and Gateway read-only Vendure order lookup. Agent Runtime
+propagates trace context through its real RAG and MCP clients independently of
+signed authorization. Two Sol medium implementation workers completed separate
+slices; scoped independent review passed after two error-path fixes.
+See [the dependency tracing guide](observability/DEPENDENCY_TRACING.md) for files,
+functions, examples, safe synthetic commands and remaining rollout boundaries.
+Foundation dev commit `4a5cc58` and main merge `cc36be6` are already pushed.
+This second batch is uncommitted on dev. The approved local rollout is complete:
+the telemetry container was recreated with its volume preserved; the new RAG
+panel is visible; Edge, Agent Runtime, Knowledge/RAG and Gateway run with opt-in
+settings in ignored local `.env` files; and all four health checks pass. A final
+safe synthetic run stored 14 linked spans and all three signal types. No paid
+model call, refund, signing-secret change or login-token change occurred.
+RAGAS outcomes are unchanged; LangSmith/Tau remain deferred. Historical Git
+checkpoints below are not the current worktree status.
 
 Git checkpoint: code commit `87ab48f` is pushed to `dev` and is included in
 pushed `main` merge `97028db`. Both branches had identical code trees at this

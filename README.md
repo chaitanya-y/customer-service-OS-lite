@@ -38,7 +38,7 @@ earlier September 5 proof and the later automated wording-safeguard checks.
 | Admin Console | Visual foundation only |
 | PostgreSQL Human Operations cases, audit history, idempotency, and decision outbox | Implemented locally |
 | Centralized Model Gateway for routing, budgets, fallback, and provider policy | Planned; Agent Runtime currently calls configured models directly |
-| OpenTelemetry and local Grafana | Edge API and Agent Runtime foundation; [scope and runbook](docs/observability/README.md) |
+| OpenTelemetry and local Grafana | Edge API, Agent Runtime, RAG phases and Gateway order lookup; [scope and runbook](docs/observability/README.md) |
 | Cognito, Kafka, and AWS deployment | Planned |
 
 The running Human Operations service uses PostgreSQL. Case state, audit events,

@@ -4,7 +4,8 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -33,6 +34,17 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 _SAFE_RESOURCE_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10)
 _DEFAULT_EXPORT_TIMEOUT_MILLIS = 1_000
+_OPERATION_NAMES = frozenset(
+    {
+        "knowledge.retrieve",
+        "mcp.lookup_order",
+        "rag.fusion",
+        "rag.keyword_search",
+        "rag.query_embedding",
+        "rag.rerank",
+        "rag.vector_search",
+    }
+)
 _DEFAULT_STATE: TelemetryState | None = None
 _EXPORTER_LOGGERS = (
     "opentelemetry.exporter.otlp.proto.http.trace_exporter",
@@ -132,6 +144,42 @@ class TelemetryRuntime:
             return
         app.add_middleware(_TelemetryMiddleware, runtime=self)
         app.state.cso_telemetry_attached = True
+
+    @contextmanager
+    def operation(self, name: str) -> Iterator[None]:
+        if name not in _OPERATION_NAMES:
+            raise ValueError("operation must use a bounded static name")
+        if not self.enabled:
+            yield
+            return
+
+        assert self._tracer is not None
+        started_at = time.monotonic()
+        with self._tracer.start_as_current_span(
+            name,
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            try:
+                yield
+            except BaseException:
+                self._complete_operation(
+                    span,
+                    name,
+                    "server_error",
+                    started_at,
+                )
+                raise
+            else:
+                self._complete_operation(span, name, "success", started_at)
+
+    def trace_headers(self) -> dict[str, str]:
+        if not self.enabled:
+            return {}
+        carrier: dict[str, str] = {}
+        TraceContextTextMapPropagator().inject(carrier)
+        traceparent = carrier.get("traceparent")
+        return {"traceparent": traceparent} if traceparent is not None else {}
 
     def force_flush(self, timeout_millis: int = 1_000) -> bool:
         if not self.enabled:
@@ -255,6 +303,38 @@ class TelemetryRuntime:
             body="request.completed",
             attributes={
                 **metric_attributes,
+                "trace_id": format(context.trace_id, "032x"),
+                "span_id": format(context.span_id, "016x"),
+            },
+        )
+
+    def _complete_operation(
+        self,
+        span: trace.Span,
+        operation: str,
+        outcome: str,
+        started_at: float,
+    ) -> None:
+        attributes = {"operation": operation, "outcome": outcome}
+        if outcome == "server_error":
+            attributes["error.type"] = "application_error"
+            span.set_status(Status(StatusCode.ERROR))
+        span.set_attributes(attributes)
+
+        elapsed = max(0.0, time.monotonic() - started_at)
+        assert self._completed is not None
+        assert self._duration is not None
+        assert self._logger is not None
+        self._completed.add(1, attributes)
+        self._duration.record(elapsed, attributes)
+        context = span.get_span_context()
+        self._logger.emit(
+            timestamp=time.time_ns(),
+            severity_number=SeverityNumber.INFO,
+            severity_text="INFO",
+            body="operation.completed",
+            attributes={
+                **attributes,
                 "trace_id": format(context.trace_id, "032x"),
                 "span_id": format(context.span_id, "016x"),
             },

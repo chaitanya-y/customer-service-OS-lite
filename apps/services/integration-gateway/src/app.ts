@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { RequestInstrumentation } from '@cso/observability-node';
 
 import type { CommerceProvider } from './commerce.js';
 import { createGetOrderContext } from './get-order-context.js';
@@ -12,6 +13,7 @@ import { registerProviderRefundEventRoutes, type VerifyProviderRefundEventSignat
 import { InMemoryRefundExecutionRepository, type RefundExecutionRepository } from './refund-execution-repository.js';
 import type { VerifyContextAssertion } from './trusted-context.js';
 import type { VerifyWorkflowAccessAssertion } from './workflow-access.js';
+import { instrumentHttpServer } from './observability.js';
 
 type BuildAppOptions = {
   commerceProvider: CommerceProvider;
@@ -22,6 +24,7 @@ type BuildAppOptions = {
   refundExecutionRepository?: RefundExecutionRepository;
   verifyProviderRefundEventSignature?: VerifyProviderRefundEventSignature;
   logger?: boolean;
+  telemetry?: RequestInstrumentation;
 };
 
 export function buildApp(
@@ -30,6 +33,7 @@ export function buildApp(
   const app = Fastify({
     logger: options.logger ?? false,
   });
+  instrumentHttpServer(app, options.telemetry);
 
   app.get('/health', async () => ({
     service: 'integration-gateway',

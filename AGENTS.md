@@ -80,8 +80,10 @@ required skill instructions and relevant canonical contracts are never optional.
   running server's persistence choice.
 - The centralized Model Gateway is planned, not implemented. Agent Runtime calls
   configured provider models directly through its model-client boundary today.
-- Kafka, OpenTelemetry/CloudWatch, Cognito, AWS infrastructure, and voice are
-  planned work.
+- Local opt-in OpenTelemetry covers Edge API, Agent Runtime, Knowledge/RAG and
+  Integration Gateway; see docs/observability/README.md for verification limits.
+  Platform-wide production monitoring/CloudWatch, Kafka, Cognito, AWS infrastructure,
+  and voice remain planned work.
 - The positive local browser-to-provider exceptional-refund test passed on
   2026-09-05. See `docs/VERIFICATION_STATUS.md` for evidence and remaining gaps;
   this is not proof of real bank settlement or all production scenarios.

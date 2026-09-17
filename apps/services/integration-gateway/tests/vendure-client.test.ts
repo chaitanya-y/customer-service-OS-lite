@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { InMemoryLogRecordExporter, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import { InMemoryMetricExporter, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { initializeTelemetry } from '@cso/observability-node';
+
 import { createVendureCommerceProvider } from '../src/vendure-client.js';
+
+function makeTelemetry() {
+  const spans = new InMemorySpanExporter();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    spanProcessor: new SimpleSpanProcessor(spans),
+    metricReader: new PeriodicExportingMetricReader({ exporter: new InMemoryMetricExporter(), exportIntervalMillis: 10 }),
+    logRecordProcessor: new SimpleLogRecordProcessor({ exporter: new InMemoryLogRecordExporter() }),
+  });
+  return { telemetry, spans };
+}
 
 test('Vendure provider authenticates and maps an order with a safe fallback for an empty fulfillment method', async () => {
   let capturedRequest: RequestInit | undefined;
@@ -203,4 +221,94 @@ test('Vendure provider looks up an internal order ID with the order query', asyn
   const body = JSON.parse(String(capturedRequest.body));
   assert.deepEqual(body.variables, { id: '3' });
   assert.match(body.query, /order\(id: \$id\)/);
+});
+
+test('Vendure order lookup emits a static successful child span without forwarding trace context', async (context) => {
+  const { telemetry, spans } = makeTelemetry();
+  context.after(() => telemetry.shutdown());
+  let capturedHeaders = new Headers();
+  const commerceProvider = createVendureCommerceProvider({
+    adminApiUrl: 'http://vendure.test/admin-api',
+    apiKey: 'CANARY-api-key',
+    telemetry,
+    async fetcher(_input, request) {
+      capturedHeaders = new Headers(request?.headers);
+      return Response.json({ data: { orders: { totalItems: 0, items: [] } } });
+    },
+  });
+
+  assert.equal(await commerceProvider.getOrderByReference('MISSING'), null);
+  assert.equal(capturedHeaders.get('vendure-api-key'), 'CANARY-api-key');
+  assert.equal(capturedHeaders.get('traceparent'), null);
+  const span = spans.getFinishedSpans()[0];
+  assert.equal(span.name, 'vendure.order_lookup');
+  assert.equal(span.attributes['http.response.status_code'], 200);
+  assert.equal(span.status.code, 0);
+  assert.equal(JSON.stringify({ attributes: span.attributes, events: span.events }).includes('CANARY'), false);
+  await telemetry.shutdown();
+});
+
+test('Vendure HTTP 200 GraphQL errors are safe application errors in telemetry', async (context) => {
+  const { telemetry, spans } = makeTelemetry();
+  context.after(() => telemetry.shutdown());
+  const commerceProvider = createVendureCommerceProvider({
+    adminApiUrl: 'http://vendure.test/admin-api',
+    apiKey: 'CANARY-api-key',
+    telemetry,
+    async fetcher() {
+      return Response.json({ errors: [{ message: 'CANARY-provider-error' }] });
+    },
+  });
+
+  await assert.rejects(() => commerceProvider.getOrderByReference('CANARY-order'), /GraphQL error/);
+  const span = spans.getFinishedSpans()[0];
+  assert.equal(span.attributes['http.response.status_code'], 200);
+  assert.equal(span.attributes['error.type'], 'application_error');
+  assert.equal(span.status.code, 2);
+  assert.equal(JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }).includes('CANARY'), false);
+  await telemetry.shutdown();
+});
+
+test('Vendure order lookup timeouts use a fixed safe timeout category', async (context) => {
+  const { telemetry, spans } = makeTelemetry();
+  context.after(() => telemetry.shutdown());
+  const commerceProvider = createVendureCommerceProvider({
+    adminApiUrl: 'http://vendure.test/admin-api',
+    apiKey: 'CANARY-api-key',
+    telemetry,
+    async fetcher() {
+      throw new DOMException('CANARY-timeout-detail', 'TimeoutError');
+    },
+  });
+
+  await assert.rejects(() => commerceProvider.getOrderByReference('CANARY-order'), { name: 'TimeoutError' });
+  const span = spans.getFinishedSpans()[0];
+  assert.equal(span.attributes['error.type'], 'timeout');
+  assert.equal(span.status.code, 2);
+  assert.equal(JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }).includes('CANARY'), false);
+  await telemetry.shutdown();
+});
+
+test('Vendure response body timeouts remain timeout errors', async (context) => {
+  const { telemetry, spans } = makeTelemetry();
+  context.after(() => telemetry.shutdown());
+  const commerceProvider = createVendureCommerceProvider({
+    adminApiUrl: 'http://vendure.test/admin-api',
+    apiKey: 'CANARY-api-key',
+    telemetry,
+    async fetcher() {
+      return {
+        ok: true,
+        status: 200,
+        async json() { throw new DOMException('CANARY-body-timeout', 'TimeoutError'); },
+      } as Response;
+    },
+  });
+
+  await assert.rejects(() => commerceProvider.getOrderByReference('CANARY-order'), { name: 'TimeoutError' });
+  const span = spans.getFinishedSpans()[0];
+  assert.equal(span.attributes['error.type'], 'timeout');
+  assert.equal('http.response.status_code' in span.attributes, false);
+  assert.equal(JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }).includes('CANARY'), false);
+  await telemetry.shutdown();
 });

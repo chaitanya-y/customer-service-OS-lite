@@ -1,5 +1,11 @@
 # Local observability foundation
 
+Latest update: the dependency batch adds Knowledge/RAG, Integration Gateway and
+Agent Runtime client propagation. Read [dependency tracing](DEPENDENCY_TRACING.md)
+for the new scope, code walkthrough and synthetic test. The first-batch evidence
+below remains historical. The owner approved local opt-in for all four services
+on 2026-09-17; this is still not a production deployment.
+
 Owner approved 2026-09-16. This is the first batch, not full production monitoring.
 
 ## What is implemented
@@ -95,13 +101,15 @@ passed, focused Python telemetry 12 passed (10 shared and 2 service tests); Edge
 checks passed. One existing Starlette/httpx deprecation warning remains. A final
 synthetic run after review also passed (44 ms, trace
 `e4087f3c33caefe697be9e805ca62bf1`). Independent review findings were fixed.
-The rendered-dashboard check awaits the owner's first-login password setup;
-stored signal/API verification is complete.
+The later approved rollout recreated only the observability container while
+preserving its named volume. Browser verification showed the new RAG phase p95
+panel and all four service series.
 
-## Enable for the two real services later
+## Local service opt-in
 
-Telemetry defaults to off. Examples are in each service's `.env.example`; no
-real `.env` was edited in this batch. Supply these before process startup:
+Telemetry defaults to off. Examples are in each service's `.env.example`. The
+ignored local `.env` files for Edge API, Agent Runtime, Knowledge/RAG and
+Integration Gateway now supply these settings before process startup:
 
 ```sh
 export CSO_TELEMETRY_ENABLED=true
@@ -109,16 +117,16 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
 export OTEL_SERVICE_VERSION=0.1.0
 ```
 
-Use `OTEL_SERVICE_NAME=edge-api` or `agent-runtime` for the corresponding process,
-and the existing `ENVIRONMENT_ID=local`. Edge's normal dev/start entry now runs
-its bootstrap first. Python keeps `agent_runtime.main:app`; when using its env
-file, launch through a command that loads it before application import (for
-example the existing uvicorn `--env-file .env` startup). Do not put auth tokens
-in OTLP settings. Only loopback HTTP exporter endpoints are accepted in this slice.
+Use a distinct `OTEL_SERVICE_NAME` for each process and the existing
+`ENVIRONMENT_ID=local`. Node services initialize through their bootstrap. Python
+services were restarted with uvicorn `--env-file .env` so telemetry is configured
+before application import. Do not put auth tokens in OTLP settings. Only loopback
+HTTP exporter endpoints are accepted in this slice.
 
-Existing long-running project services were not restarted or automatically opted
-in. Consequently Grafana currently demonstrates synthetic traffic, not all live
-refund traffic. Agree on the next live-service restart before enabling it there.
+The four real health endpoints passed after restart. A deterministic dependency
+smoke then produced 14 linked spans in 73 ms with traces, metrics and logs,
+canaries absent and Grafana forwarding enabled. This proves local wiring, not
+real model, OpenSearch, provider or end-to-end refund performance.
 
 ## Read the code in this order
 
@@ -138,7 +146,7 @@ refund traffic. Agree on the next live-service restart before enabling it there.
 
 ## Remaining batches
 
-Not implemented here: other services and Temporal activity spans, RAG/model/tool
+Not implemented here: remaining services and Temporal activity spans, model
 phase timing, token/cost/fallback metrics, refund business metrics, operational
 alerts and SLOs, production sampling/retention/access controls, CloudWatch/AWS/CDK
 deployment. LangSmith and Tau remain separate deferred evaluation work.
