@@ -38,7 +38,8 @@ earlier September 5 proof and the later automated wording-safeguard checks.
 | Admin Console | Visual foundation only |
 | PostgreSQL Human Operations cases, audit history, idempotency, and decision outbox | Implemented locally |
 | Centralized Model Gateway for routing, budgets, fallback, and provider policy | Planned; Agent Runtime currently calls configured models directly |
-| Cognito, Kafka, OpenTelemetry, and AWS deployment | Planned |
+| OpenTelemetry and local Grafana | Edge API and Agent Runtime foundation; [scope and runbook](docs/observability/README.md) |
+| Cognito, Kafka, and AWS deployment | Planned |
 
 The running Human Operations service uses PostgreSQL. Case state, audit events,
 idempotency records, and pending decisions survive service restarts. Its in-memory
@@ -149,7 +150,7 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 
 This repository is a local, production-shaped learning system. It is not yet a
 deployable production service. In particular, it does not yet include Cognito,
-Kafka delivery, OpenTelemetry observability, the centralized Model Gateway,
+Kafka delivery, platform-wide production observability, the centralized Model Gateway,
 reproducible Vendure seed data, production-grade Human Operations database
 operations, or AWS infrastructure.
 

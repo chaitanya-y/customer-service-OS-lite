@@ -11,112 +11,128 @@ import {
 import { createLocalCustomerIdentityVerifier } from './local-customer-auth.js';
 import { createTemporalRefundClient } from './temporal-refund-client.js';
 import { createEvidenceAssertionSigner, createRefundEvidenceClient } from './refund-evidence-client.js';
+import type { TelemetryHandle } from '@cso/observability-node';
+import { closeFastifyWithin, runWithin } from './observability.js';
 
-const config = loadConfig();
-const verifyCustomerIdentity = createLocalCustomerIdentityVerifier({
-  secret: config.LOCAL_AUTH_HMAC_SECRET,
-  expectedIssuer: config.LOCAL_AUTH_ISSUER,
-  expectedAudience: config.LOCAL_AUTH_AUDIENCE,
-  expectedTenantId: config.TENANT_ID,
-  expectedEnvironmentId: config.ENVIRONMENT_ID,
-});
-const signContextAssertion = createHmacContextAssertionSigner({
-  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
-  issuer: config.CONTEXT_ASSERTION_ISSUER,
-  audience: config.CONTEXT_ASSERTION_AUDIENCE,
-  route: {
-    homeRegion: config.HOME_REGION,
-    homeCell: config.HOME_CELL,
-    routingEpoch: config.ROUTING_EPOCH,
-  },
-});
-const signAgentRuntimeContextAssertion = createHmacContextAssertionSigner({
-  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
-  issuer: config.CONTEXT_ASSERTION_ISSUER,
-  audience: config.AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
-  route: {
-    homeRegion: config.HOME_REGION,
-    homeCell: config.HOME_CELL,
-    routingEpoch: config.ROUTING_EPOCH,
-  },
-  refundPolicy: getRefundPolicyBinding(config.REFUND_POLICY_VERSION),
-});
-const signKnowledgeRagContextAssertion = createHmacContextAssertionSigner({
-  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
-  issuer: config.CONTEXT_ASSERTION_ISSUER,
-  audience: config.KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE,
-  route: {
-    homeRegion: config.HOME_REGION,
-    homeCell: config.HOME_CELL,
-    routingEpoch: config.ROUTING_EPOCH,
-  },
-});
-const signConversationRuntimeContextAssertion = createHmacContextAssertionSigner({
-  secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
-  issuer: config.CONTEXT_ASSERTION_ISSUER,
-  audience: config.CONVERSATION_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
-  route: {
-    homeRegion: config.HOME_REGION,
-    homeCell: config.HOME_CELL,
-    routingEpoch: config.ROUTING_EPOCH,
-  },
-});
-const signEdgeServiceAssertion = createHmacServiceAssertionSigner({
-  secret: config.EDGE_SERVICE_ASSERTION_HMAC_SECRET,
-  issuer: config.EDGE_SERVICE_ASSERTION_ISSUER,
-  audience: config.EDGE_SERVICE_ASSERTION_AUDIENCE,
-  routingEpoch: config.ROUTING_EPOCH,
-});
-const agentRuntimeClient = createAgentRuntimeClient({
-  baseUrl: config.AGENT_RUNTIME_BASE_URL,
-  timeoutMilliseconds: config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS,
-});
-const conversationRuntimeClient = createConversationRuntimeClient({
-  baseUrl: config.CONVERSATION_RUNTIME_BASE_URL,
-  timeoutMilliseconds: config.CONVERSATION_RUNTIME_TIMEOUT_MILLISECONDS,
-});
-const temporalConnection = await Connection.connect({
-  address: config.TEMPORAL_ADDRESS,
-});
-const temporalRefundClient = createTemporalRefundClient({
-  client: new WorkflowClient({ connection: temporalConnection }),
-  taskQueue: config.TEMPORAL_TASK_QUEUE,
-});
-const refundEvidenceClient = createRefundEvidenceClient({
-  baseUrl: config.HUMAN_OPERATIONS_BASE_URL,
-  timeoutMilliseconds: config.EVIDENCE_REQUEST_TIMEOUT_MILLISECONDS,
-  signAssertion: createEvidenceAssertionSigner({
+export async function startServer({ telemetry }: { telemetry: TelemetryHandle }) {
+  const config = loadConfig();
+  const verifyCustomerIdentity = createLocalCustomerIdentityVerifier({
+    secret: config.LOCAL_AUTH_HMAC_SECRET,
+    expectedIssuer: config.LOCAL_AUTH_ISSUER,
+    expectedAudience: config.LOCAL_AUTH_AUDIENCE,
+    expectedTenantId: config.TENANT_ID,
+    expectedEnvironmentId: config.ENVIRONMENT_ID,
+  });
+  const signContextAssertion = createHmacContextAssertionSigner({
     secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
     issuer: config.CONTEXT_ASSERTION_ISSUER,
-  }),
-});
-const app = buildApp({
-  verifyCustomerIdentity,
-  signContextAssertion,
-  signAgentRuntimeContextAssertion,
-  signKnowledgeRagContextAssertion,
-  signConversationRuntimeContextAssertion,
-  signEdgeServiceAssertion,
-  intakeRefund: agentRuntimeClient.intakeRefund,
-  createConversation: conversationRuntimeClient.createConversation,
-  getConversation: conversationRuntimeClient.getConversation,
-  acceptCustomerMessage: conversationRuntimeClient.acceptCustomerMessage,
-  appendAssistantMessage: conversationRuntimeClient.appendAssistantMessage,
-  linkRefundWorkflow: conversationRuntimeClient.linkRefundWorkflow,
-  startRefundWorkflow: temporalRefundClient.startRefundWorkflow,
-  getRefundWorkflow: temporalRefundClient.getRefundWorkflow,
-  confirmRefundWorkflow: temporalRefundClient.confirmRefundWorkflow,
-  refundEvidenceClient,
-  refundPolicyVersion: config.REFUND_POLICY_VERSION,
-  logger: true,
-});
-
-try {
-  await app.listen({
-    host: config.HOST,
-    port: config.PORT,
+    audience: config.CONTEXT_ASSERTION_AUDIENCE,
+    route: {
+      homeRegion: config.HOME_REGION,
+      homeCell: config.HOME_CELL,
+      routingEpoch: config.ROUTING_EPOCH,
+    },
   });
-} catch (error) {
-  app.log.error(error);
-  process.exit(1);
+  const signAgentRuntimeContextAssertion = createHmacContextAssertionSigner({
+    secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+    issuer: config.CONTEXT_ASSERTION_ISSUER,
+    audience: config.AGENT_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
+    route: {
+      homeRegion: config.HOME_REGION,
+      homeCell: config.HOME_CELL,
+      routingEpoch: config.ROUTING_EPOCH,
+    },
+    refundPolicy: getRefundPolicyBinding(config.REFUND_POLICY_VERSION),
+  });
+  const signKnowledgeRagContextAssertion = createHmacContextAssertionSigner({
+    secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+    issuer: config.CONTEXT_ASSERTION_ISSUER,
+    audience: config.KNOWLEDGE_RAG_CONTEXT_ASSERTION_AUDIENCE,
+    route: {
+      homeRegion: config.HOME_REGION,
+      homeCell: config.HOME_CELL,
+      routingEpoch: config.ROUTING_EPOCH,
+    },
+  });
+  const signConversationRuntimeContextAssertion = createHmacContextAssertionSigner({
+    secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+    issuer: config.CONTEXT_ASSERTION_ISSUER,
+    audience: config.CONVERSATION_RUNTIME_CONTEXT_ASSERTION_AUDIENCE,
+    route: {
+      homeRegion: config.HOME_REGION,
+      homeCell: config.HOME_CELL,
+      routingEpoch: config.ROUTING_EPOCH,
+    },
+  });
+  const signEdgeServiceAssertion = createHmacServiceAssertionSigner({
+    secret: config.EDGE_SERVICE_ASSERTION_HMAC_SECRET,
+    issuer: config.EDGE_SERVICE_ASSERTION_ISSUER,
+    audience: config.EDGE_SERVICE_ASSERTION_AUDIENCE,
+    routingEpoch: config.ROUTING_EPOCH,
+  });
+  const agentRuntimeClient = createAgentRuntimeClient({
+    baseUrl: config.AGENT_RUNTIME_BASE_URL,
+    timeoutMilliseconds: config.AGENT_RUNTIME_TIMEOUT_MILLISECONDS,
+    telemetry,
+  });
+  const conversationRuntimeClient = createConversationRuntimeClient({
+    baseUrl: config.CONVERSATION_RUNTIME_BASE_URL,
+    timeoutMilliseconds: config.CONVERSATION_RUNTIME_TIMEOUT_MILLISECONDS,
+  });
+  const temporalConnection = await Connection.connect({
+    address: config.TEMPORAL_ADDRESS,
+  });
+  const temporalRefundClient = createTemporalRefundClient({
+    client: new WorkflowClient({ connection: temporalConnection }),
+    taskQueue: config.TEMPORAL_TASK_QUEUE,
+  });
+  const refundEvidenceClient = createRefundEvidenceClient({
+    baseUrl: config.HUMAN_OPERATIONS_BASE_URL,
+    timeoutMilliseconds: config.EVIDENCE_REQUEST_TIMEOUT_MILLISECONDS,
+    signAssertion: createEvidenceAssertionSigner({
+      secret: config.CONTEXT_ASSERTION_HMAC_SECRET,
+      issuer: config.CONTEXT_ASSERTION_ISSUER,
+    }),
+  });
+  const app = buildApp({
+    verifyCustomerIdentity,
+    signContextAssertion,
+    signAgentRuntimeContextAssertion,
+    signKnowledgeRagContextAssertion,
+    signConversationRuntimeContextAssertion,
+    signEdgeServiceAssertion,
+    intakeRefund: agentRuntimeClient.intakeRefund,
+    createConversation: conversationRuntimeClient.createConversation,
+    getConversation: conversationRuntimeClient.getConversation,
+    acceptCustomerMessage: conversationRuntimeClient.acceptCustomerMessage,
+    appendAssistantMessage: conversationRuntimeClient.appendAssistantMessage,
+    linkRefundWorkflow: conversationRuntimeClient.linkRefundWorkflow,
+    startRefundWorkflow: temporalRefundClient.startRefundWorkflow,
+    getRefundWorkflow: temporalRefundClient.getRefundWorkflow,
+    confirmRefundWorkflow: temporalRefundClient.confirmRefundWorkflow,
+    refundEvidenceClient,
+    refundPolicyVersion: config.REFUND_POLICY_VERSION,
+    logger: true,
+    telemetry,
+  });
+
+  try {
+    await app.listen({
+      host: config.HOST,
+      port: config.PORT,
+    });
+  } catch (error) {
+    await Promise.allSettled([
+      closeFastifyWithin(app),
+      runWithin(() => temporalConnection.close(), 1_000),
+    ]);
+    throw error;
+  }
+  return {
+    app,
+    async close() {
+      await closeFastifyWithin(app);
+      await runWithin(() => temporalConnection.close(), 1_000);
+    },
+  };
 }

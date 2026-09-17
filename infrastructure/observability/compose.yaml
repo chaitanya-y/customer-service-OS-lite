@@ -1,0 +1,36 @@
+name: cso-observability
+
+services:
+  lgtm:
+    image: grafana/otel-lgtm:0.32.1@sha256:7fd8eaad6bb64897ad5f644c8e15ee67c3204c97168f4bdba122adbf8f60e3c4
+    ports:
+      - "127.0.0.1:3300:3000"
+      - "127.0.0.1:4318:4318"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      TEMPO_EXTRA_ARGS: "--reporting.enabled=false"
+      LOKI_EXTRA_ARGS: "--reporting.enabled=false"
+      PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=7d --storage.tsdb.retention.size=512MB"
+    volumes:
+      - telemetry-data:/data
+      - ./collector.yaml:/otel-lgtm/otelcol-config.yaml:ro
+      - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/cso.yaml:ro
+      - ./grafana/foundation.json:/otel-lgtm/cso-dashboards/foundation.json:ro
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    mem_limit: 3g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+volumes:
+  telemetry-data:
