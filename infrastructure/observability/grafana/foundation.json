@@ -1,43 +1,143 @@
 {
   "uid": "cso-foundation",
-  "title": "CSO service foundation",
+  "title": "CSO local operational observability",
   "schemaVersion": 39,
-  "version": 1,
-  "tags": ["cso", "local"],
+  "version": 2,
+  "tags": ["cso", "local", "safe-signals"],
   "timezone": "browser",
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
   "panels": [
     {
-      "id": 1, "type": "timeseries", "title": "Completed operations per second",
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "id": 1,
+      "type": "row",
+      "title": "Platform observability",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Completed operations per second",
+      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [{ "refId": "A", "expr": "sum by (service_name) (rate(cso_operation_completed_total[5m]))", "legendFormat": "{{service_name}}" }]
     },
     {
-      "id": 2, "type": "timeseries", "title": "Operation duration p95",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "id": 3,
+      "type": "timeseries",
+      "title": "Operation duration p95",
+      "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(cso_operation_duration_seconds_bucket[5m])))", "legendFormat": "{{service_name}}" }]
     },
     {
-      "id": 3, "type": "timeseries", "title": "Server error ratio",
-      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "id": 4,
+      "type": "timeseries",
+      "title": "Server error ratio",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
       "targets": [{ "refId": "A", "expr": "sum by (service_name) (rate(cso_operation_completed_total{outcome=\"server_error\"}[5m])) / sum by (service_name) (rate(cso_operation_completed_total[5m]))", "legendFormat": "{{service_name}}" }]
     },
     {
-      "id": 4, "type": "logs", "title": "Safe correlated request logs",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "id": 5,
+      "type": "logs",
+      "title": "Safe correlated request logs",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [{ "refId": "A", "expr": "{service_name=~\"edge-api|agent-runtime\"}", "queryType": "range" }]
+      "targets": [{ "refId": "A", "expr": "{service_name=~\"edge-api|agent-runtime|knowledge-rag|integration-gateway|human-operations|conversation-runtime\"}", "queryType": "range" }]
     },
     {
-      "id": 5, "type": "text", "title": "Read this dashboard correctly",
-      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 4 },
-      "options": { "mode": "markdown", "content": "Local foundation: Edge API and Agent Runtime only. Use Explore with Tempo to search traces and follow correlated logs. Synthetic smoke traffic is not live model performance. Empty rate panels need multiple export samples; no data does not mean zero errors. Refund business decisions and durable audit remain separate." }
+      "id": 6,
+      "type": "row",
+      "title": "Model and RAG",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Model tokens per second",
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (operation) (rate(cso_model_tokens_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\"}[5m]))", "legendFormat": "{{operation}}" }]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Model failure or guard-rejection ratio",
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(rate(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\",outcome=~\"model_error|guard_rejected\"}[5m])) / sum(rate(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\"}[5m]))", "legendFormat": "model safety events" }]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "RAG phase duration p95",
+      "gridPos": { "x": 0, "y": 26, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(cso_operation_duration_seconds_bucket{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[5m])))", "legendFormat": "{{operation}}" }]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "RAG server error ratio",
+      "gridPos": { "x": 12, "y": 26, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(rate(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\",outcome=\"server_error\"}[5m])) / sum(rate(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[5m]))", "legendFormat": "RAG errors" }]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Refund operations",
+      "gridPos": { "x": 0, "y": 34, "w": 24, "h": 1 }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Refund-path operation events (not distinct refunds)",
+      "gridPos": { "x": 0, "y": 35, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (operation, outcome) (rate(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"mcp[.]lookup_order|model[.]refund_(answer|intent)|answer[.]fallback\"}[5m]))", "legendFormat": "{{operation}} {{outcome}}" }]
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Temporal activity traces (trace-only)",
+      "gridPos": { "x": 12, "y": 35, "w": 12, "h": 8 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{ "refId": "A", "queryType": "traceql", "expr": "{ resource.service.name = \"workflow-workers\" && span.operation =~ \"temporal\\\\.activity\\\\..*\" }" }]
+    },
+    {
+      "id": 14,
+      "type": "text",
+      "title": "Refund operations coverage",
+      "gridPos": { "x": 0, "y": 43, "w": 24, "h": 4 },
+      "options": { "mode": "markdown", "content": "The refund-path panel counts emitted operation events, not distinct refunds. Activity attempts can retry and are trace-only today; inspect the Tempo query for activity timing and outcomes. Durable audit and reconciliation remain the authoritative source for completed refunds." }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Telemetry health",
+      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 1 }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Emitted operation samples by service",
+      "gridPos": { "x": 0, "y": 48, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (service_name) (increase(cso_operation_completed_total[15m]))", "legendFormat": "{{service_name}}" }]
+    },
+    {
+      "id": 17,
+      "type": "text",
+      "title": "Telemetry health limits",
+      "gridPos": { "x": 12, "y": 48, "w": 12, "h": 8 },
+      "options": { "mode": "markdown", "content": "This local slice emits no collector/exporter health metric and has no independent traffic baseline. No absence alert is configured because no traffic cannot distinguish an idle service from broken telemetry. Use the sample panel with known synthetic traffic when verifying the local pipeline." }
     }
   ]
 }

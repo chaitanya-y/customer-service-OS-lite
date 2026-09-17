@@ -1,0 +1,153 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "cso-local-safe-signals",
+      "folder": "Customer Service",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "cso-model-safety-rate",
+          "title": "Model guard or failure event rate",
+          "condition": "B",
+          "for": "10m",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": { "from": 900, "to": 0 },
+              "datasourceUid": "prometheus",
+              "model": {
+                "expr": "(sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\",outcome=~\"model_error|guard_rejected\"}[15m])) / sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\"}[15m]))) > 0.20 and sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\"}[15m])) >= 20",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": { "from": 0, "to": 0 },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "expression": "A",
+                "type": "threshold",
+                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
+                "refId": "B"
+              }
+            }
+          ],
+          "annotations": { "summary": "Model guard-rejection or failure events exceed 20% after at least 20 model-operation events in 15 minutes.", "runbook": "Inspect the local Model and RAG dashboard and Tempo traces; model telemetry never includes prompts or answers." },
+          "labels": { "severity": "warning", "owner": "agent-runtime", "scope": "local", "signal": "operation_outcome" }
+        },
+        {
+          "uid": "cso-rag-server-error-rate",
+          "title": "RAG server error rate",
+          "condition": "B",
+          "for": "10m",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": { "from": 1200, "to": 0 },
+              "datasourceUid": "prometheus",
+              "model": {
+                "expr": "(sum(increase(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\",outcome=\"server_error\"}[20m])) / sum(increase(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[20m]))) > 0.10 and sum(increase(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[20m])) >= 30",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": { "from": 0, "to": 0 },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "expression": "A",
+                "type": "threshold",
+                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
+                "refId": "B"
+              }
+            }
+          ],
+          "annotations": { "summary": "RAG server-error events exceed 10% after at least 30 emitted RAG operation events in 20 minutes.", "runbook": "Inspect the local Model and RAG dashboard and the bounded RAG operation labels." },
+          "labels": { "severity": "warning", "owner": "knowledge-rag", "scope": "local", "signal": "operation_outcome" }
+        },
+        {
+          "uid": "cso-refund-fallback-event-rate",
+          "title": "Refund-path fallback event rate",
+          "condition": "B",
+          "for": "10m",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": { "from": 1800, "to": 0 },
+              "datasourceUid": "prometheus",
+              "model": {
+                "expr": "(sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=\"answer.fallback\"}[30m])) / sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)|answer[.]fallback\"}[30m]))) > 0.25 and sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)|answer[.]fallback\"}[30m])) >= 20",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": { "from": 0, "to": 0 },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "expression": "A",
+                "type": "threshold",
+                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
+                "refId": "B"
+              }
+            }
+          ],
+          "annotations": { "summary": "Refund-path fallback operation events exceed 25% after at least 20 events in 30 minutes; this is not a refund count.", "runbook": "Inspect the refund-operations dashboard; Temporal activity attempts are trace-only and are not distinct refunds." },
+          "labels": { "severity": "warning", "owner": "agent-runtime", "scope": "local", "signal": "operation_event" }
+        },
+        {
+          "uid": "cso-platform-server-error-rate",
+          "title": "Platform server error rate",
+          "condition": "B",
+          "for": "10m",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": { "from": 900, "to": 0 },
+              "datasourceUid": "prometheus",
+              "model": {
+                "expr": "(sum by (service_name) (increase(cso_operation_completed_total{outcome=\"server_error\"}[15m])) / sum by (service_name) (increase(cso_operation_completed_total[15m]))) > 0.10 and sum by (service_name) (increase(cso_operation_completed_total[15m])) >= 50",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": { "from": 0, "to": 0 },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "expression": "A",
+                "type": "threshold",
+                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
+                "refId": "B"
+              }
+            }
+          ],
+          "annotations": { "summary": "A service has server-error operation events above 10% after at least 50 emitted operation events in 15 minutes.", "runbook": "Inspect the Platform observability dashboard. This evaluates emitted operation results, not collector/exporter availability." },
+          "labels": { "severity": "warning", "owner": "platform", "scope": "local", "signal": "operation_outcome" }
+        }
+      ]
+    }
+  ]
+}

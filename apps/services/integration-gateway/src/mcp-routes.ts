@@ -49,8 +49,8 @@ export function registerMcpRoutes(
     try {
       await server.connect(transport as unknown as Transport);
       await transport.handleRequest(request.raw, reply.raw, request.body);
-    } catch (error) {
-      request.log.error({ err: error }, 'MCP request failed');
+    } catch {
+      request.log.error('mcp.request.failed');
 
       if (!reply.raw.headersSent) {
         reply.raw.writeHead(500, {

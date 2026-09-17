@@ -26,6 +26,7 @@ from agent_runtime.integrations.trusted_context import (
     AgentRuntimeContextVerifier,
     HmacAgentRuntimeContextVerifier,
 )
+from agent_runtime.observability import telemetry_runtime
 from agent_runtime.refund.answer import RefundAnswerComposer
 from agent_runtime.refund.graph import build_refund_graph
 from agent_runtime.refund.intent import RefundIntentExtractor
@@ -138,6 +139,7 @@ async def intake_refund(
             timeout_seconds=knowledge_rag_settings.knowledge_rag_timeout_seconds,
         ),
         answer_composer,
+        telemetry=telemetry_runtime,
     )
 
     try:

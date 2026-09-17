@@ -4,6 +4,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
+from cso_observability import TelemetryRuntime
+
 from .config import KnowledgeRetrievalSettings
 from .embeddings import EmbeddingModel, OpenAIEmbeddingProvider
 from .ingestion import KnowledgeDocumentClassification
@@ -66,6 +68,7 @@ class ConfiguredCustomerEvidenceRetriever:
 
 def create_configured_customer_evidence_retriever(
     settings: KnowledgeRetrievalSettings,
+    telemetry_runtime: TelemetryRuntime | None = None,
 ) -> ConfiguredCustomerEvidenceRetriever:
     embedding_provider = OpenAIEmbeddingProvider(
         api_key=settings.openai_api_key.get_secret_value()
@@ -76,6 +79,7 @@ def create_configured_customer_evidence_retriever(
         index_name=settings.knowledge_index_name,
         embedding_provider=embedding_provider,
         reranking_provider=SentenceTransformersCrossEncoderProvider(),
+        telemetry_runtime=telemetry_runtime,
     )
 
     return ConfiguredCustomerEvidenceRetriever(

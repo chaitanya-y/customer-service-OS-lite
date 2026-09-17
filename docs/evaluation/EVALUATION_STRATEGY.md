@@ -2,7 +2,7 @@
 
 Status: Approved design direction
 Date: 2026-09-06
-Last updated: 2026-09-14
+Last updated: 2026-09-17
 
 ## Purpose
 
@@ -14,22 +14,30 @@ The first evaluated journey is the governed refund flow. A later read-only order
 status journey will test supervisor routing without delaying evaluation of the
 already-complete refund vertical slice.
 
-Current implementation checkpoint: the offline tooling is committed in `87ab48f`
-and included in pushed `main` merge `97028db`. Evaluation Runner passed 232 tests
-in the September 14 merged-code check. The separately authorized v3 campaign
-is complete: 15 attempts, five scored answers, ten validator rejections and zero
-cases passing all three repetitions. See [the measured baseline](RAGAS_V3_BASELINE.md).
-Human review/calibration remain pending; no LangSmith export or Tau run occurred.
-Notify the owner before starting LangSmith. The five-case scope below controls
-the immediate sequence; older dated
-sections preserve earlier plans and measurements, not new paid-call permission.
+Current implementation checkpoint: the separately authorized v3 campaign is
+complete: 15 attempts, five scored answers, ten validator rejections and zero
+cases passing all three repetitions. One later authorized v4 large-refund trial
+failed its blocking reviewed-policy answer check. The imperfect baseline is
+frozen; human review/calibration remain pending, and no LangSmith export or Tau
+run occurred. Local observability work proceeded without changing these results.
+Notify the owner before starting LangSmith. Older dated sections preserve earlier
+plans and measurements, not new paid-call permission. See
+[the measured v3 baseline](RAGAS_V3_BASELINE.md) and
+[the v4 policy-answer guide](RAGAS_V4_POLICY_ANSWER.md).
+
+The September 17 readiness batch adds offline-only preparation for a future
+LangSmith export and tau-three Retail compatibility manifest. It does not import
+or call LangSmith, upload a record, download or run Tau, or make a paid,
+model, provider or commerce call. This preparation is not an export or an
+official benchmark result.
 
 Subsequent approved scope: [source-aware v4 policy-answer evaluation](RAGAS_V4_POLICY_ANSWER.md)
 retains the five scenarios while changing only the large-refund reference and
 its source expectations. It adds a blocking check of verified policy provenance,
 amounts and deterministic wording. The four knowledge cases retain their citation
-criteria; a model-selected purpose never exempts an answer. This is an offline
-implementation follow-up, not a new measured campaign or permission for paid calls.
+criteria; a model-selected purpose never exempts an answer. Its one authorized
+live trial failed the blocking policy-answer check. That result is evidence, not
+permission for another paid call or a calibrated release gate.
 
 ## Approved five-case baseline scope, September 13
 
@@ -48,8 +56,8 @@ direct improvement comparison with v2. Five cases cannot establish production
 reliability, and provisional semantic minima are not calibrated release gates.
 
 The hybrid answer-composer design is a separate product change, not a prerequisite
-for recording honest failures. After this bounded baseline report, continue to
-LangSmith experiments and then the external Tau retail benchmark. Their scores,
+for recording honest failures. LangSmith experiments and the external Tau retail
+benchmark are deferred while local observability is built. Their scores,
 full-workflow evaluations and expanded/held-out evaluation remain separate work.
 The fixture changes alone did not authorize the paid run; the owner approved it
 separately. No human ratings, LangSmith export or Tau execution are implied by
@@ -228,8 +236,9 @@ comparison rejects mismatched grader versions, including nonblocking metrics.
 The tests prove input separation and that a generated "$999 approved" answer
 cannot replace independent "$120 proposed, no approval" facts. Offline judge
 doubles do not establish semantic accuracy. The separately authorized v3 campaign
-at the top of this document is the current next step. Historical one-case scores
-do not constitute a calibrated release baseline.
+at the top of this document later completed. Its results and the failed v4 trial
+remain uncalibrated; historical one-case scores do not constitute a release
+baseline.
 
 The repository now contains a seven-case synthetic refund-agent dataset and a
 deterministic in-process adapter for the existing LangGraph intake/proposal
@@ -410,6 +419,13 @@ Official benchmark tasks and internal adapted tasks must be reported separately.
 Changing a benchmark task makes it an internal case, not a comparable public
 benchmark result.
 
+The current tau-three Retail compatibility adapter makes that distinction
+machine-readable before an external dependency is introduced. An unchanged
+`OFFICIAL` task may be marked comparable to the official benchmark. A modified
+`ADAPTED_INTERNAL` task must record that modification and is never comparable
+to the official result. This is an offline provenance boundary, not a Tau
+adapter execution or a public benchmark score.
+
 ## Framework decisions
 
 ### RAGAS
@@ -447,10 +463,23 @@ version evidence before the artifact is written.
 
 ### LangSmith
 
-Use LangSmith later for datasets, experiment comparison, trace inspection, and
-AgentEvals trajectory grading because Agent Runtime already uses LangGraph.
-Evaluation contracts and pass/fail policy remain repository-owned so switching
-experiment platforms does not rewrite business correctness.
+The repository now has a framework-neutral, default-off record builder for a
+future LangSmith export. When explicitly enabled by its caller, it produces only
+content-minimized aggregate results and version identifiers; it does not import,
+authenticate to or call LangSmith. The default result is no record. Evaluation
+contracts and pass/fail policy remain repository-owned so switching experiment
+platforms does not rewrite business correctness.
+
+An actual LangSmith upload still requires owner notification and separate export
+approval. No LangSmith export occurred in this readiness batch or in the recorded
+evaluation checkpoints.
+
+### Readiness-batch verification boundary
+
+After the post-review Tau safe-metadata hardening, the Evaluation Runner full
+suite passed **275** tests with Ruff clean; the focused Tau suite passed **5**.
+This verifies the offline Tau boundary. Neither test calls LangSmith, runs an
+official Tau task, or makes a paid/model/provider call.
 
 ### Model judges
 
@@ -520,8 +549,11 @@ before measuring the dataset would create misleading gates.
    five held-out candidates implemented but still pending owner review. Next,
    review the completed fixed-version 15-trial campaign's actual answers and judge
    disagreements, then freeze the bounded report. Do not silently retry failures.
-5. Notify the owner, obtain export approval, then add LangSmith experiments.
-6. Add the official tau-three Retail adapter and keep its scores separate.
+5. Default-off LangSmith record preparation: implemented offline. Notify the
+   owner and obtain export approval before any actual LangSmith experiment.
+6. tau-three Retail compatibility preparation: implemented offline. Add and run
+   the official external adapter only with separate approval, and keep official
+   and adapted-internal results separate.
 7. Expand refund-agent sandbox coverage beyond the current seven core intake
    cases and separate retrieval-outage case.
 8. Add Temporal, approval, confirmation, provider, and reconciliation
@@ -535,6 +567,8 @@ before measuring the dataset would create misleading gates.
 - no production transcript ingestion;
 - no automatic prompt optimization;
 - no paid model evaluation by default;
+- no LangSmith export by default;
+- no official Tau benchmark run in this batch;
 - no provider mutation;
 - no attempt to integrate every benchmark at once;
 - no replacement of service-owned unit and contract tests.

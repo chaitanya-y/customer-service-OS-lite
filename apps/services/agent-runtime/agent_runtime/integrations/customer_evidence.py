@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import Protocol
 
 import httpx
+from cso_observability import TelemetryRuntime
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from agent_runtime.observability import telemetry_runtime
 
 KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER = "x-cso-knowledge-context-assertion"
 
@@ -66,6 +69,7 @@ class KnowledgeRagCustomerEvidenceClient:
         base_url: str = "http://127.0.0.1:8001",
         timeout_seconds: float = 10.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        telemetry: TelemetryRuntime | None = None,
     ) -> None:
         assertion = context_assertion.strip()
 
@@ -76,13 +80,19 @@ class KnowledgeRagCustomerEvidenceClient:
             raise ValueError("timeout_seconds must be positive")
 
         self._context_assertion = assertion
-        self._endpoint = str(
-            httpx.URL(base_url).join("/v1/customer-evidence")
-        )
+        self._endpoint = str(httpx.URL(base_url).join("/v1/customer-evidence"))
         self._timeout_seconds = timeout_seconds
         self._transport = transport
+        self._telemetry = telemetry if telemetry is not None else telemetry_runtime
 
     async def retrieve_customer_evidence(
+        self,
+        query_text: str,
+    ) -> CustomerEvidenceResponse:
+        with self._telemetry.operation("knowledge.retrieve"):
+            return await self._retrieve_customer_evidence(query_text)
+
+    async def _retrieve_customer_evidence(
         self,
         query_text: str,
     ) -> CustomerEvidenceResponse:
@@ -99,6 +109,7 @@ class KnowledgeRagCustomerEvidenceClient:
                 response = await client.post(
                     self._endpoint,
                     headers={
+                        **self._telemetry.trace_headers(),
                         KNOWLEDGE_RAG_CONTEXT_ASSERTION_HEADER: (
                             self._context_assertion
                         ),

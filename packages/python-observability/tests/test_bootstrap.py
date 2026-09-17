@@ -6,6 +6,7 @@ import time
 from collections.abc import Iterable
 from typing import Any
 
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from opentelemetry._logs import SeverityNumber
@@ -71,6 +72,154 @@ def test_disabled_runtime_does_not_export() -> None:
     assert TestClient(app).get("/health").status_code == 200
     assert runtime.force_flush() is True
     assert runtime.enabled is False
+    assert runtime.trace_headers() == {}
+
+    with runtime.operation("rag.query_embedding"):
+        assert runtime.trace_headers() == {}
+
+    with runtime.model_operation("model.refund_answer") as operation:
+        operation.record_provider_usage(
+            {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}
+        )
+        operation.set_outcome("guard_rejected")
+        assert runtime.trace_headers() == {}
+
+
+def test_operation_is_an_active_child_and_emits_only_safe_signals() -> None:
+    runtime, span_exporter, metric_reader, log_exporter = _enabled_runtime()
+
+    with runtime.operation("knowledge.retrieve"):
+        parent_headers = runtime.trace_headers()
+        with runtime.operation("rag.query_embedding"):
+            child_headers = runtime.trace_headers()
+
+    assert runtime.force_flush() is True
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    parent = spans["knowledge.retrieve"]
+    child = spans["rag.query_embedding"]
+    assert child.parent is not None
+    assert child.parent.span_id == parent.context.span_id
+    assert set(parent_headers) == {"traceparent"}
+    assert set(child_headers) == {"traceparent"}
+    assert parent_headers["traceparent"].startswith("00-")
+    assert child_headers["traceparent"].startswith("00-")
+    assert parent_headers["traceparent"].split("-")[1] == (
+        child_headers["traceparent"].split("-")[1]
+    )
+
+    exported = _serialized_values(
+        [spans, metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "operation.completed" in exported
+    assert "http.response.status_code" not in exported
+
+
+def test_operation_records_safe_application_error_and_reraises_unchanged() -> None:
+    runtime, span_exporter, metric_reader, log_exporter = _enabled_runtime()
+    error = RuntimeError("RAW-OPERATION-CANARY")
+
+    with (
+        pytest.raises(RuntimeError) as caught,
+        runtime.operation("rag.vector_search"),
+    ):
+        raise error
+
+    assert caught.value is error
+    assert runtime.force_flush() is True
+    span = span_exporter.get_finished_spans()[0]
+    assert span.name == "rag.vector_search"
+    assert span.attributes == {
+        "operation": "rag.vector_search",
+        "outcome": "server_error",
+        "error.type": "application_error",
+    }
+    assert span.events == ()
+    assert span.status.description is None
+    exported = _serialized_values(
+        [[span], metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "RAW-OPERATION-CANARY" not in exported
+
+
+def test_operation_rejects_unbounded_names() -> None:
+    runtime, _, _, _ = _enabled_runtime()
+
+    with (
+        pytest.raises(ValueError, match="bounded static name"),
+        runtime.operation("rag.CANARY"),
+    ):
+        pass
+
+
+def test_model_operation_records_returned_usage_without_inventing_cost() -> None:
+    runtime, span_exporter, metric_reader, log_exporter = _enabled_runtime()
+
+    with runtime.model_operation("model.refund_answer") as operation:
+        operation.record_provider_usage(
+            {"input_tokens": 17, "output_tokens": 11, "total_tokens": 28}
+        )
+
+    assert runtime.force_flush() is True
+    span = span_exporter.get_finished_spans()[0]
+    assert span.attributes == {
+        "operation": "model.refund_answer",
+        "outcome": "success",
+        "model.cost.status": "unknown",
+        "model.usage.input_tokens": 17,
+        "model.usage.output_tokens": 11,
+        "model.usage.total_tokens": 28,
+    }
+    exported = _serialized_values(
+        [[span], metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "cso.model.tokens" in exported
+    assert "model.cost" not in exported.replace("model.cost.status", "")
+
+
+def test_model_operation_does_not_record_usage_when_the_provider_omits_it() -> None:
+    runtime, span_exporter, metric_reader, log_exporter = _enabled_runtime()
+
+    with runtime.model_operation("model.refund_intent"):
+        pass
+
+    assert runtime.force_flush() is True
+    span = span_exporter.get_finished_spans()[0]
+    assert span.attributes == {
+        "operation": "model.refund_intent",
+        "outcome": "success",
+        "model.cost.status": "unknown",
+    }
+    exported = _serialized_values(
+        [[span], metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "cso.model.tokens" not in exported
+
+
+def test_model_operation_reraises_the_original_error_with_safe_completion() -> None:
+    runtime, span_exporter, metric_reader, log_exporter = _enabled_runtime()
+    error = RuntimeError("RAW-MODEL-OPERATION-CANARY")
+
+    with (
+        pytest.raises(RuntimeError) as caught,
+        runtime.model_operation("model.refund_answer"),
+    ):
+        raise error
+
+    assert caught.value is error
+    assert runtime.force_flush() is True
+    span = span_exporter.get_finished_spans()[0]
+    assert span.attributes == {
+        "operation": "model.refund_answer",
+        "outcome": "model_error",
+        "error.type": "application_error",
+        "model.cost.status": "unknown",
+    }
+    assert span.events == ()
+    assert span.status.description is None
+    exported = _serialized_values(
+        [[span], metric_reader.get_metrics_data(), log_exporter.get_finished_logs()]
+    )
+    assert "RAW-MODEL-OPERATION-CANARY" not in exported
 
 
 def test_initialization_is_idempotent_for_one_state() -> None:

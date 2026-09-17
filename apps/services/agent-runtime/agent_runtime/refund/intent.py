@@ -2,11 +2,13 @@ import json
 import logging
 from typing import Literal, Protocol
 
+from cso_observability import TelemetryRuntime
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent_runtime.integrations.order_lookup import OpaqueId, OrderContext
+from agent_runtime.observability import extract_provider_token_usage
 from agent_runtime.refund.conversation import ConversationCustomerMessage
 
 RefundReasonCode = Literal[
@@ -71,7 +73,13 @@ class RefundIntentExtractionError(RuntimeError):
 
 
 class LangChainRefundIntentExtractor:
-    def __init__(self, model: BaseChatModel) -> None:
+    def __init__(
+        self,
+        model: BaseChatModel,
+        *,
+        telemetry: TelemetryRuntime | None = None,
+    ) -> None:
+        self._telemetry = telemetry
         self._structured_model = model.with_structured_output(
             RefundIntentExtraction,
             method="json_schema",
@@ -102,12 +110,26 @@ class LangChainRefundIntentExtractor:
         }
 
         try:
-            result = await self._structured_model.ainvoke(
-                [
-                    SystemMessage(content=SYSTEM_PROMPT),
-                    HumanMessage(content=json.dumps(model_input)),
-                ]
-            )
+            if self._telemetry is None:
+                result = await self._structured_model.ainvoke(
+                    [
+                        SystemMessage(content=SYSTEM_PROMPT),
+                        HumanMessage(content=json.dumps(model_input)),
+                    ]
+                )
+            else:
+                with self._telemetry.model_operation(
+                    "model.refund_intent"
+                ) as operation:
+                    result = await self._structured_model.ainvoke(
+                        [
+                            SystemMessage(content=SYSTEM_PROMPT),
+                            HumanMessage(content=json.dumps(model_input)),
+                        ]
+                    )
+                    operation.record_provider_usage(
+                        extract_provider_token_usage(result)
+                    )
             return RefundIntentExtraction.model_validate(result)
         except Exception as error:
             logger.warning(

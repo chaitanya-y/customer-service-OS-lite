@@ -19,6 +19,7 @@ services:
       - ./collector.yaml:/otel-lgtm/otelcol-config.yaml:ro
       - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/cso.yaml:ro
       - ./grafana/foundation.json:/otel-lgtm/cso-dashboards/foundation.json:ro
+      - ./grafana/alerts.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/cso-alerts.yaml:ro
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/ready"]
       interval: 10s

@@ -3,26 +3,44 @@ import type { IMetricReader } from '@opentelemetry/sdk-metrics';
 import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 export type RequestResult = {
-  statusCode: number;
+  statusCode?: number;
   errorCategory?: 'application_error' | 'transport_error' | 'timeout';
+};
+
+export type ClientRequestResult = {
+  status: number;
+  telemetryError?: 'application_error';
 };
 
 export type RequestSpan = { end(result: RequestResult): void };
 
+export type ActivityObservation<T> = {
+  operation: string;
+  dependency?: string;
+  outcome?: (value: T) => string | undefined;
+};
+
+export type ActivityInstrumentation = {
+  withActivity<T>(
+    input: ActivityObservation<T>,
+    activity: () => Promise<T>,
+  ): Promise<T>;
+};
+
 export type RequestInstrumentation = {
   readonly enabled: boolean;
   startServerRequest(
-    input: { operation: string; method: string },
+    input: { operation: string; method: string; traceparent?: string },
     continueRequest: () => void,
   ): RequestSpan;
-  withClientRequest<T extends { status: number }>(
-    input: { operation: string; method: string },
+  withClientRequest<T extends ClientRequestResult>(
+    input: { operation: string; method: string; propagate?: boolean },
     headers: HeadersInit | undefined,
     request: (headers: Headers) => Promise<T>,
   ): Promise<T>;
 };
 
-export type TelemetryHandle = RequestInstrumentation & {
+export type TelemetryHandle = RequestInstrumentation & ActivityInstrumentation & {
   shutdown(): Promise<void>;
 };
 

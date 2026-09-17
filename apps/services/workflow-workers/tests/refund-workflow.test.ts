@@ -82,6 +82,7 @@ type ActivityOptions = Readonly<{
   reconcileRefundResult?: ReconcileRefundResult;
   refreshedAmounts?: readonly number[];
   onExecute?: () => void;
+  onRecordConfirmation?: () => void;
   onCreatePreview?: (input: CreateRefundPreviewActivityInput) => void;
   openHumanCase?: (input: OpenHumanCaseInput) => Promise<void> | void;
   closeHumanCase?: (input: CloseHumanCaseInput) => Promise<void> | void;
@@ -140,6 +141,9 @@ function makeActivities(
           await environment.currentTimeMs() + (options.previewLifetimeMs ?? 15 * 60_000),
         ).toISOString(),
       };
+    },
+    async recordRefundConfirmation() {
+      options.onRecordConfirmation?.();
     },
     async executeRefund() {
       options.onExecute?.();
@@ -308,6 +312,29 @@ test('photo polling continues as new without extending its original collection d
     assert.ok(payload, 'The first run must record continue as new');
     const nextRequest = JSON.parse(Buffer.from(payload).toString('utf8')) as RefundWorkflowRequest;
     assert.equal(nextRequest.evidenceRecovery?.deadline, deadline, 'Continue as new cannot renew the deadline');
+  });
+});
+
+test('a received customer confirmation is handled by a short activity after the workflow wait', async () => {
+  let confirmationsHandled = 0;
+  await withWorker(makeActivities(makeDecision('ALLOW'), {
+    onRecordConfirmation() { confirmationsHandled++; },
+  }), async (env, queue) => {
+    const handle = await env.workflowClient.start(refundWorkflow, {
+      taskQueue: queue,
+      workflowId: crypto.randomUUID(),
+      args: [request],
+    });
+    await waitForStage(handle, 'AWAITING_CUSTOMER_CONFIRMATION');
+    assert.equal(confirmationsHandled, 0);
+    await handle.signal(confirmRefund, {
+      previewId: 'preview-001',
+      accepted: true,
+      confirmedAt: '2026-09-17T12:00:00.000Z',
+    });
+
+    assert.equal((await handle.result()).stage, 'REFUND_SUCCEEDED');
+    assert.equal(confirmationsHandled, 1);
   });
 });
 

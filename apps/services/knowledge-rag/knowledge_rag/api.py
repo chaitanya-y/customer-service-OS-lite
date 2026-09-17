@@ -3,7 +3,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from cso_observability import TelemetryRuntime
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import KnowledgeRetrievalSettings
@@ -72,9 +73,20 @@ def get_context_verifier() -> KnowledgeRagContextVerifier:
 
 
 @lru_cache
-def get_customer_evidence_retriever() -> CustomerEvidenceRetriever:
+def _get_customer_evidence_retriever(
+    telemetry_runtime: TelemetryRuntime,
+) -> CustomerEvidenceRetriever:
     return create_configured_customer_evidence_retriever(
-        KnowledgeRetrievalSettings()
+        KnowledgeRetrievalSettings(),
+        telemetry_runtime=telemetry_runtime,
+    )
+
+
+def get_customer_evidence_retriever(
+    request: Request,
+) -> CustomerEvidenceRetriever:
+    return _get_customer_evidence_retriever(
+        request.app.state.cso_telemetry_runtime
     )
 
 

@@ -97,9 +97,32 @@ token is in `apps/web/customer-portal/.env.local`, while the staff token is in
 `apps/web/operations-console/.env`. Replace only the effective token, restart that
 web app, and choose **Continue locally** again. Never print tokens into logs.
 
+For opt-in local telemetry, Edge API, Agent Runtime, Knowledge/RAG and Integration
+Gateway each use these non-secret settings in their ignored service `.env` file:
+
+```dotenv
+CSO_TELEMETRY_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+OTEL_SERVICE_NAME=<unique-service-name>
+OTEL_SERVICE_VERSION=0.1.0
+```
+
+Use a unique service name for every process. Telemetry is independent of login
+tokens and signing secrets; enabling it must not require rotating either.
+
 ## Start the stack
 
 Start each process in its own terminal. Start dependencies before callers.
+
+### 0. Local observability backend, when tracing
+
+```bash
+docker compose -f infrastructure/observability/compose.yaml up -d
+```
+
+This exposes Grafana on loopback port 3300 and OTLP HTTP on 4318. A Grafana Cloud
+account is not required. Stop it with the same Compose file and `stop`; preserve
+the named volume and never use `down -v` for a dashboard-only refresh.
 
 ### 1. PostgreSQL
 
@@ -145,7 +168,7 @@ pnpm dev
 
 ```bash
 cd apps/services/knowledge-rag
-uv run uvicorn knowledge_rag.main:app --reload --host 127.0.0.1 --port 8001
+uv run uvicorn knowledge_rag.main:app --env-file .env --reload --host 127.0.0.1 --port 8001
 ```
 
 Knowledge/RAG retrieves only `CUSTOMER_SAFE` evidence for the active tenant and
@@ -157,7 +180,7 @@ response or its integration checks rather than expecting citations in that page.
 
 ```bash
 cd apps/services/agent-runtime
-uv run uvicorn agent_runtime.main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn agent_runtime.main:app --env-file .env --reload --host 127.0.0.1 --port 8000
 ```
 
 ### 7. Conversation Runtime
@@ -237,6 +260,8 @@ has been more reliable than the current Turbopack setup on this local stack.
 | Knowledge/RAG health | `http://127.0.0.1:8001/health` |
 | OpenSearch | `http://127.0.0.1:9200` |
 | Temporal UI | `http://127.0.0.1:8233` |
+| Local Grafana | `http://127.0.0.1:3300/d/cso-foundation` |
+| OTLP HTTP receiver | `http://127.0.0.1:4318` |
 
 Use the exact `127.0.0.1` URLs above for browser testing. Local BFF routes accept
 that development origin explicitly. Do not mix it with `localhost` in the same
@@ -400,8 +425,11 @@ browser client.
 
 This local test does not prove production authentication, real bank settlement,
 real payment-provider webhook delivery, delivery-age eligibility, managed
-PostgreSQL backup/high availability, Kafka delivery, OpenTelemetry/distributed
-observability, workload scaling, or AWS deployment.
+PostgreSQL backup/high availability, Kafka delivery, platform-wide production
+observability, workload scaling, or AWS deployment. The implemented local
+OpenTelemetry slice covers only Edge, Agent Runtime, Knowledge/RAG phases and
+Gateway read-only commerce lookup; it is development evidence, not a production
+monitoring claim.
 Those are the next hardening and deployment milestones.
 
 ## Completed positive test and repeat procedure

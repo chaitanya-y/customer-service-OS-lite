@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { RequestInstrumentation } from '@cso/observability-node';
 
 import type {
   CommerceOrder,
@@ -172,7 +173,57 @@ type VendureClientOptions = {
   adminApiUrl: string;
   apiKey: string;
   fetcher?: Fetcher;
+  telemetry?: RequestInstrumentation;
 };
+
+type LookupFailure = 'http' | 'invalid_payload' | 'graphql' | 'no_data' | 'duplicate';
+type LookupResult<T> =
+  | { status: number; payload: T }
+  | { status: number; telemetryError: 'application_error'; failure: LookupFailure };
+
+async function vendureOrderLookup<T>(
+  options: VendureClientOptions,
+  fetcher: Fetcher,
+  body: string,
+  schema: z.ZodType<T>,
+  validate: (payload: T) => LookupFailure | undefined,
+): Promise<LookupResult<T>> {
+  const headers = {
+    'content-type': 'application/json',
+    'vendure-api-key': options.apiKey,
+  };
+  const request = async (requestHeaders: Headers): Promise<LookupResult<T>> => {
+    const response = await fetcher(options.adminApiUrl, {
+      method: 'POST',
+      headers: requestHeaders,
+      body,
+    });
+    if (!response.ok) {
+      return { status: response.status, telemetryError: 'application_error', failure: 'http' };
+    }
+    let rawPayload: unknown;
+    try {
+      rawPayload = await response.json();
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      return { status: response.status, telemetryError: 'application_error', failure: 'invalid_payload' };
+    }
+    const parsed = schema.safeParse(rawPayload);
+    if (!parsed.success) {
+      return { status: response.status, telemetryError: 'application_error', failure: 'invalid_payload' };
+    }
+    const failure = validate(parsed.data);
+    return failure === undefined
+      ? { status: response.status, payload: parsed.data }
+      : { status: response.status, telemetryError: 'application_error', failure };
+  };
+
+  return options.telemetry?.withClientRequest(
+    { operation: 'vendure.order_lookup', method: 'POST', propagate: false },
+    headers,
+    request,
+  ) ?? request(new Headers(headers));
+}
 
 function money(amountMinor: number, currency: string): Money {
   return {
@@ -244,13 +295,7 @@ export function createVendureCommerceProvider(
 
   return {
     async getOrderByReference(reference) {
-      const response = await fetcher(options.adminApiUrl, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'vendure-api-key': options.apiKey,
-        },
-        body: JSON.stringify({
+      const result = await vendureOrderLookup(options, fetcher, JSON.stringify({
           query: orderByCodeQuery,
           variables: {
             options: {
@@ -262,58 +307,43 @@ export function createVendureCommerceProvider(
               take: 2,
             },
           },
-        }),
-      });
+        }), vendureResponseSchema, (payload) => {
+          if (payload.errors?.length) return 'graphql';
+          if (!payload.data) return 'no_data';
+          if (payload.data.orders.totalItems > 1) return 'duplicate';
+          return undefined;
+        });
 
-      if (!response.ok) {
-        throw new Error(
-          `Vendure request failed with HTTP status ${response.status}`,
-        );
+      if ('failure' in result) {
+        if (result.failure === 'http') throw new Error(`Vendure request failed with HTTP status ${result.status}`);
+        if (result.failure === 'no_data') throw new Error('Vendure returned no GraphQL data');
+        if (result.failure === 'duplicate') throw new Error('Vendure returned duplicate order references');
+        if (result.failure === 'graphql') throw new Error('Vendure returned a GraphQL error');
+        throw new Error('Vendure returned invalid GraphQL data');
       }
 
-      const payload = vendureResponseSchema.parse(await response.json());
-
-      if (payload.errors?.length) {
-        throw new Error('Vendure returned a GraphQL error');
-      }
-
-      if (!payload.data) {
-        throw new Error('Vendure returned no GraphQL data');
-      }
-
-      if (payload.data.orders.totalItems > 1) {
-        throw new Error('Vendure returned duplicate order references');
-      }
+      const payload = result.payload;
+      if (!payload.data) throw new Error('Vendure returned no GraphQL data');
 
       const order = payload.data.orders.items[0];
       return order ? toCommerceOrder(order) : null;
     },
     async getOrderById(orderId) {
-      const response = await fetcher(options.adminApiUrl, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'vendure-api-key': options.apiKey,
-        },
-        body: JSON.stringify({
+      const result = await vendureOrderLookup(options, fetcher, JSON.stringify({
           query: orderByIdQuery,
           variables: { id: orderId },
-        }),
-      });
+        }), vendureOrderByIdResponseSchema, (payload) => (
+          payload.errors?.length || !payload.data ? 'graphql' : undefined
+        ));
 
-      if (!response.ok) {
-        throw new Error(
-          `Vendure request failed with HTTP status ${response.status}`,
-        );
+      if ('failure' in result) {
+        if (result.failure === 'http') throw new Error(`Vendure request failed with HTTP status ${result.status}`);
+        if (result.failure === 'graphql') throw new Error('Vendure returned a GraphQL error');
+        throw new Error('Vendure returned invalid GraphQL data');
       }
 
-      const payload = vendureOrderByIdResponseSchema.parse(
-        await response.json(),
-      );
-
-      if (payload.errors?.length || !payload.data) {
-        throw new Error('Vendure returned a GraphQL error');
-      }
+      const payload = result.payload;
+      if (!payload.data) throw new Error('Vendure returned a GraphQL error');
 
       return payload.data.order ? toCommerceOrder(payload.data.order) : null;
     },

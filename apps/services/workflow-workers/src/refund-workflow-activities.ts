@@ -103,6 +103,19 @@ export type ExecuteRefundResult = Readonly<{
 export type ReconcileRefundInput = Readonly<{ proposal: RefundProposal; preview: RefundPreview; workflowId: string; access: WorkflowJourneyAccess }>;
 export type ReconcileRefundResult = Readonly<{ status: 'SUCCEEDED' | 'FAILED' | 'PROCESSING' | 'NOT_FOUND'; providerRefundId?: string }>;
 
+type ActivityObservation<T> = Readonly<{
+  operation: string;
+  dependency?: string;
+  outcome?: (value: T) => string | undefined;
+}>;
+
+type ActivityTelemetry = Readonly<{
+  withActivity<T>(
+    input: ActivityObservation<T>,
+    activity: () => Promise<T>,
+  ): Promise<T>;
+}>;
+
 export type RefundWorkflowActivities = Readonly<{
   refreshRefundContext(
     input: RefreshRefundContextInput,
@@ -113,6 +126,7 @@ export type RefundWorkflowActivities = Readonly<{
   createRefundPreview(
     input: CreateRefundPreviewActivityInput,
   ): Promise<RefundPreview>;
+  recordRefundConfirmation(): Promise<void>;
   executeRefund(input: ExecuteRefundInput): Promise<ExecuteRefundResult>;
   reconcileRefund(input: ReconcileRefundInput): Promise<ReconcileRefundResult>;
   openHumanCase(input: OpenHumanCaseInput): Promise<OpenHumanCaseResult>;
@@ -130,6 +144,7 @@ type RefundWorkflowActivityDependencies = Readonly<{
   refundPolicyRelease: RefundPolicyRelease;
   getPolicyRelease?: (version: string) => RefundPolicyRelease;
   evidence?: RefundEvidenceActivities;
+  telemetry?: ActivityTelemetry;
   createDecisionContext(
     input: EvaluateRefundPolicyInput,
   ): PolicyDecisionContext;
@@ -149,32 +164,107 @@ export function createRefundWorkflowActivities({
   refundPolicyRelease,
   getPolicyRelease,
   evidence,
+  telemetry,
   createDecisionContext,
   createPreviewContext,
 }: RefundWorkflowActivityDependencies): RefundWorkflowActivities & Partial<RefundEvidenceActivities> {
-  return {
-    ...evidence,
-    refreshRefundContext: fetchRefundContext,
-    async evaluateRefundPolicy(input) {
-      const policyInput = createRefundPolicyInput({
-        proposal: input.proposal,
-        refundContext: input.refundContext,
-        policyVersion: input.policyVersion,
-        ...(input.damageEvidence === undefined ? {} : { damageEvidence: input.damageEvidence }),
-      });
+  const observe = <T>(
+    input: ActivityObservation<T>,
+    activity: () => Promise<T>,
+  ): Promise<T> => telemetry === undefined ? activity() : telemetry.withActivity(input, activity);
 
-      return evaluateRefundPolicy(
-        policyInput,
-        getPolicyRelease?.(input.policyVersion) ?? refundPolicyRelease,
-        createDecisionContext(input),
-      );
+  return {
+    ...(evidence === undefined ? {} : {
+      async openRefundEvidence(input: OpenHumanCaseInput) {
+        return observe(
+          { operation: 'temporal.activity.refund_evidence_open', dependency: 'human_operations' },
+          () => evidence.openRefundEvidence(input),
+        );
+      },
+      async readRefundEvidence(input: Parameters<RefundEvidenceActivities['readRefundEvidence']>[0]) {
+        return observe(
+          { operation: 'temporal.activity.refund_evidence_read', dependency: 'human_operations' },
+          () => evidence.readRefundEvidence(input),
+        );
+      },
+      async transitionRefundEvidence(input: Parameters<RefundEvidenceActivities['transitionRefundEvidence']>[0]) {
+        return observe(
+          { operation: 'temporal.activity.refund_evidence_transition', dependency: 'human_operations' },
+          () => evidence.transitionRefundEvidence(input),
+        );
+      },
+      async closeRefundEvidence(input: Parameters<RefundEvidenceActivities['closeRefundEvidence']>[0]) {
+        await observe(
+          { operation: 'temporal.activity.refund_evidence_close', dependency: 'human_operations' },
+          () => evidence.closeRefundEvidence(input),
+        );
+      },
+    }),
+    async refreshRefundContext(input) {
+      return observe({
+        operation: 'temporal.activity.refund_context_refresh',
+        dependency: 'integration_gateway',
+      }, () => fetchRefundContext(input));
+    },
+    async evaluateRefundPolicy(input) {
+      return observe({ operation: 'temporal.activity.refund_policy_evaluation' }, async () => {
+        const policyInput = createRefundPolicyInput({
+          proposal: input.proposal,
+          refundContext: input.refundContext,
+          policyVersion: input.policyVersion,
+          ...(input.damageEvidence === undefined ? {} : { damageEvidence: input.damageEvidence }),
+        });
+
+        return evaluateRefundPolicy(
+          policyInput,
+          getPolicyRelease?.(input.policyVersion) ?? refundPolicyRelease,
+          createDecisionContext(input),
+        );
+      });
     },
     async createRefundPreview(input) {
-      return createRefundPreview({ ...input, ...createPreviewContext() });
+      return observe(
+        { operation: 'temporal.activity.refund_preview_create' },
+        async () => createRefundPreview({ ...input, ...createPreviewContext() }),
+      );
     },
-    executeRefund,
-    reconcileRefund,
-    openHumanCase,
-    closeHumanCase,
+    async recordRefundConfirmation() {
+      await observe(
+        { operation: 'temporal.activity.refund_confirmation_handle' },
+        async () => undefined,
+      );
+    },
+    async executeRefund(input) {
+      return observe(
+        {
+          operation: 'temporal.activity.refund_submission',
+          dependency: 'integration_gateway',
+          outcome: (result: ExecuteRefundResult) => result.status.toLowerCase(),
+        },
+        () => executeRefund(input),
+      );
+    },
+    async reconcileRefund(input) {
+      return observe(
+        {
+          operation: 'temporal.activity.refund_reconciliation',
+          dependency: 'integration_gateway',
+          outcome: (result: ReconcileRefundResult) => result.status.toLowerCase(),
+        },
+        () => reconcileRefund(input),
+      );
+    },
+    async openHumanCase(input) {
+      return observe(
+        { operation: 'temporal.activity.human_case_open', dependency: 'human_operations' },
+        () => openHumanCase(input),
+      );
+    },
+    async closeHumanCase(input) {
+      await observe(
+        { operation: 'temporal.activity.human_case_close', dependency: 'human_operations' },
+        () => closeHumanCase(input),
+      );
+    },
   };
 }

@@ -4,12 +4,14 @@ from enum import StrEnum
 from typing import Protocol
 from unicodedata import category, normalize
 
+from cso_observability import OperationTelemetry, TelemetryRuntime
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import Field, field_validator
 
 from agent_runtime.integrations.customer_evidence import CustomerEvidence
 from agent_runtime.integrations.order_lookup import ContractModel, OrderContext
+from agent_runtime.observability import extract_provider_token_usage
 from agent_runtime.refund.policy import VerifiedRefundPolicy
 from agent_runtime.refund.presentation import (
     AnswerPurpose,
@@ -294,8 +296,10 @@ class LangChainRefundAnswerComposer:
         model: BaseChatModel,
         *,
         capture_rejected_answer: bool = False,
+        telemetry: TelemetryRuntime | None = None,
     ) -> None:
         self._capture_rejected_answer = capture_rejected_answer
+        self._telemetry = telemetry
         self._structured_model = model.with_structured_output(
             DraftCustomerAnswer,
             method="json_schema",
@@ -355,6 +359,51 @@ class LangChainRefundAnswerComposer:
             ],
         }
 
+        if self._telemetry is None:
+            answer = await self._invoke_model(model_input)
+            return self._render_answer(
+                answer,
+                allowed_citations=allowed_citations,
+                order_context=order_context,
+                knowledge_evidence=knowledge_evidence,
+                refund_proposal=refund_proposal,
+                refund_policy=refund_policy,
+                original_answer=self._original_answer(answer),
+            )
+
+        with self._telemetry.model_operation("model.refund_answer") as operation:
+            try:
+                result = await self._structured_model.ainvoke(
+                    [
+                        SystemMessage(content=SYSTEM_PROMPT),
+                        HumanMessage(content=json.dumps(model_input)),
+                    ]
+                )
+                operation.record_provider_usage(extract_provider_token_usage(result))
+                answer = DraftCustomerAnswer.model_validate(
+                    result.model_dump(by_alias=True)
+                    if isinstance(result, CustomerAnswer)
+                    else result
+                )
+            except Exception as error:
+                raise RefundAnswerCompositionError(
+                    RefundAnswerRejectionCode.MODEL_OUTPUT_INVALID
+                ) from error
+            return self._render_answer(
+                answer,
+                allowed_citations=allowed_citations,
+                order_context=order_context,
+                knowledge_evidence=knowledge_evidence,
+                refund_proposal=refund_proposal,
+                refund_policy=refund_policy,
+                original_answer=self._original_answer(answer),
+                operation=operation,
+            )
+
+    async def _invoke_model(
+        self,
+        model_input: dict[str, object],
+    ) -> DraftCustomerAnswer:
         try:
             result = await self._structured_model.ainvoke(
                 [
@@ -362,7 +411,7 @@ class LangChainRefundAnswerComposer:
                     HumanMessage(content=json.dumps(model_input)),
                 ]
             )
-            answer = DraftCustomerAnswer.model_validate(
+            return DraftCustomerAnswer.model_validate(
                 result.model_dump(by_alias=True)
                 if isinstance(result, CustomerAnswer)
                 else result
@@ -372,11 +421,26 @@ class LangChainRefundAnswerComposer:
                 RefundAnswerRejectionCode.MODEL_OUTPUT_INVALID
             ) from error
 
-        original_answer = (
-            CustomerAnswer(message=answer.message, citations=answer.citations)
-            if self._capture_rejected_answer
-            else None
-        )
+    def _original_answer(
+        self,
+        answer: DraftCustomerAnswer,
+    ) -> CustomerAnswer | None:
+        if not self._capture_rejected_answer:
+            return None
+        return CustomerAnswer(message=answer.message, citations=answer.citations)
+
+    def _render_answer(
+        self,
+        answer: DraftCustomerAnswer,
+        *,
+        allowed_citations: set[tuple[str, str]],
+        order_context: OrderContext,
+        knowledge_evidence: list[CustomerEvidence],
+        refund_proposal: RefundProposal,
+        refund_policy: VerifiedRefundPolicy | None,
+        original_answer: CustomerAnswer | None,
+        operation: OperationTelemetry | None = None,
+    ) -> CustomerAnswer:
         purpose = answer.purpose
         try:
             if any(
@@ -403,12 +467,14 @@ class LangChainRefundAnswerComposer:
             return render_customer_answer(
                 answer,
                 purpose=purpose,
-                requested_amount=intent.requested_amount,
-                proposal_scope=intent.scope,
+                requested_amount=refund_proposal.intent.requested_amount,
+                proposal_scope=refund_proposal.intent.scope,
                 missing_fields=refund_proposal.missing_fields,
                 refund_policy=refund_policy,
             )
         except RefundAnswerCompositionError as error:
+            if operation is not None:
+                operation.set_outcome("guard_rejected")
             if not self._capture_rejected_answer:
                 raise
             raise RefundAnswerCompositionError(
@@ -416,6 +482,8 @@ class LangChainRefundAnswerComposer:
                 rejected_answer=original_answer,
             ) from error
         except ValueError as error:
+            if operation is not None:
+                operation.set_outcome("guard_rejected")
             # Appending the amount must still satisfy the public answer contract.
             raise RefundAnswerCompositionError(
                 RefundAnswerRejectionCode.FINAL_ANSWER_CONTRACT_INVALID,

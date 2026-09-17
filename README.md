@@ -27,7 +27,7 @@ earlier September 5 proof and the later automated wording-safeguard checks.
 | Local customer sign-in and refund intake | Implemented |
 | LangGraph proposal generation, read-only order lookup, and grounded answer | Implemented |
 | Customer-safe RAG over OpenSearch | Implemented |
-| Evaluation Runner, RAGAS adapters, repeated trials, and deterministic agent intake checks | Implemented; v3 campaign measured 15 trials, five scored and ten rejected; human calibration pending |
+| Evaluation Runner, RAGAS adapters, repeated trials, and deterministic agent intake checks | Implemented; v3 campaign measured 15 trials, five scored and ten rejected; one v4 policy-answer trial failed its blocking check; human calibration pending |
 | LangSmith experiments and external Tau retail benchmark | Planned; no export or benchmark run yet |
 | Versioned deterministic refund policy | Implemented |
 | Private damage photos and staff evidence review | Local policy v2 slice, including a photo-gated browser-to-provider proof; see the [photo guide](docs/REFUND_PHOTO_EVIDENCE.md) |
@@ -38,7 +38,7 @@ earlier September 5 proof and the later automated wording-safeguard checks.
 | Admin Console | Visual foundation only |
 | PostgreSQL Human Operations cases, audit history, idempotency, and decision outbox | Implemented locally |
 | Centralized Model Gateway for routing, budgets, fallback, and provider policy | Planned; Agent Runtime currently calls configured models directly |
-| OpenTelemetry and local Grafana | Edge API and Agent Runtime foundation; [scope and runbook](docs/observability/README.md) |
+| OpenTelemetry and local Grafana | Edge API, Agent Runtime, RAG phases and Gateway order lookup; [scope and runbook](docs/observability/README.md) |
 | Cognito, Kafka, and AWS deployment | Planned |
 
 The running Human Operations service uses PostgreSQL. Case state, audit events,
@@ -46,11 +46,13 @@ idempotency records, and pending decisions survive service restarts. Its in-memo
 repository remains only as a test and dependency-injection adapter. Production
 deployment, backup, high availability, and Kafka delivery are still future work.
 
-September 14 code checkpoint: `87ab48f` was pushed to `dev` and merged into
-`main` as `97028db`, then pushed after verification. The merged code passed
-586 tests across five changed services; four optional Human Operations database
-tests were skipped. This was not a new browser test or paid evaluation. See
-[the verification record](docs/VERIFICATION_STATUS.md) for scope and warnings.
+September 17 code checkpoint: the local observability foundation is on `main`
+at `cc36be6`. The dependency-tracing extension is committed and pushed on `dev`
+at `8f976be`; it has not been merged to `main`. The latest focused observability
+scope passed 469 tests and a safe synthetic trace crossed Agent Runtime,
+Knowledge/RAG, and Integration Gateway with 14 linked spans. This was not a paid
+model call or refund execution. See [the verification record](docs/VERIFICATION_STATUS.md)
+for exact scope and limitations.
 
 ## The governed refund boundary
 
@@ -134,6 +136,10 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 - [Refund photo evidence](docs/REFUND_PHOTO_EVIDENCE.md), upload/review flow,
   code reading order, local setup, limits, and safety boundaries.
 - [Decision log](docs/DECISION_LOG.md), accepted, implemented, and planned choices.
+- [Local observability runbook](docs/observability/README.md), the opt-in
+  OpenTelemetry, Grafana, safe-signal and smoke-test setup.
+- [Dependency tracing guide](docs/observability/DEPENDENCY_TRACING.md), the
+  Agent-to-RAG and Agent-to-Gateway trace boundaries and current limits.
 - [Local refund runbook](docs/LOCAL_REFUND_RUNBOOK.md), start and test the full
   local stack safely.
 - [Frontend refund journey](docs/FRONTEND_CUSTOMER_REFUND_JOURNEY.md), implemented

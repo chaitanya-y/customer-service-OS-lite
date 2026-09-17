@@ -8,6 +8,10 @@ import { createWorkflowCaseAccessVerifier } from './workflow-access.js';
 import { createEvidenceAccessVerifier } from './refund-evidence-access.js';
 import { PrivateEvidenceStore } from './private-evidence-store.js';
 import { PostgresRefundEvidenceRepository } from './postgres-refund-evidence-repository.js';
+import { closeFastifyWithin, runWithin } from './observability.js';
+import { getTelemetry } from './telemetry-state.js';
+
+const telemetry = getTelemetry();
 
 const secret = process.env.HUMAN_ACCESS_HMAC_SECRET;
 const tenantId = process.env.TENANT_ID;
@@ -64,6 +68,7 @@ const app = buildApp({
     environmentId,
   }),
   sendDecision,
+  telemetry,
 });
 
 let isDispatchingOutbox = false;
@@ -84,8 +89,8 @@ async function dispatchPendingOutbox() {
   try {
     const events = await repository.listPendingOutbox({ tenantId: tenantId!, environmentId: environmentId!, limit: 50 });
     for (const event of events) {
-      const delivered = await deliverOutbox(sendDecision, repository, event);
-      if (!delivered) console.warn('Human Operations decision outbox delivery deferred', { eventId: event.eventId, workflowId: event.workflowId });
+      const delivered = await deliverOutbox(sendDecision, repository, event, telemetry);
+      if (!delivered) console.warn('human-operations.outbox.delivery_deferred');
     }
   } finally {
     isDispatchingOutbox = false;
@@ -110,8 +115,12 @@ try {
 async function shutdown() {
   if (outboxDispatchTimer) clearInterval(outboxDispatchTimer);
   if (evidenceRecoveryTimer) clearInterval(evidenceRecoveryTimer);
-  await app.close();
-  await pool.end();
+  try {
+    await closeFastifyWithin(app);
+    await runWithin(() => pool.end(), 1_000);
+  } finally {
+    await telemetry.shutdown();
+  }
 }
 
 process.once('SIGINT', () => void shutdown());

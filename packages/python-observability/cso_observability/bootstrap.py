@@ -4,7 +4,8 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -33,6 +34,30 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 _SAFE_RESOURCE_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10)
 _DEFAULT_EXPORT_TIMEOUT_MILLIS = 1_000
+_OPERATION_NAMES = frozenset(
+    {
+        "answer.fallback",
+        "knowledge.retrieve",
+        "mcp.lookup_order",
+        "model.refund_answer",
+        "model.refund_intent",
+        "rag.fusion",
+        "rag.keyword_search",
+        "rag.query_embedding",
+        "rag.rerank",
+        "rag.vector_search",
+    }
+)
+_MODEL_OPERATION_NAMES = frozenset({"model.refund_answer", "model.refund_intent"})
+_OPERATION_OUTCOMES = frozenset(
+    {
+        "success",
+        "server_error",
+        "model_error",
+        "guard_rejected",
+        "fallback_no_evidence",
+    }
+)
 _DEFAULT_STATE: TelemetryState | None = None
 _EXPORTER_LOGGERS = (
     "opentelemetry.exporter.otlp.proto.http.trace_exporter",
@@ -91,6 +116,28 @@ class TelemetryState:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
+@dataclass
+class OperationTelemetry:
+    """Accumulates fixed, content-free outcome fields for one operation."""
+
+    is_model_operation: bool = False
+    outcome: str = "success"
+    provider_usage: dict[str, int] = field(default_factory=dict)
+
+    def set_outcome(self, outcome: str) -> None:
+        if outcome not in _OPERATION_OUTCOMES:
+            raise ValueError("operation outcome must use a bounded static value")
+        self.outcome = outcome
+
+    def record_provider_usage(self, usage: Mapping[str, Any]) -> None:
+        if not self.is_model_operation:
+            raise ValueError("provider usage is only valid for model operations")
+        for token_type in ("input_tokens", "output_tokens", "total_tokens"):
+            value = usage.get(token_type)
+            if type(value) is int and value >= 0:
+                self.provider_usage[token_type] = value
+
+
 class TelemetryRuntime:
     def __init__(
         self,
@@ -125,6 +172,10 @@ class TelemetryRuntime:
             "cso.operation.duration",
             unit="s",
         )
+        self._model_tokens = meter.create_counter(
+            "cso.model.tokens",
+            unit="{token}",
+        )
         self._logger = logger_provider.get_logger("cso_observability")
 
     def attach_asgi(self, app: Any) -> None:
@@ -132,6 +183,64 @@ class TelemetryRuntime:
             return
         app.add_middleware(_TelemetryMiddleware, runtime=self)
         app.state.cso_telemetry_attached = True
+
+    @contextmanager
+    def operation(self, name: str) -> Iterator[OperationTelemetry]:
+        with self._operation(name, is_model_operation=False) as operation:
+            yield operation
+
+    @contextmanager
+    def model_operation(self, name: str) -> Iterator[OperationTelemetry]:
+        if name not in _MODEL_OPERATION_NAMES:
+            raise ValueError("model operation must use a bounded static name")
+        with self._operation(name, is_model_operation=True) as operation:
+            yield operation
+
+    @contextmanager
+    def _operation(
+        self,
+        name: str,
+        *,
+        is_model_operation: bool,
+    ) -> Iterator[OperationTelemetry]:
+        if name not in _OPERATION_NAMES:
+            raise ValueError("operation must use a bounded static name")
+        operation = OperationTelemetry(is_model_operation=is_model_operation)
+        if not self.enabled:
+            yield operation
+            return
+
+        assert self._tracer is not None
+        started_at = time.monotonic()
+        with self._tracer.start_as_current_span(
+            name,
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            try:
+                yield operation
+            except BaseException:
+                if operation.outcome == "success":
+                    operation.set_outcome(
+                        "model_error" if is_model_operation else "server_error"
+                    )
+                self._complete_operation(
+                    span,
+                    name,
+                    operation,
+                    started_at,
+                )
+                raise
+            else:
+                self._complete_operation(span, name, operation, started_at)
+
+    def trace_headers(self) -> dict[str, str]:
+        if not self.enabled:
+            return {}
+        carrier: dict[str, str] = {}
+        TraceContextTextMapPropagator().inject(carrier)
+        traceparent = carrier.get("traceparent")
+        return {"traceparent": traceparent} if traceparent is not None else {}
 
     def force_flush(self, timeout_millis: int = 1_000) -> bool:
         if not self.enabled:
@@ -253,6 +362,60 @@ class TelemetryRuntime:
             severity_number=SeverityNumber.INFO,
             severity_text="INFO",
             body="request.completed",
+            attributes={
+                **metric_attributes,
+                "trace_id": format(context.trace_id, "032x"),
+                "span_id": format(context.span_id, "016x"),
+            },
+        )
+
+    def _complete_operation(
+        self,
+        span: trace.Span,
+        operation: str,
+        telemetry: OperationTelemetry,
+        started_at: float,
+    ) -> None:
+        attributes: dict[str, str | int] = {
+            "operation": operation,
+            "outcome": telemetry.outcome,
+        }
+        if telemetry.outcome in {"server_error", "model_error"}:
+            attributes["error.type"] = "application_error"
+            span.set_status(Status(StatusCode.ERROR))
+        if telemetry.is_model_operation:
+            attributes["model.cost.status"] = "unknown"
+            attributes.update(
+                {
+                    f"model.usage.{token_type}": token_count
+                    for token_type, token_count in telemetry.provider_usage.items()
+                }
+            )
+        span.set_attributes(attributes)
+
+        elapsed = max(0.0, time.monotonic() - started_at)
+        assert self._completed is not None
+        assert self._duration is not None
+        assert self._logger is not None
+        metric_attributes = {"operation": operation, "outcome": telemetry.outcome}
+        self._completed.add(1, metric_attributes)
+        self._duration.record(elapsed, metric_attributes)
+        if telemetry.is_model_operation:
+            assert self._model_tokens is not None
+            for token_type, token_count in telemetry.provider_usage.items():
+                self._model_tokens.add(
+                    token_count,
+                    {
+                        **metric_attributes,
+                        "model.usage.type": token_type.removesuffix("_tokens"),
+                    },
+                )
+        context = span.get_span_context()
+        self._logger.emit(
+            timestamp=time.time_ns(),
+            severity_number=SeverityNumber.INFO,
+            severity_text="INFO",
+            body="operation.completed",
             attributes={
                 **metric_attributes,
                 "trace_id": format(context.trace_id, "032x"),

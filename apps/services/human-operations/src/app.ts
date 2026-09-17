@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { z } from 'zod';
+import type { RequestInstrumentation } from '@cso/observability-node';
 
 import { humanCaseStatusSchema, humanCaseTypeSchema, humanDecisionSchema, refundReviewPacketSchema, type HumanCase, type HumanCaseAuditEvent, type HumanDecision, type HumanDecisionOutboxEvent } from './human-case.js';
 import { HumanCaseRepositoryError, InMemoryHumanCaseRepository, type HumanCaseRepository } from './human-case-repository.js';
@@ -7,6 +8,7 @@ import { HUMAN_ASSERTION_HEADER, type HumanAccess } from './human-access.js';
 import { WORKFLOW_ASSERTION_HEADER, type VerifyWorkflowCaseAccess } from './workflow-access.js';
 import { evidenceCaseFields, registerEvidenceRoutes, type EvidenceRoutesOptions } from './refund-evidence-routes.js';
 import { EvidenceError } from './refund-evidence.js';
+import { instrumentHttpServer } from './observability.js';
 
 const opaqueId = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const workflowParamsSchema = z.object({ workflowId: opaqueId });
@@ -43,10 +45,12 @@ type AppOptions = Readonly<{
   repository?: HumanCaseRepository;
   verifyWorkflowCaseAccess?: VerifyWorkflowCaseAccess;
   evidence?: EvidenceRoutesOptions;
+  telemetry?: RequestInstrumentation;
 }>;
 
 export function buildApp(options: AppOptions) {
   const app = Fastify({ requestTimeout: 30_000 });
+  instrumentHttpServer(app, options.telemetry);
   const repository = options.repository ?? new InMemoryHumanCaseRepository();
   const caseResponse = async (humanCase: HumanCase, access?: HumanAccess) => ({
     ...toHumanCaseResponse(humanCase,access),
@@ -149,7 +153,7 @@ export function buildApp(options: AppOptions) {
       if (!canSubmitDecision(access, current, body.data.decision)) return forbidden(reply, 'human_action_forbidden', 'This staff role cannot make the requested decision');
       const result = await repository.decide({ caseId: current.caseId, tenantId: access.tenantId, environmentId: access.environmentId, staffId: access.staffId, decision: body.data.decision, ...(body.data.reason_code === undefined ? {} : { reasonCode: body.data.reason_code }), ...(body.data.note === undefined ? {} : { note: body.data.note }), expectedCaseVersion: body.data.expected_case_version, idempotencyKey });
       if (await repository.isOutboxPending({ eventId: result.outboxEvent.eventId, tenantId: access.tenantId, environmentId: access.environmentId })) {
-        await deliverOutbox(options.sendDecision, repository, result.outboxEvent);
+        await deliverOutbox(options.sendDecision, repository, result.outboxEvent, options.telemetry);
       }
       return reply.code(202).send({ refund_case: toHumanCaseResponse(result.case, access) });
     } catch (error) { return repositoryFailure(reply, error); }
@@ -228,24 +232,44 @@ function canRetryPendingDecision(access: HumanAccess, humanCase: HumanCase, deci
   return humanCase.status === 'DECISION_PENDING' && humanCase.assignedStaffId === access.staffId && hasCaseRole(access, humanCase) && humanCase.allowedActions.includes(decision);
 }
 
-export async function deliverOutbox(sendDecision: SendDecision, repository: HumanCaseRepository, event: HumanDecisionOutboxEvent): Promise<boolean> {
-  try {
-    await sendDecision({
-      workflowId: event.workflowId,
-      access: {
-        staffId: event.decidedBy,
-        tenantId: event.tenantId,
-        environmentId: event.environmentId,
-      },
-      decision: event.decision,
-      decidedAt: event.decidedAt,
-      ...(event.reasonCode === undefined ? {} : { reasonCode: event.reasonCode }),
-    });
-    await repository.markOutboxDelivered({ eventId: event.eventId, tenantId: event.tenantId, environmentId: event.environmentId });
-    return true;
-  } catch {
-    return false;
-  }
+export async function deliverOutbox(
+  sendDecision: SendDecision,
+  repository: HumanCaseRepository,
+  event: HumanDecisionOutboxEvent,
+  telemetry?: RequestInstrumentation,
+): Promise<boolean> {
+  const deliver = async (): Promise<boolean> => {
+    try {
+      await sendDecision({
+        workflowId: event.workflowId,
+        access: {
+          staffId: event.decidedBy,
+          tenantId: event.tenantId,
+          environmentId: event.environmentId,
+        },
+        decision: event.decision,
+        decidedAt: event.decidedAt,
+        ...(event.reasonCode === undefined ? {} : { reasonCode: event.reasonCode }),
+      });
+      await repository.markOutboxDelivered({ eventId: event.eventId, tenantId: event.tenantId, environmentId: event.environmentId });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (!telemetry?.enabled) return deliver();
+  const result = await telemetry.withClientRequest(
+    { operation: 'human-operations.decision-outbox', method: 'POST', propagate: false },
+    undefined,
+    async () => {
+      const delivered = await deliver();
+      return delivered
+        ? { status: 202 }
+        : { status: 503, telemetryError: 'application_error' as const };
+    },
+  );
+  return result.status < 400;
 }
 
 function parseIdempotencyKey(value: string | string[] | undefined): string | undefined {

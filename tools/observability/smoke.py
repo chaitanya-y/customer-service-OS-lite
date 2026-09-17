@@ -54,7 +54,17 @@ def main() -> None:
         action="store_true",
         help="Forward synthetic signals only to 127.0.0.1:4318",
     )
+    parser.add_argument(
+        "--dependencies",
+        action="store_true",
+        help="Exercise Agent Runtime, RAG phases and MCP Gateway with synthetic providers",
+    )
     args = parser.parse_args()
+    expected_services = (
+        {"agent-runtime", "knowledge-rag", "integration-gateway"}
+        if args.dependencies
+        else {"edge-api", "agent-runtime"}
+    )
     records: dict[str, list[dict]] = {path: [] for path in MESSAGES}
     errors: list[str] = []
 
@@ -141,9 +151,20 @@ def main() -> None:
             "LANGCHAIN_TRACING_V2": "false",
         }
         agent = subprocess.Popen(
-            [sys.executable, str(ROOT / "tools/observability/smoke-agent.py")],
+            [
+                str(ROOT / "apps/services/knowledge-rag/.venv/bin/python")
+                if args.dependencies
+                else sys.executable,
+                str(
+                    ROOT
+                    / "tools/observability"
+                    / ("smoke-rag.py" if args.dependencies else "smoke-agent.py")
+                ),
+            ],
             cwd=isolated,
-            env=environment,
+            env={**environment, "PYTHONPATH": str(ROOT / "apps/services/knowledge-rag")}
+            if args.dependencies
+            else environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -174,7 +195,15 @@ def main() -> None:
                     node,
                     "--import",
                     "tsx",
-                    str(ROOT / "tools/observability/smoke-edge.mts"),
+                    str(
+                        ROOT
+                        / "tools/observability"
+                        / (
+                            "smoke-gateway.mts"
+                            if args.dependencies
+                            else "smoke-edge.mts"
+                        )
+                    ),
                 ],
                 cwd=ROOT / "apps/services/edge-api",
                 env=environment,
@@ -210,7 +239,7 @@ def main() -> None:
         linked = [
             (trace_id, group)
             for trace_id, group in by_trace.items()
-            if {service for service, _ in group} == {"edge-api", "agent-runtime"}
+            if {service for service, _ in group} == expected_services
         ]
         assert len(linked) == 1, "Expected one cross-language trace"
         trace_id, group = linked[0]
@@ -218,12 +247,23 @@ def main() -> None:
             "Public trace identity was trusted"
         )
         ids = {hex_id(span["spanId"]) for _, span in group}
-        python_span = next(
-            span for service, span in group if service == "agent-runtime"
-        )
-        assert hex_id(python_span["parentSpanId"]) in ids, (
-            "Python span is not linked to Edge client"
-        )
+        roots = [span for _, span in group if not span.get("parentSpanId")]
+        assert len(roots) == 1
+        for _, span in group:
+            if span.get("parentSpanId"):
+                assert hex_id(span["parentSpanId"]) in ids, "Orphaned dependency span"
+        if args.dependencies:
+            names = {span["name"] for _, span in group}
+            assert {
+                "knowledge.retrieve",
+                "mcp.lookup_order",
+                "rag.query_embedding",
+                "rag.vector_search",
+                "rag.keyword_search",
+                "rag.fusion",
+                "rag.rerank",
+                "vendure.order_lookup",
+            } <= names, names
         for path, key in (
             ("/v1/logs", "resourceLogs"),
             ("/v1/metrics", "resourceMetrics"),
@@ -235,7 +275,7 @@ def main() -> None:
                 for a in resource["resource"]["attributes"]
                 if a["key"] == "service.name"
             }
-            assert services == {"edge-api", "agent-runtime"}, (
+            assert services == expected_services, (
                 f"Missing signals for {path}: {services}"
             )
         print(

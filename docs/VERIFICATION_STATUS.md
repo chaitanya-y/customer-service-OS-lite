@@ -1,12 +1,90 @@
 # Verification Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
-## Latest local observability foundation checkpoint
+## Local observability and evaluation readiness checkpoint
 
-The first opt-in Edge API / Agent Runtime telemetry slice is implemented on dev
-but not committed. It does not mean platform-wide production observability is
-complete. Historical statements below saying no OpenTelemetry existed predate
+The September 17 local readiness batch adds model/guard telemetry, short
+Temporal activity spans, Human Operations and Conversation Runtime opt-in
+request telemetry, four Grafana views, local non-notifying alert configuration,
+repository-owned dependency startup helpers, and offline LangSmith/Tau
+preparation. It does not change refund authorization, create a refund, export
+evaluation data, or run a public benchmark.
+
+The Grafana dashboard has platform, model/RAG, refund-operations and
+telemetry-health views. Its refund panel counts emitted operation events, not
+distinct refunds. Temporal activity data is available only through a Tempo
+TraceQL panel because the Worker emits activity spans, not a metric. The local
+rules have bounded labels and 15- to 30-minute minimum-traffic windows, but no
+contact point, cloud destination or notification policy. No absence alert is
+configured because there is no independent traffic baseline or
+collector/exporter-health metric.
+
+| Check | Result |
+| --- | --- |
+| Python observability tests and Ruff | 16 passed; Ruff clean |
+| Agent Runtime tests and Ruff | 203 passed; Ruff passed |
+| Shared Node telemetry tests | 11 passed |
+| Workflow Workers | Typecheck passed; focused activity tests 2 passed; 44 local non-network workflow tests passed |
+| Human Operations | Typecheck passed; 23 passed; 4 database tests skipped because `HUMAN_OPERATIONS_TEST_DATABASE_URL` was unset |
+| Conversation Runtime | Typecheck and focused test remain green; 26 earlier readiness tests passed; 1 database test skipped because `CONVERSATION_TEST_DATABASE_URL` was unset |
+| Local dependency helpers | 5 passed; Node syntax checks passed; local and observability `docker compose ... config --quiet` passed without starting or stopping services |
+| Grafana dashboard and alert configuration | 4 focused configuration tests passed; JSON/YAML subset parsing, observability Compose configuration, and whitespace validation passed |
+| Shared contract checks | 92 passed |
+| Evaluation Runner and Tau boundary | 275 passed with Ruff clean after Tau safe-metadata hardening; focused Tau suite 5 passed |
+
+The Temporal `TestWorkflowEnvironment` integration suite was not freshly run:
+it can require Temporal's external test-server artifact. Database integration
+tests remain skipped until their URLs are supplied.
+
+Deterministic smoke evidence remained content-safe: Edge-to-Agent produced three
+linked spans and the Agent/RAG/Gateway dependency smoke produced 14. Both
+contained traces, metrics and logs with canaries absent. Neither smoke reached a
+model, provider or refund boundary. No paid/model/provider call, LangSmith
+export, official Tau run, database migration, service start/stop or Git mutation
+occurred for this readiness batch.
+
+## Earlier dependency observability checkpoint
+
+Second batch approved September 16, with checks September 17 UTC. Committed and
+pushed on `dev` as `8f976be`; the foundation is on `main` through merge
+`cc36be6`, while this dependency batch is not yet merged.
+
+Passing automated suites: Agent Runtime **200**, Knowledge/RAG **106**, Gateway
+**51**, Edge compatibility **91**, shared Python telemetry **13**, shared Node
+telemetry **8**: **469 tests** across this scope. Gateway typecheck and build,
+scoped Python lint/format and independent review passed. Existing Starlette/httpx
+deprecation warnings remain. No platform-wide test claim is implied.
+
+Final synthetic real-HTTP/MCP dependency check: **14 linked spans**, all three
+services' traces/metrics/logs, canaries absent, **70 ms** synthetic request.
+Trace: `4119c3de1c5ee4526936821287c4a438`. An earlier 14-span run was read back
+from Tempo; Prometheus contains Agent Runtime, RAG and Gateway operation series.
+These timings use fake provider/model/search implementations, not real latency.
+
+The original Edge-to-Agent synthetic smoke also passed after integration: three
+linked spans, all three signals, canaries absent and unauthorized intake 401
+(40 ms synthetic request, no Grafana forwarding on this compatibility run).
+
+Review regression tests cover premature socket close (one error, no fabricated
+HTTP status) and Vendure response-body timeout preservation. Shutdown bounds
+cleanup waits, not guaranteed process termination. No paid calls or refunds occurred.
+
+The owner then approved the local rollout. The observability container was
+recreated without removing its named volume; browser verification showed the
+new RAG phase p95 panel and all four service series. Edge API, Agent Runtime,
+Knowledge/RAG and Integration Gateway were opted in through their ignored local
+`.env` files and restarted. All four health endpoints returned OK. The final
+safe dependency smoke produced 14 linked spans in 73 ms, all three signals,
+canaries absent and trace `4f58122299800dbcdb7d256786b1b3d6` forwarded to
+Grafana. Existing signing secrets and login tokens were not changed.
+See [dependency tracing](observability/DEPENDENCY_TRACING.md).
+
+## Earlier local observability foundation checkpoint
+
+The first opt-in Edge API / Agent Runtime telemetry slice was subsequently
+committed and pushed as `4a5cc58` (main `cc36be6`). Platform-wide production
+observability is not complete. Historical statements saying no OpenTelemetry existed predate
 this checkpoint.
 
 A synthetic real-HTTP check produced one three-span trace across Node and Python,
@@ -1035,7 +1113,8 @@ customer answer supplies trusted delivery facts.
 | Integration Gateway | Vendure projection, MCP, refund authorization, idempotency, provider events | Service tests | Vendure refund previously observed | Verified locally |
 | Private photo gate | Implemented for policy v2 | Contract, service, revision, ownership and workflow tests | Clearer-photo request and exact replacement acceptance before monetary takeover | Verified locally on 2026-09-06 |
 | Positive local browser-to-provider path | Implemented | Focused paths covered | Photo-gated exceptional-refund proof recorded above: one refund, settlement of that same refund, completed workflow/customer projection | Passed locally on 2026-09-06 |
-| Production auth, observability, event backbone, AWS | Planned | None | None | Not implemented |
+| Local operational observability | Opt-in Edge, Agent Runtime, Knowledge/RAG phases, Gateway, Workflow Worker activities, Human Operations and Conversation Runtime | 469 earlier dependency tests plus the current focused readiness checks recorded above | Earlier Grafana panel/service-series proof; current dashboard/alert configuration validated statically | Local diagnostic foundation; not production monitoring |
+| Production auth, remaining observability, event backbone, AWS | Planned | None | None | Not implemented |
 
 ## Display cleanup validation on 2026-09-05
 
@@ -1267,13 +1346,20 @@ API keys, payment references, or customer personal data.
 ## What this verification does not claim
 
 Local success does not prove production bank settlement, Cognito integration,
-managed database recovery, Kafka delivery, distributed observability, multi-region
-behavior, workload scaling, or AWS deployment. Those require separate deployment
+managed database recovery, Kafka delivery, platform-wide production observability,
+multi-region behavior, workload scaling, or AWS deployment. Those require separate deployment
 and operational evidence. The positive runs also do not establish live webhook
 delivery, all duplicate/replay/concurrency behavior, all rejection and failure
 branches, or delivery-window eligibility. The September 6 run proves local
 Vendure execution through the photo gate, not real provider/bank settlement.
-OpenTelemetry/observability, production auth and AWS remain unimplemented.
+Local OpenTelemetry covers Edge, Agent Runtime model/guard paths, Knowledge/RAG
+phases, Gateway read-only commerce lookup, short Workflow Worker activities,
+Human Operations and Conversation Runtime. Temporal activities remain trace-only;
+they do not produce business counters and activity attempts are not distinct
+refunds. The local dashboard and non-notifying alert configuration are not
+production controls. Durable refund/outbox/reconciliation metrics,
+collector/exporter health metrics, notification routing, CloudWatch/AWS export,
+production auth and AWS deployment remain unimplemented.
 Confirmation expiry tests do not prove automatic migration of legacy parked
 waits. The current cited-policy wording safeguard has the September 10 offline
 evidence above; a fresh paid live browser recheck has not been run.
