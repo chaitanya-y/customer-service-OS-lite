@@ -26,6 +26,30 @@ const SAFE_SERVER_OPERATION = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD) \/[A-Za
 const SAFE_CLIENT_OPERATION = /^[a-z][a-z0-9._-]{0,79}$/;
 const SAFE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);
 const SAFE_ERROR_CATEGORIES = new Set(['application_error', 'transport_error', 'timeout']);
+const SAFE_ACTIVITY_OPERATIONS = new Set([
+  'temporal.activity.refund_context_refresh',
+  'temporal.activity.refund_policy_evaluation',
+  'temporal.activity.refund_preview_create',
+  'temporal.activity.human_case_open',
+  'temporal.activity.human_case_close',
+  'temporal.activity.refund_confirmation_handle',
+  'temporal.activity.refund_submission',
+  'temporal.activity.refund_reconciliation',
+  'temporal.activity.refund_evidence_open',
+  'temporal.activity.refund_evidence_read',
+  'temporal.activity.refund_evidence_transition',
+  'temporal.activity.refund_evidence_close',
+]);
+const SAFE_ACTIVITY_DEPENDENCIES = new Set(['integration_gateway', 'human_operations']);
+const SAFE_ACTIVITY_OUTCOMES = new Set([
+  'success',
+  'submitted',
+  'succeeded',
+  'failed',
+  'pending_reconciliation',
+  'processing',
+  'not_found',
+]);
 const propagator = new W3CTraceContextPropagator();
 const traceparentGetter = {
   get(carrier, key) {
@@ -85,6 +109,9 @@ function disabledHandle(diagnostic) {
     },
     async withClientRequest(_input, headers, request) {
       return request(new Headers(headers));
+    },
+    async withActivity(_input, activity) {
+      return activity();
     },
     async shutdown() {
       if (stopped) return;
@@ -265,6 +292,38 @@ export function initializeTelemetry(options) {
             span.setStatus({ code: SpanStatusCode.ERROR });
             const errorName = error && typeof error === 'object' && 'name' in error ? error.name : undefined;
             span.setAttribute('error.type', errorName === 'AbortError' || errorName === 'TimeoutError' ? 'timeout' : 'transport_error');
+            throw error;
+          } finally {
+            span.end();
+          }
+        });
+      },
+      async withActivity(input, activity) {
+        const operation = SAFE_ACTIVITY_OPERATIONS.has(input.operation)
+          ? input.operation
+          : 'temporal.activity.unknown';
+        const dependency = SAFE_ACTIVITY_DEPENDENCIES.has(input.dependency)
+          ? input.dependency
+          : undefined;
+        return tracer.startActiveSpan(operation, {
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            operation,
+            ...(dependency === undefined ? {} : { 'dependency.name': dependency }),
+          },
+        }, async (span) => {
+          try {
+            const result = await activity();
+            const classifiedOutcome = input.outcome?.(result);
+            const outcome = SAFE_ACTIVITY_OUTCOMES.has(classifiedOutcome)
+              ? classifiedOutcome
+              : 'success';
+            span.setAttribute('outcome', outcome);
+            return result;
+          } catch (error) {
+            span.setStatus({ code: SpanStatusCode.ERROR });
+            const errorName = error && typeof error === 'object' && 'name' in error ? error.name : undefined;
+            span.setAttribute('error.type', errorName === 'AbortError' || errorName === 'TimeoutError' ? 'timeout' : 'application_error');
             throw error;
           } finally {
             span.end();

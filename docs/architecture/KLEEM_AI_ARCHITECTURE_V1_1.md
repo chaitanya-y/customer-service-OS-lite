@@ -2,7 +2,7 @@
 
 Version: 1.1 current architecture edition
 Date: 2026-09-03
-Implementation and verification status updated: 2026-09-14
+Implementation and verification status updated: 2026-09-17
 Status: Authoritative for the implemented repository and accepted near-term plan
 
 ## Document authority
@@ -43,6 +43,7 @@ boundaries and safety controls without claiming production scale or reliability.
 | Initial AWS platform | EKS and multi-region target | First deployment is intentionally single-region ECS Fargate; EKS/multi-region are later scale choices, not current implementation |
 | Human Operations persistence | Earlier local slice was in memory | Running Human Operations service uses PostgreSQL with RLS, transactions, audit, idempotency, and durable decision outbox |
 | Model access | Central routing appears in future-state architecture | Central Model Gateway remains planned; Agent Runtime calls configured models directly today |
+| Observability | OpenTelemetry and CloudWatch appear as future-state capabilities | An opt-in local OpenTelemetry slice is implemented for Edge, Agent Runtime, Knowledge/RAG phases, Gateway and read-only Vendure lookup; production CloudWatch, remaining services, model usage and business alerting remain planned |
 | Delivery sequence | Broad platform build-out | Complete and harden the refund walking skeleton before expanding journeys |
 
 ## Architecture principles
@@ -100,6 +101,19 @@ Agent Runtime 8000                              |
                                        Vendure 3001 / provider
 ```
 
+The implemented local observability path is deliberately orthogonal to
+authorization and business state:
+
+```text
+Edge / Agent Runtime / Knowledge-RAG / Integration Gateway
+  -> OTLP HTTP Collector
+    -> Tempo traces / Prometheus metrics / Loki logs
+      -> Grafana 3300
+```
+
+Trace context correlates work; it never grants access. Signed assertions,
+workflow capabilities and durable audit records remain the authority.
+
 ## Release and ownership boundaries
 
 | Boundary | Technology | Responsibility |
@@ -115,6 +129,7 @@ Agent Runtime 8000                              |
 | Integration Gateway | Node.js, TypeScript, Fastify, PostgreSQL | Vendure adapter, MCP server, authorization, idempotency, refund write, provider events, and audit evidence |
 | Human Operations | Node.js, TypeScript, Fastify, PostgreSQL | Durable cases, staff authorization, claim/reassign, decisions, audit, and Temporal outbox delivery |
 | Evaluation Runner, within Control and Knowledge | Python, RAGAS adapters | Versioned datasets, deterministic and semantic graders, repeated trials, usage reports, and compatible baseline comparison; separate from online runtime |
+| Local Observability | OpenTelemetry, Grafana LGTM | Opt-in traces, bounded metrics and safe correlated logs for Edge, Agent Runtime, Knowledge/RAG and Gateway; development evidence only |
 
 ## Governed refund sequence
 
@@ -312,23 +327,30 @@ RAGAS context precision/recall, faithfulness, response relevancy and factual
 correctness, deterministic safety/citation checks, repeated trials, usage sidecars
 and baseline comparison. Seven core intake cases plus a separate retrieval-outage
 case exercise LangGraph with synthetic dependencies, not the full refund workflow.
-Full production observability is not implemented; evaluation usage reports are
-not distributed tracing or a provider bill.
+Evaluation usage reports are not distributed tracing or a provider bill.
 
-Planned observability:
+The implemented opt-in local observability slice provides:
 
-- OpenTelemetry trace propagation across browser BFF, Edge, Agent, RAG, Temporal,
-  Human Operations, Gateway, and provider adapters;
-- CloudWatch logs, metrics, dashboards, and alarms in AWS;
-- business metrics for completion, escalation, approval, failure, reconciliation,
-  latency, token usage, and cost;
-- audit projections with sensitive-data controls.
+- Edge server/client spans and Agent Runtime server spans;
+- Agent Runtime client spans for customer-safe RAG and read-only MCP lookup;
+- Knowledge/RAG phase spans for embedding, vector search, keyword search, fusion
+  and reranking;
+- Integration Gateway HTTP/MCP spans and a read-only Vendure order-lookup span;
+- bounded operation metrics and fixed correlated completion logs;
+- local Tempo, Prometheus, Loki and Grafana storage on loopback.
 
-Dataset v3 has five owner-approved references and needs a new live baseline.
-The proposed next step is a separately authorized five-case campaign with three
-repetitions, human review and a bounded report, then LangSmith and the external
-Tau retail benchmark. Historical one-case scores and 232 passing evaluator
-tests do not prove calibration. Full workflow/human/provider simulations, broader
+The signals exclude raw prompts, answers, retrieved chunks, tokens, order IDs,
+request bodies and secrets. Provider trace propagation to Vendure is disabled.
+Temporal activities, Human Operations, Conversation Runtime/browser BFFs, model
+token/cost/fallback telemetry, refund business SLIs/alerts, production sampling,
+retention/access controls, CloudWatch and AWS/CDK export remain pending. Durable
+business audit records are separate from operational telemetry.
+
+Dataset v3 completed its authorized five-case, three-repetition campaign: 15
+attempts, five scored answers, ten production-guard rejections and no case that
+passed all repetitions. One authorized v4 large-refund trial then failed its
+blocking reviewed-policy answer check. The baseline is frozen; human calibration,
+LangSmith, external Tau, full workflow/human/provider simulations, broader
 specialist routing, adversarial coverage and calibrated release gates remain
 pending. See [the evaluation strategy](../evaluation/EVALUATION_STRATEGY.md).
 
@@ -366,6 +388,8 @@ Implemented and substantially exercised locally:
 - authorized idempotent Vendure refund path;
 - signed provider outcome, processing, and reconciliation;
 - customer and operations browser projections.
+- opt-in local OpenTelemetry correlation across Edge, Agent Runtime,
+  Knowledge/RAG phases and Gateway read-only commerce lookup, with Grafana LGTM.
 - private normalized photo intake, PostgreSQL evidence metadata, exact-revision
   assigned-staff review, and a Temporal gate under immutable policy release v2.
   Evidence acceptance is separate from monetary approval. Existing v1 requests
@@ -383,15 +407,16 @@ database skips across five changed services. See
 
 Still pending:
 
-- v3 repeated live RAGAS campaign and human calibration, LangSmith, external Tau
-  execution and full refund-workflow evaluation;
+- human calibration, LangSmith, external Tau execution and full refund-workflow
+  evaluation after the completed v3 campaign and failed v4 policy-answer trial;
 - reproducible Vendure/OpenSearch bootstrap and one-command stack startup;
 - broad browser end-to-end coverage;
 - deterministic delivery-age eligibility and production photo storage, scanning,
   retention approval and recovery operations;
 - centralized Model Gateway;
 - Kafka/MSK event delivery;
-- OpenTelemetry/CloudWatch;
+- remaining service, Temporal, model and business instrumentation plus production
+  CloudWatch/AWS export, sampling, retention, dashboards and alerts;
 - production Cognito identity and AWS infrastructure;
 - Admin Control Plane release workflows;
 - real-phone voice implementation.

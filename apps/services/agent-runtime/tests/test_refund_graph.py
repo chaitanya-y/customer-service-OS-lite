@@ -1,6 +1,16 @@
 from datetime import UTC, datetime
 
 import pytest
+from cso_observability import TelemetryState, initialize_telemetry
+from opentelemetry.sdk._logs.export import (
+    InMemoryLogRecordExporter,
+    SimpleLogRecordProcessor,
+)
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from agent_runtime.integrations.customer_evidence import (
     CustomerEvidence,
@@ -18,6 +28,7 @@ from agent_runtime.refund.answer import (
     CustomerAnswer,
     LangChainRefundAnswerComposer,
     RefundAnswerCompositionError,
+    RefundAnswerRejectionCode,
 )
 from agent_runtime.refund.conversation import ConversationCustomerMessage
 from agent_runtime.refund.graph import (
@@ -515,6 +526,73 @@ async def test_refund_graph_falls_back_when_answer_composition_fails(
     assert result["answer_composition_status"] == "fallback"
     assert result["customer_answer"].citations == []
     assert "order ORDER-123" in result["customer_answer"].message
+
+
+@pytest.mark.asyncio
+async def test_answer_guard_fallback_is_observable_without_customer_content(
+    order_context: OrderContext,
+) -> None:
+    span_exporter = InMemorySpanExporter()
+    telemetry = initialize_telemetry(
+        enabled=True,
+        service_name="agent-runtime",
+        service_version="test",
+        environment_name="test",
+        state=TelemetryState(),
+        span_processor=SimpleSpanProcessor(span_exporter),
+        metric_reader=InMemoryMetricReader(),
+        log_processor=SimpleLogRecordProcessor(InMemoryLogRecordExporter()),
+    )
+    proposal = create_proposal_builder().build(
+        extraction=RefundIntentExtraction(
+            reason_code="DAMAGED", scope="FULL_ORDER", selected_item_ids=[]
+        ),
+        order_context=order_context,
+        turn_id="turn-1",
+        trace_id="trace-1",
+    )
+    compose_answer = create_compose_customer_answer_node(
+        FakeRefundAnswerComposer(
+            error=RefundAnswerCompositionError(
+                RefundAnswerRejectionCode.MONEY_TEXT_REJECTED
+            )
+        ),
+        telemetry=telemetry,
+    )
+
+    result = await compose_answer(
+        {
+            "customer_message": "CANARY-CUSTOMER-MESSAGE",
+            "order_context": order_context,
+            "refund_proposal": proposal,
+            "knowledge_evidence": [
+                CustomerEvidence.model_validate(
+                    {
+                        "knowledge_document_id": "refund-policy-current",
+                        "chunk_id": "section-003-chunk-001",
+                        "content": "CANARY-KNOWLEDGE-CONTENT",
+                        "citation": {
+                            "source_uri": "s3://cso-knowledge/refund-policy.md",
+                            "title": "Refund Policy",
+                            "section_path": ["Refund eligibility"],
+                        },
+                        "retrieval_methods": ["semantic_vector"],
+                        "reranker_rank": 1,
+                    }
+                )
+            ],
+        }
+    )
+
+    assert result["answer_composition_status"] == "fallback"
+    assert telemetry.force_flush() is True
+    span = span_exporter.get_finished_spans()[0]
+    assert span.name == "answer.fallback"
+    assert span.attributes == {
+        "operation": "answer.fallback",
+        "outcome": "guard_rejected",
+    }
+    assert "CANARY" not in str(span)
 
 
 @pytest.mark.asyncio

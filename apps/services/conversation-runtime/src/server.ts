@@ -10,6 +10,10 @@ import {
 import { PostgresConversationRepository } from './postgres-conversation-repository.js';
 import { createHmacServiceAssertionVerifier } from './service-assertion.js';
 import { createHmacContextAssertionVerifier } from './trusted-context.js';
+import { closeFastifyWithin, runWithin } from './observability.js';
+import { getTelemetry } from './telemetry-state.js';
+
+const telemetry = getTelemetry();
 
 const config = loadConfig();
 const pool = new Pool({ connectionString: config.DATABASE_URL });
@@ -49,20 +53,24 @@ const app = buildApp({
   verifyServiceAssertion,
   conversationService,
   checkHealth: () => repository.checkHealth(),
-  logger: true,
+  logger: false,
+  telemetry,
 });
 
 try {
   await app.listen({ host: config.HOST, port: config.PORT });
 } catch (error) {
-  app.log.error(error);
-  await pool.end();
-  process.exit(1);
+  await runWithin(() => pool.end(), 1_000);
+  throw error;
 }
 
 async function shutdown() {
-  await app.close();
-  await pool.end();
+  try {
+    await closeFastifyWithin(app);
+    await runWithin(() => pool.end(), 1_000);
+  } finally {
+    await telemetry.shutdown();
+  }
 }
 
 process.once('SIGINT', () => void shutdown());

@@ -2,6 +2,16 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from cso_observability import TelemetryState, initialize_telemetry
+from opentelemetry.sdk._logs.export import (
+    InMemoryLogRecordExporter,
+    SimpleLogRecordProcessor,
+)
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from pydantic import SecretStr
 
 from agent_runtime import config as runtime_config
@@ -42,6 +52,12 @@ class FakeChatModel:
         self.output_schema = args[0]
         del kwargs
         return self.structured_model
+
+
+class UsageResult(dict[str, object]):
+    def __init__(self, values: dict[str, object], usage_metadata: dict[str, int]) -> None:
+        super().__init__(values)
+        self.usage_metadata = usage_metadata
 
 
 def make_proposal(
@@ -327,6 +343,67 @@ async def test_answer_composer_rejects_a_citation_not_in_retrieved_evidence(
             order_context=order_context,
             knowledge_evidence=[make_evidence()],
         )
+
+
+@pytest.mark.asyncio
+async def test_answer_model_marks_a_guard_rejection_without_customer_content(
+    order_context: OrderContext,
+) -> None:
+    span_exporter = InMemorySpanExporter()
+    metric_reader = InMemoryMetricReader()
+    log_exporter = InMemoryLogRecordExporter()
+    telemetry = initialize_telemetry(
+        enabled=True,
+        service_name="agent-runtime",
+        service_version="test",
+        environment_name="test",
+        state=TelemetryState(),
+        span_processor=SimpleSpanProcessor(span_exporter),
+        metric_reader=metric_reader,
+        log_processor=SimpleLogRecordProcessor(log_exporter),
+    )
+    composer = LangChainRefundAnswerComposer(
+        FakeChatModel(
+            FakeStructuredModel(
+                UsageResult(
+                    {
+                        "message": "Order WRONG-1 needs review.",
+                        "citations": [],
+                    },
+                    {
+                        "input_tokens": 19,
+                        "output_tokens": 5,
+                        "total_tokens": 24,
+                    },
+                )
+            )
+        ),  # type: ignore[arg-type]
+        telemetry=telemetry,
+    )
+
+    with pytest.raises(RefundAnswerCompositionError):
+        await composer.compose(
+            customer_message="CANARY-CUSTOMER-MESSAGE",
+            refund_proposal=make_proposal(order_context),
+            order_context=order_context,
+            knowledge_evidence=[make_evidence(content="CANARY-KNOWLEDGE-CONTENT")],
+        )
+
+    assert telemetry.force_flush() is True
+    span = span_exporter.get_finished_spans()[0]
+    assert span.attributes == {
+        "operation": "model.refund_answer",
+        "outcome": "guard_rejected",
+        "model.cost.status": "unknown",
+        "model.usage.input_tokens": 19,
+        "model.usage.output_tokens": 5,
+        "model.usage.total_tokens": 24,
+    }
+    exported = json.dumps(
+        [span, metric_reader.get_metrics_data(), log_exporter.get_finished_logs()],
+        default=lambda value: vars(value) if hasattr(value, "__dict__") else str(value),
+    )
+    assert "CANARY" not in exported
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-09-14
+Last updated: 2026-09-17
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -19,11 +19,13 @@ Read it before changing code. It records:
 
 No credentials or `.env` values belong in this file or in Git.
 
-Current checkpoint: evaluation code and answer safeguards are pushed on `dev`
-at `87ab48f` and included in pushed `main` merge `97028db`. Merged-code checks
-recorded 586 passing tests across five services, with four optional Human
-Operations database tests skipped. See [Verification Status](VERIFICATION_STATUS.md)
-for the exact scope; this is not a new full-stack or paid-model test.
+Current checkpoint: the local observability foundation is included in pushed
+`main` merge `cc36be6`. The dependency-tracing extension is committed and
+pushed on `dev` at `8f976be`, but is not merged to `main`. Its focused scope
+passed 469 tests and a safe synthetic Agent-to-RAG/Gateway trace produced 14
+linked spans. See [Verification Status](VERIFICATION_STATUS.md) for exact scope;
+this is not a paid-model, OpenSearch-performance, provider-performance or refund
+execution result.
 
 The current seed is `refund-rag-answer-v3.json`, with five owner-approved
 references. The measured answer prompt was `refund-answer-v8`. The authorized September 14
@@ -31,10 +33,11 @@ campaign attempted five cases three times: five answers scored, ten rejected,
 zero cases passed all repetitions. It used 204,047 measured tokens and all 95
 recorded provider invocations succeeded. See
 [the v3 baseline](evaluation/RAGAS_V3_BASELINE.md) for scores, offline diagnosis
-and private artifacts. The next work is owner review and human/judge comparison,
-not another paid campaign. Human calibration remains pending. Notify the owner
-before LangSmith begins; no export or Tau run has happened. Code, guards and
-fixtures were unchanged during measurement. See
+and private artifacts. One subsequent authorized v4 large-refund trial failed
+its blocking reviewed-policy answer check. The baseline is frozen; human/judge
+comparison and calibration remain pending. Notify the owner before LangSmith
+begins; no export or Tau run has happened. Code, guards and fixtures were
+unchanged during the measured v3 campaign. See
 [the evaluation strategy](evaluation/EVALUATION_STRATEGY.md).
 
 The subsequent approved local answer change uses `refund-answer-v9`. One shared
@@ -63,7 +66,7 @@ slice are implemented locally. The photo gate is pinned to `refund-policy-v2`;
 v1 histories remain unchanged. Read `REFUND_PHOTO_EVIDENCE.md` for current APIs,
 security boundaries, setup and reading order, and `VERIFICATION_STATUS.md` for
 actual checks. Delivery-age enforcement, cloud photo storage/scanning, retention
-approval and production observability remain separate work.
+approval and the remaining production observability layers remain separate work.
 
 September 6 proof: the photo-gated browser journey completed for full-order
 USD 3,122.60 after a clearer-photo request, exact replacement acceptance,
@@ -77,8 +80,10 @@ eligibility claims remain prohibited. Trusted delivery-age eligibility remains
 unimplemented. Early live RAGAS attempts on September 7, 10 and 11 failed before
 grading. A later September 11 one-case trial completed all five metrics after an
 explicit 4096-token judge budget was added. A calibrated baseline across the
-dataset and a fresh paid browser recheck remain pending. The current
-priority is evaluation before observability; see `evaluation/EVALUATION_STRATEGY.md`.
+dataset and a fresh paid browser recheck remain pending. The imperfect evaluation
+baseline has now been frozen and the approved local observability foundation has
+been implemented. LangSmith, Tau and human calibration remain deferred; see
+`evaluation/EVALUATION_STRATEGY.md`.
 
 The September 10 evaluation-only grounding follow-up records validated synthetic
 application facts separately from policy chunks. Faithfulness receives both;
@@ -706,12 +711,38 @@ that is no longer confirmable. Two compatibility patches preserve historical
 execution: old parked waits reject a new late confirmation but require an explicit
 migration to gain autonomous timeout behavior. See `VERIFICATION_STATUS.md`.
 
+### Local observability foundation
+
+The approved local OpenTelemetry slice is implemented for Edge API, Agent
+Runtime, Knowledge/RAG and Integration Gateway. It propagates one W3C trace
+context across the current HTTP/MCP boundaries and records:
+
+- Edge and service request spans;
+- Agent Runtime RAG and MCP client spans;
+- RAG embedding, vector search, keyword search, fusion and reranking phases;
+- Gateway MCP/HTTP handling and read-only Vendure order-lookup timing;
+- bounded operation counters, duration histograms and safe correlated completion
+  logs.
+
+The local LGTM container stores traces in Tempo, metrics in Prometheus and logs
+in Loki, with Grafana on port 3300. Telemetry is opt-in and excludes raw prompts,
+answers, retrieved content, tokens, order references, request bodies and secrets.
+Trace context never replaces signed tenant assertions or workflow capabilities,
+and operational telemetry never replaces the durable business audit.
+
+The current implementation does not yet cover Temporal activities, Human
+Operations, Conversation Runtime/browser BFFs, model token/cost/fallback data,
+refund business SLIs/alerts, production sampling/retention/access controls,
+CloudWatch or AWS/CDK export. See `observability/README.md` and
+`observability/DEPENDENCY_TRACING.md`.
+
 ## 8. Current Git state
 
-As recorded on September 14, `dev`/`origin/dev` point to `87ab48f` and
-`main`/`origin/main` to merge `97028db`, with identical trees. Work returned to
-`dev`. Local `.superpowers/` artifacts were preserved and excluded. This is a
-dated snapshot: always inspect Git before changing or publishing new work.
+As recorded on September 17, `dev`/`origin/dev` point to `8f976be` and
+`main`/`origin/main` point to merge `cc36be6`. The dependency observability
+batch is therefore on `dev` only. Local untracked `.superpowers/` artifacts
+were preserved and excluded. This is a dated snapshot: always inspect Git before
+changing or publishing new work.
 
 The repository workflow is:
 
@@ -952,6 +983,17 @@ The Knowledge/RAG service expects a local OpenSearch instance on port `9200` and
 the configured release index to be published before it can serve evidence. The
 repository does not yet provide one-command OpenSearch orchestration.
 
+### Terminal -1: local observability, when tracing
+
+```bash
+docker compose -f infrastructure/observability/compose.yaml up -d
+```
+
+Grafana is available at `http://127.0.0.1:3300` and OTLP HTTP at
+`http://127.0.0.1:4318`. This local backend is optional for normal application
+behavior but required to inspect exported telemetry. Preserve its named volume;
+do not use `down -v` for a dashboard refresh.
+
 ### Terminal 0: Temporal
 
 ```bash
@@ -1015,7 +1057,7 @@ Expected URLs:
 
 ```bash
 cd apps/services/knowledge-rag
-uv run uvicorn knowledge_rag.main:app --reload --host 127.0.0.1 --port 8001
+uv run uvicorn knowledge_rag.main:app --env-file .env --reload --host 127.0.0.1 --port 8001
 ```
 
 Expected URLs:
@@ -1030,7 +1072,7 @@ the Edge API. Do not call it from a browser or customer client.
 
 ```bash
 cd apps/services/agent-runtime
-uv run uvicorn agent_runtime.main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn agent_runtime.main:app --env-file .env --reload --host 127.0.0.1 --port 8000
 ```
 
 Expected URLs:
@@ -1351,11 +1393,13 @@ parts remain:
   implemented and tested, but old idle waits do not gain a timer retroactively;
 - live model evaluation and release gating for the refund specialist;
 - Kafka topics, event schemas, consumers, and outbox delivery;
-- OpenTelemetry traces, metrics, logs, and audit projections;
-- expanded reference review, live repeated RAGAS measurement, human calibration,
-  LangSmith experiments, public Tau execution and full-workflow evaluation gates;
-  versioned datasets and deterministic intake/tool/policy/safety graders already
-  exist in Evaluation Runner;
+- Temporal, Human Operations, Conversation Runtime/browser BFF, model usage and
+  refund-business observability; production sampling, retention, access controls,
+  dashboards, alerts and CloudWatch/AWS export also remain;
+- human calibration, LangSmith experiments, public Tau execution and full-workflow
+  evaluation gates after the completed v3 campaign and failed v4 policy-answer
+  trial; versioned datasets and deterministic intake/tool/policy/safety graders
+  already exist in Evaluation Runner;
 - Admin Console release-management screens and control-plane publication APIs;
 - reproducible Vendure migration/seed/bootstrap;
 - one-command local orchestration for Temporal, OpenSearch, and the application
@@ -1370,27 +1414,26 @@ parts remain:
 
 ## 16. Recommended next sequence
 
-The positive local refund slice is verified. Evaluation comes before production
-observability. The current sequence is:
+The positive local refund slice is verified, the imperfect v3/v4 evaluation
+baseline is frozen, and the first two local observability batches are implemented.
+The current sequence is:
 
-1. Review the completed five-case, three-repetition v3 RAGAS campaign with the
-   owner. Keep all failures visible, record human/judge disagreements, and freeze
-   the measured baseline. No perfect score or automatic rerun is required before
-   moving on. Answer-boundary fixes require separate scoped approval.
-2. Notify the owner before starting LangSmith experiment export and inspection,
-   obtain export approval, then add the external Tau retail
-   benchmark adapter. Keep public benchmark scores separate from internal refund
-   cases; full Temporal/human/provider sandbox evaluation remains an extension.
-3. Make the local stack reproducible: commit a Vendure bootstrap/seed path and
+1. Add model timing, token/cost/fallback telemetry and Temporal workflow/activity
+   spans without recording prompts, answers or customer data.
+2. Instrument Human Operations and Conversation Runtime, then define bounded
+   refund business metrics, dashboards, alerts and local recovery checks.
+3. Resume human evaluation calibration, LangSmith export and external Tau only
+   after notifying the owner and obtaining any required data/export approval.
+   Keep public benchmark results separate from internal refund cases.
+4. Make the local stack reproducible: commit a Vendure bootstrap/seed path and
    one-command dependency orchestration. A contributor should not need the owner's
    local database to run the browser test.
-4. Add browser component, accessibility, and end-to-end tests for customer intake,
+5. Add browser component, accessibility, and end-to-end tests for customer intake,
    confirmation, approval, takeover, and reconciliation status, including the
    pending fresh paid browser wording check with separate approval.
-5. Introduce Kafka delivery for the existing transactional Human Operations
+6. Introduce Kafka delivery for the existing transactional Human Operations
    outbox and workflow/audit projections, then add operational monitoring and
    recovery drills for PostgreSQL.
-6. Add OpenTelemetry traces, metrics and structured logs before production.
 7. Build the Control Plane and Admin Console release views, then replace local
    authentication with Cognito and deploy the single-region AWS slice.
 8. Add the centralized Model Gateway behind the existing model-client interface,

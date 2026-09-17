@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { initializeTelemetry } from '@cso/observability-node';
+
 import { loadConfig } from './config.js';
 import { createHumanOperationsCaseClient } from './human-operations-case-client.js';
 import { createIntegrationGatewayRefundContextClient } from './integration-gateway-client.js';
@@ -10,6 +12,7 @@ import { runRefundWorker } from './refund-worker.js';
 import { createHmacWorkflowAccessAssertionSigner } from './workflow-access-assertion.js';
 
 const config = loadConfig();
+const telemetry = initializeTelemetry({ serviceName: 'workflow-workers' });
 const signWorkflowAccessAssertion = createHmacWorkflowAccessAssertionSigner({
   secret: config.WORKFLOW_ACCESS_HMAC_SECRET,
   issuer: config.WORKFLOW_ACCESS_ISSUER,
@@ -54,10 +57,15 @@ const activities = createRefundWorkflowActivities({
     previewId: randomUUID(),
     createdAt: new Date().toISOString(),
   }),
+  telemetry,
 });
 
-await runRefundWorker({
-  taskQueue: config.TEMPORAL_TASK_QUEUE,
-  activities,
-  temporalAddress: config.TEMPORAL_ADDRESS,
-});
+try {
+  await runRefundWorker({
+    taskQueue: config.TEMPORAL_TASK_QUEUE,
+    activities,
+    temporalAddress: config.TEMPORAL_ADDRESS,
+  });
+} finally {
+  await telemetry.shutdown();
+}

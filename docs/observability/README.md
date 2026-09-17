@@ -1,12 +1,44 @@
 # Local observability foundation
 
 Latest update: the dependency batch adds Knowledge/RAG, Integration Gateway and
-Agent Runtime client propagation. Read [dependency tracing](DEPENDENCY_TRACING.md)
-for the new scope, code walkthrough and synthetic test. The first-batch evidence
-below remains historical. The owner approved local opt-in for all four services
-on 2026-09-17; this is still not a production deployment.
+Agent Runtime client propagation. It is committed and pushed on `dev` as
+`8f976be` but is not yet merged to `main`. Read
+[dependency tracing](DEPENDENCY_TRACING.md) for the scope, code walkthrough and
+synthetic test. The first-batch evidence below remains historical. The owner
+approved local opt-in for all four services on 2026-09-17; this is still not a
+production deployment.
 
 Owner approved 2026-09-16. This is the first batch, not full production monitoring.
+
+## Current readiness batch, September 17
+
+The later local readiness batch extends the same opt-in, content-minimized
+telemetry boundary without changing refund authorization or durable audit:
+
+- Agent Runtime records bounded model intent/answer outcomes, guard rejections
+  and fallback events. When a provider supplies token usage, it emits the
+  `cso_model_tokens_total` counter. Cost remains unknown unless a versioned
+  price and provider usage are both available; unknown cost is never reported
+  as zero.
+- Workflow Workers record short Temporal activity spans at activity boundaries.
+  They do not export from replayed workflow code or keep a span open over a
+  durable wait. Activity telemetry is trace-only today, not a Prometheus
+  counter or a count of distinct refunds.
+- Human Operations and Conversation Runtime use the shared Node boundary for
+  opt-in request traces, operation counters, duration histograms and fixed
+  completion logs. Their database-backed behavior and authorization remain
+  separate from telemetry.
+
+The later static checks passed without a local rollout: Python observability
+tests (**16**) and Agent Runtime (**203**) passed with Ruff clean; shared Node
+telemetry (**11**) passed; Workflow Workers typechecked and its focused activity
+tests (**2**) plus local non-network workflow tests (**44**) passed. Human
+Operations typechecked and passed **23** tests, with four database tests skipped
+because `HUMAN_OPERATIONS_TEST_DATABASE_URL` was unset. Conversation Runtime
+typechecked and passed **26** tests, with one database test skipped because
+`CONVERSATION_TEST_DATABASE_URL` was unset. The `TestWorkflowEnvironment`
+integration suite was not freshly run because it requires Temporal's external
+test-server artifact.
 
 ## What is implemented
 
@@ -56,6 +88,39 @@ Stopping preserves its dedicated telemetry volume and does not stop the project.
 The pinned official `grafana/otel-lgtm` image bundles local development services;
 it is not the AWS production deployment. Prometheus has seven-day/512 MB retention.
 Other backend retention and disk alerts are not production hardened yet.
+
+## Grafana views and local alerts
+
+The provisioned `cso-foundation` dashboard now groups local signals into four
+views:
+
+1. **Platform observability**: operation throughput, p95 duration, server-error
+   ratio and fixed correlated logs.
+2. **Model and RAG**: provider-reported model-token rate, model
+   failure/guard-rejection ratio, RAG phase p95 and RAG server-error ratio.
+3. **Refund operations**: emitted refund-path operation events and a Tempo
+   TraceQL view of Temporal activity spans.
+4. **Telemetry health**: operation samples by service and the local coverage
+   boundary.
+
+The dashboard uses only the current emitted Prometheus series:
+`cso_operation_completed_total`, `cso_operation_duration_seconds_bucket`, and
+`cso_model_tokens_total`. The refund-path panel and fallback alert count
+operation events, **not distinct refunds**. Temporal activity attempts can retry,
+so their TraceQL panel is deliberately not treated as a business counter.
+
+Grafana provisions four local rules: model guard/failure event rate, RAG
+server-error rate, refund-path fallback event rate, and platform server-error
+rate. Each evaluates a 15- to 30-minute sample window, requires at least
+20, 30 or 50 emitted events, and remains true for 10 minutes before firing.
+They have bounded owner/severity/scope labels and no contact point, notification
+policy, webhook, cloud destination or other delivery configuration. They are
+local diagnostic rules, not an escalation path.
+
+There is no collector/exporter health metric or independent traffic baseline in
+this slice. Accordingly, no absence alert is configured: a service with no
+traffic cannot be distinguished from a service with broken telemetry. Inspect
+the telemetry-health panel while sending known synthetic traffic instead.
 
 ## Safe test with no paid calls
 
@@ -128,6 +193,26 @@ smoke then produced 14 linked spans in 73 ms with traces, metrics and logs,
 canaries absent and Grafana forwarding enabled. This proves local wiring, not
 real model, OpenSearch, provider or end-to-end refund performance.
 
+## Repository-owned dependency startup
+
+With Docker available, the one-command helper starts only the repository-owned
+PostgreSQL and local observability services, then waits for both health checks:
+
+```sh
+node tools/local/start-dependencies.mjs
+```
+
+`node tools/local/check-readiness.mjs` performs only the bounded readiness
+check. Re-running the starter is non-destructive: it uses `docker compose up -d`
+for the two named services and never stops, removes, seeds or resets anything.
+
+Vendure is not started or seeded. OpenSearch and a published knowledge release
+are not started or created. Temporal is not started. Those gaps are intentional
+and require their own setup and authorization. The helper itself was not run
+during this readiness batch; its five Node tests, syntax checks, and both local
+and observability `docker compose ... config --quiet` checks passed without
+starting or stopping services.
+
 ## Read the code in this order
 
 1. `apps/services/edge-api/src/bootstrap.ts` initializes telemetry before the server.
@@ -146,10 +231,11 @@ real model, OpenSearch, provider or end-to-end refund performance.
 
 ## Remaining batches
 
-Not implemented here: remaining services and Temporal activity spans, model
-phase timing, token/cost/fallback metrics, refund business metrics, operational
-alerts and SLOs, production sampling/retention/access controls, CloudWatch/AWS/CDK
-deployment. LangSmith and Tau remain separate deferred evaluation work.
+Not implemented here: durable distinct-refund, outbox-age and reconciliation-age
+metrics; Temporal activity metrics; collector/exporter health metrics; production
+sampling, retention, access controls, notification routing, CloudWatch/AWS/CDK
+deployment; and production SLOs. LangSmith export and an official Tau run remain
+separate, explicitly approved evaluation work.
 Operational telemetry is not a replacement for durable business audit records.
 
 The [approved design](../superpowers/specs/2026-09-16-observability-design.md)

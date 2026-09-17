@@ -4,6 +4,7 @@ import Fastify, {
   type FastifyReply,
 } from 'fastify';
 import { z } from 'zod';
+import type { RequestInstrumentation } from '@cso/observability-node';
 
 import {
   ConversationUnavailableError,
@@ -21,6 +22,7 @@ import {
   ServiceAssertionError,
   type VerifyServiceAssertion,
 } from './service-assertion.js';
+import { instrumentHttpServer } from './observability.js';
 
 const idempotencyKeySchema = z
   .string()
@@ -84,10 +86,12 @@ type BuildAppOptions = {
   conversationService: ConversationService;
   checkHealth: () => Promise<void>;
   logger?: boolean;
+  telemetry?: RequestInstrumentation;
 };
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
+  instrumentHttpServer(app, options.telemetry);
 
   app.get('/health', async (_request, reply) => {
     try {
@@ -372,7 +376,7 @@ function sendStableError(
     });
   }
 
-  logger.error({ err: error }, 'Conversation request failed');
+  logger.error('conversation.request.failed');
   return reply.code(500).send({
     error: {
       code: 'INTERNAL_ERROR',

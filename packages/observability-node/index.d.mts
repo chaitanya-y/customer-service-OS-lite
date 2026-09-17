@@ -14,6 +14,19 @@ export type ClientRequestResult = {
 
 export type RequestSpan = { end(result: RequestResult): void };
 
+export type ActivityObservation<T> = {
+  operation: string;
+  dependency?: string;
+  outcome?: (value: T) => string | undefined;
+};
+
+export type ActivityInstrumentation = {
+  withActivity<T>(
+    input: ActivityObservation<T>,
+    activity: () => Promise<T>,
+  ): Promise<T>;
+};
+
 export type RequestInstrumentation = {
   readonly enabled: boolean;
   startServerRequest(
@@ -27,7 +40,7 @@ export type RequestInstrumentation = {
   ): Promise<T>;
 };
 
-export type TelemetryHandle = RequestInstrumentation & {
+export type TelemetryHandle = RequestInstrumentation & ActivityInstrumentation & {
   shutdown(): Promise<void>;
 };
 

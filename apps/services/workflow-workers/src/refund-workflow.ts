@@ -201,6 +201,7 @@ export async function refundWorkflow(
           state = { ...state, stage: 'PREVIEW_INVALIDATED' };
           return state;
         }
+        await observeRefundConfirmation();
         if (!confirmation.accepted) {
           if (evidence?.accepted) await evidenceActivities.closeRefundEvidence({
             ...evidenceAccess, caseId: evidence.caseId, outcome: 'EVIDENCE_REVIEW_COMPLETED',
@@ -324,6 +325,7 @@ export async function refundWorkflow(
           state = { ...state, stage: 'PREVIEW_INVALIDATED' };
           return state;
         }
+        await observeRefundConfirmation();
         if (!confirmation.accepted) {
           state = { stage: 'CANCELLED', decision, preview };
           return state;
@@ -366,6 +368,7 @@ export async function refundWorkflow(
           state = { ...state, stage: 'PREVIEW_INVALIDATED' };
           return state;
         }
+        await observeRefundConfirmation();
         if (!confirmation.accepted) {
           state = { stage: 'CANCELLED', decision, preview };
           return state;
@@ -414,6 +417,17 @@ async function waitForRefundConfirmation(
   // A timely decision is final for this preview. Human review and provider
   // processing may outlive the deadline; existing fresh-facts checks still apply.
   return confirmation;
+}
+
+/**
+ * The workflow only schedules this versioned activity; observability runs in
+ * the activity process so replay and a potentially long confirmation wait do
+ * not create telemetry side effects or hold a span open.
+ */
+async function observeRefundConfirmation(): Promise<void> {
+  if (patched('refund-confirmation-observation-activity-v1')) {
+    await activities.recordRefundConfirmation();
+  }
 }
 
 function buildOpenHumanCaseInput({

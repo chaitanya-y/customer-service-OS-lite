@@ -3,6 +3,7 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agent_runtime.integrations.order_lookup import OrderContext
+from agent_runtime.observability import telemetry_runtime
 from agent_runtime.refund.answer import (
     CustomerAnswer,
     LangChainRefundAnswerComposer,
@@ -100,8 +101,9 @@ class RefundProposalSettings(BaseSettings):
 
 
 class ConfiguredRefundIntentExtractor:
-    def __init__(self) -> None:
+    def __init__(self, *, telemetry=telemetry_runtime) -> None:
         self._delegate: LangChainRefundIntentExtractor | None = None
+        self._telemetry = telemetry
 
     async def extract(
         self,
@@ -120,7 +122,10 @@ class ConfiguredRefundIntentExtractor:
                     max_retries=2,
                     timeout=15,
                 )
-                self._delegate = LangChainRefundIntentExtractor(model)
+                self._delegate = LangChainRefundIntentExtractor(
+                    model,
+                    telemetry=self._telemetry,
+                )
 
             return await self._delegate.extract(
                 customer_message=customer_message,
@@ -134,8 +139,9 @@ class ConfiguredRefundIntentExtractor:
 
 
 class ConfiguredRefundAnswerComposer:
-    def __init__(self) -> None:
+    def __init__(self, *, telemetry=telemetry_runtime) -> None:
         self._delegate: LangChainRefundAnswerComposer | None = None
+        self._telemetry = telemetry
 
     async def compose(self, **kwargs) -> CustomerAnswer:
         try:
@@ -148,7 +154,10 @@ class ConfiguredRefundAnswerComposer:
                     max_retries=0,
                     timeout=settings.refund_answer_model_timeout_seconds,
                 )
-                self._delegate = LangChainRefundAnswerComposer(model)
+                self._delegate = LangChainRefundAnswerComposer(
+                    model,
+                    telemetry=self._telemetry,
+                )
 
             return await self._delegate.compose(**kwargs)
         except RefundAnswerCompositionError:

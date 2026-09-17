@@ -10,7 +10,8 @@ slices; scoped independent review passed after two error-path fixes.
 See [the dependency tracing guide](observability/DEPENDENCY_TRACING.md) for files,
 functions, examples, safe synthetic commands and remaining rollout boundaries.
 Foundation dev commit `4a5cc58` and main merge `cc36be6` are already pushed.
-This second batch is uncommitted on dev. The approved local rollout is complete:
+The second batch is committed and pushed on `dev` as `8f976be`, but is not
+merged to `main`. The approved local rollout is complete:
 the telemetry container was recreated with its volume preserved; the new RAG
 panel is visible; Edge, Agent Runtime, Knowledge/RAG and Gateway run with opt-in
 settings in ignored local `.env` files; and all four health checks pass. A final
@@ -19,10 +20,30 @@ model call, refund, signing-secret change or login-token change occurred.
 RAGAS outcomes are unchanged; LangSmith/Tau remain deferred. Historical Git
 checkpoints below are not the current worktree status.
 
-Git checkpoint: code commit `87ab48f` is pushed to `dev` and is included in
-pushed `main` merge `97028db`. Both branches had identical code trees at this
-checkpoint. Verification on merged `main` recorded 586 passing tests and four
-optional Human Operations database skips across five changed services. See
+Current uncommitted readiness work extends local telemetry to model/guard
+outcomes, short Workflow Worker activity spans, Human Operations and Conversation
+Runtime. It also adds four Grafana views, non-notifying local alert rules,
+repository-owned PostgreSQL/observability startup helpers, and offline
+LangSmith/Tau preparation. These are not a production rollout: Temporal
+activities are trace-only, refund-path operation events are not distinct refunds,
+there is no collector/exporter health metric, and alert rules have no notification
+destination. No LangSmith export, official Tau run, paid/model/provider call,
+refund, service lifecycle action or Git mutation occurred in this batch.
+
+Fresh evidence is recorded at the top of
+[Verification Status](VERIFICATION_STATUS.md): Python observability 16, Agent
+Runtime 203, shared Node telemetry 11, Workflow activity 2 plus 44 local
+non-network workflow tests, Human Operations 23, Conversation Runtime 26,
+dependency helper 5, dashboard configuration 4, and shared contracts 92.
+Database integrations remain skipped without their URLs. The Temporal
+`TestWorkflowEnvironment` integration suite is not freshly verified because it
+can need the external test-server artifact. The Evaluation Runner full suite has
+275 passes with Ruff clean, and the focused Tau suite has 5 passes; this
+verifies the offline Tau boundary without an official Tau run.
+
+Git checkpoint: `dev` and `origin/dev` are at `8f976be`; `main` and
+`origin/main` are at `cc36be6`. Verification for the dependency observability
+scope recorded 469 passing tests plus a final safe 14-span synthetic trace. See
 [Verification Status](VERIFICATION_STATUS.md) for exact scope and warnings.
 This documentation follow-up does not authorize another commit, push or paid run.
 Older dated paragraphs below describe their checkpoint, not current Git state.
@@ -265,9 +286,9 @@ Evaluation code is now committed and pushed in `87ab48f`: five owner-approved v3
 RAG answer references, seven deterministic intake/proposal cases plus a separate
 retrieval-outage case, RAGAS adapters, repeated trials, usage reporting and baseline
 comparison. This is not full workflow evaluation or a completed public benchmark.
-The immediate priority is evaluation before observability;
-LangSmith, full workflow simulations and the public benchmark adapter remain
-future steps.
+The imperfect v3/v4 evaluation checkpoint is frozen and the local observability
+foundation is now implemented. Human calibration, LangSmith, full workflow
+simulations and the public benchmark adapter remain future steps.
 
 An earlier offline follow-up added 10 development and 5 held-out RAG cases (all
 new references pending owner review), a source/split manifest, optional measured
@@ -455,8 +476,9 @@ These are one local-machine sample, not performance SLOs:
 
 The Agent Runtime consumed about 19–21 seconds of each turn. It contains two
 configured model calls, customer-safe RAG retrieval, and proposal construction.
-Exact LLM versus RAG timings are not available yet because the project has
-correlation IDs but not OpenTelemetry spans. Do not infer a per-model latency
+This sample predates the implemented local OpenTelemetry slice. Current traces
+separate RAG and Gateway dependency phases, but model-call timing/token/cost and
+Temporal activity timing are still absent. Do not infer a per-model latency
 breakdown from this table.
 
 ## Recommended next work
@@ -473,28 +495,24 @@ behavior are unchanged. Treat the earlier September 5 48-hour renewal as history
 not the current lifetime. Always recheck expiry instead of relying on this date.
 See `LOCAL_AUTH_AND_SECRETS.md` for the development-only security tradeoff.
 
-1. Review the completed v3 campaign and its offline follow-up fixes; do not repeat
-   the already completed 15-trial run. Finish the remaining owner/judge review
-   while preserving its failed reliability gate and recorded scores.
-2. Review the completed trusted-answer implementation and
-   [new v4 policy-answer criterion](evaluation/RAGAS_V4_POLICY_ANSWER.md) before any
-   further paid trial. The authorized single v4 trial is complete and failed;
-   do not repeat it automatically. See the measured checkpoint above. The immutable v3 fixture requires at least one RAG citation
-   even for amount-only answers; that historical check remains informational.
-   V4's large-refund case instead verifies application-owned policy provenance
-   with a blocking grade. A new paid trial needs explicit
-   scope/approval. Notify the owner before LangSmith experiments,
-   then proceed to the external Tau retail benchmark. Reference approval is not
-   completed human calibration. Full Temporal/human/provider evaluation remains
-   a separate extension; perfect RAGAS scores are not a prerequisite for moving on.
-3. Add reproducible Vendure seed/bootstrap and one-command local orchestration.
-4. Add browser end-to-end tests for confirmation, approval, takeover, processing,
+1. Add durable distinct-refund, outbox-age and reconciliation-age metrics before
+   treating refund operations as a business dashboard. Activity attempts remain
+   non-authoritative, and Temporal has trace-only telemetry today.
+2. Add collector/exporter health metrics, production sampling/retention/access
+   controls, notification routing and CloudWatch/AWS export through a separately
+   approved deployment design.
+3. Resume human evaluation calibration, an actual LangSmith export and an
+   official Tau run only with owner knowledge and required export/external-run
+   approval. Keep adapted Tau cases non-comparable and do not repeat the v3/v4
+   paid trials automatically.
+4. Add reproducible Vendure seed/bootstrap, OpenSearch publication and Temporal
+   startup separately. The current one-command helper starts only PostgreSQL and
+   local observability.
+5. Add browser end-to-end tests for confirmation, approval, takeover, processing,
    provider completion, and failure. The fresh paid browser wording check remains
    pending; the September 6 positive refund proof is already complete. Plan the
    legacy parked-workflow rollout, trusted delivery-age eligibility and production
    evidence storage separately, without weakening authorization.
-5. Add OpenTelemetry tracing and metrics, then CloudWatch dashboards/alarms for
-   the AWS deployment.
 6. Connect existing transactional outboxes to Kafka/MSK for projections and audit
    events.
 7. Implement the centralized Model Gateway behind the existing model-client

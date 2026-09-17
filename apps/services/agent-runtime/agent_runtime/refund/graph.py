@@ -1,5 +1,6 @@
 from typing import Literal
 
+from cso_observability import TelemetryRuntime
 from langgraph.graph import END, START, StateGraph
 
 from agent_runtime.integrations.customer_evidence import (
@@ -17,6 +18,7 @@ from agent_runtime.refund.answer import (
     CustomerAnswer,
     RefundAnswerComposer,
     RefundAnswerCompositionError,
+    RefundAnswerRejectionCode,
     build_fallback_customer_answer,
 )
 from agent_runtime.refund.conversation import ConversationCustomerMessage
@@ -237,7 +239,27 @@ def create_build_refund_proposal_node(proposal_builder: RefundProposalBuilder):
 
 def create_compose_customer_answer_node(
     answer_composer: RefundAnswerComposer,
+    *,
+    telemetry: TelemetryRuntime | None = None,
 ):
+    def fallback(
+        refund_proposal,
+        order_context,
+        *,
+        outcome: Literal["fallback_no_evidence", "guard_rejected", "model_error"],
+    ) -> CustomerAnswer:
+        if telemetry is None:
+            return build_fallback_customer_answer(
+                refund_proposal,
+                order_context=order_context,
+            )
+        with telemetry.operation("answer.fallback") as operation:
+            operation.set_outcome(outcome)
+            return build_fallback_customer_answer(
+                refund_proposal,
+                order_context=order_context,
+            )
+
     async def compose_customer_answer(state: RefundState) -> RefundState:
         customer_message = state.get("customer_message")
         refund_proposal = state.get("refund_proposal")
@@ -251,8 +273,10 @@ def create_compose_customer_answer_node(
 
         if not knowledge_evidence:
             return {
-                "customer_answer": build_fallback_customer_answer(
-                    refund_proposal, order_context=order_context
+                "customer_answer": fallback(
+                    refund_proposal,
+                    order_context,
+                    outcome="fallback_no_evidence",
                 ),
                 "answer_composition_status": "fallback",
             }
@@ -265,10 +289,17 @@ def create_compose_customer_answer_node(
                 knowledge_evidence=knowledge_evidence,
                 refund_policy=state.get("refund_policy"),
             )
-        except RefundAnswerCompositionError:
+        except RefundAnswerCompositionError as error:
             return {
-                "customer_answer": build_fallback_customer_answer(
-                    refund_proposal, order_context=order_context
+                "customer_answer": fallback(
+                    refund_proposal,
+                    order_context,
+                    outcome=(
+                        "model_error"
+                        if error.reason_code
+                        == RefundAnswerRejectionCode.MODEL_OUTPUT_INVALID
+                        else "guard_rejected"
+                    ),
                 ),
                 "answer_composition_status": "fallback",
             }
@@ -287,6 +318,8 @@ def build_refund_graph(
     proposal_builder: RefundProposalBuilder,
     customer_evidence_lookup: CustomerEvidenceLookup,
     answer_composer: RefundAnswerComposer,
+    *,
+    telemetry: TelemetryRuntime | None = None,
 ):
     builder = StateGraph(RefundState)
 
@@ -311,7 +344,7 @@ def build_refund_graph(
     )
     builder.add_node(
         "compose_customer_answer",
-        create_compose_customer_answer_node(answer_composer),
+        create_compose_customer_answer_node(answer_composer, telemetry=telemetry),
     )
 
     builder.add_edge(START, "initialize_request")

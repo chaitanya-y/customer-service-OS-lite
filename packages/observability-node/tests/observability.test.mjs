@@ -204,3 +204,89 @@ test('a server request without a response status is a transport failure without 
   assert.equal('http.response.status_code' in span.attributes, false);
   await telemetry.shutdown();
 });
+
+test('an activity observation exports only its fixed boundary outcome', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'workflow-workers',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  const secret = 'CANARY-customer-order-tenant-token-provider-body';
+  const result = await telemetry.withActivity(
+    {
+      operation: 'temporal.activity.refund_submission',
+      dependency: 'integration_gateway',
+      outcome: (value) => value.status,
+    },
+    async () => ({ status: 'submitted', providerBody: secret }),
+  );
+
+  assert.deepEqual(result, { status: 'submitted', providerBody: secret });
+  const span = exporters.spans.getFinishedSpans()[0];
+  assert.equal(span.name, 'temporal.activity.refund_submission');
+  assert.deepEqual(span.attributes, {
+    operation: 'temporal.activity.refund_submission',
+    'dependency.name': 'integration_gateway',
+    outcome: 'submitted',
+  });
+  assert.equal(span.events.length, 0);
+  assert.equal(span.status.message, undefined);
+  assert.equal(JSON.stringify({ name: span.name, attributes: span.attributes, events: span.events, status: span.status }).includes(secret), false);
+  assert.deepEqual(exporters.metrics.getMetrics().resourceMetrics?.scopeMetrics ?? [], []);
+  await telemetry.shutdown();
+});
+
+test('disabled activity observation preserves the activity result without exporting', async () => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'workflow-workers',
+    enabled: false,
+    ...exporters.options,
+  });
+
+  const result = await telemetry.withActivity(
+    { operation: 'temporal.activity.refund_context_refresh' },
+    async () => 'fresh-context',
+  );
+
+  assert.equal(result, 'fresh-context');
+  await telemetry.shutdown();
+  assert.deepEqual(exporters.spans.getFinishedSpans(), []);
+});
+
+test('an activity failure exports a safe error category without exception text', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'workflow-workers',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  const secret = 'CANARY-customer-order-tenant-token-provider-body';
+  const failure = new Error(secret);
+  await assert.rejects(
+    telemetry.withActivity(
+      { operation: 'temporal.activity.refund_reconciliation', dependency: 'integration_gateway' },
+      async () => { throw failure; },
+    ),
+    failure,
+  );
+
+  const span = exporters.spans.getFinishedSpans()[0];
+  assert.equal(span.status.code, 2);
+  assert.equal(span.status.message, undefined);
+  assert.deepEqual(span.attributes, {
+    operation: 'temporal.activity.refund_reconciliation',
+    'dependency.name': 'integration_gateway',
+    'error.type': 'application_error',
+  });
+  assert.equal(span.events.length, 0);
+  assert.equal(JSON.stringify({ name: span.name, attributes: span.attributes, events: span.events, status: span.status }).includes(secret), false);
+  await telemetry.shutdown();
+});

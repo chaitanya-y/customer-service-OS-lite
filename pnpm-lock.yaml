@@ -36,6 +36,9 @@ importers:
 
   apps/services/conversation-runtime:
     dependencies:
+      '@cso/observability-node':
+        specifier: workspace:*
+        version: link:../../../packages/observability-node
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
@@ -52,6 +55,15 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@opentelemetry/sdk-logs':
+        specifier: 0.222.0
+        version: 0.222.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-metrics':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
@@ -104,6 +116,9 @@ importers:
 
   apps/services/human-operations:
     dependencies:
+      '@cso/observability-node':
+        specifier: workspace:*
+        version: link:../../../packages/observability-node
       '@temporalio/client':
         specifier: ^1.22.0
         version: 1.22.0
@@ -123,6 +138,15 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@opentelemetry/sdk-logs':
+        specifier: 0.222.0
+        version: 0.222.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-metrics':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
@@ -184,6 +208,9 @@ importers:
 
   apps/services/workflow-workers:
     dependencies:
+      '@cso/observability-node':
+        specifier: workspace:*
+        version: link:../../../packages/observability-node
       '@temporalio/client':
         specifier: ^1.22.0
         version: 1.22.0

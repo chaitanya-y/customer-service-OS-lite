@@ -2,8 +2,8 @@
 
 Second local observability batch, approved 2026-09-16 (tests ran September 17 UTC).
 This extends the existing SDKs rather than installing a second tracing system.
-The changes are uncommitted after foundation dev commit `4a5cc58` / main merge
-`cc36be6`; no push is authorized by this implementation task.
+The changes are committed and pushed on `dev` as `8f976be`; the foundation is
+on `main` through merge `cc36be6`, while this dependency batch is not yet merged.
 
 ## What a trace explains
 
