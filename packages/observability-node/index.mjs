@@ -50,6 +50,31 @@ const SAFE_ACTIVITY_OUTCOMES = new Set([
   'processing',
   'not_found',
 ]);
+const REFUND_EXECUTION_CURRENT_OUTCOMES = new Set([
+  'IN_PROGRESS',
+  'SUBMITTED',
+  'SUCCEEDED',
+  'FAILED',
+  'PENDING_RECONCILIATION',
+]);
+const REFUND_EXECUTION_OLDEST_AGE_OUTCOMES = new Set([
+  'IN_PROGRESS',
+  'SUBMITTED',
+  'PENDING_RECONCILIATION',
+]);
+const OPERATIONAL_GAUGE_NAMES = [
+  'cso.refund.executions.current',
+  'cso.refund.executions.oldest_age',
+  'cso.refund.provider_events.pending',
+  'cso.refund.provider_events.oldest_age',
+  'cso.human_operations.decision_outbox.pending',
+  'cso.human_operations.decision_outbox.oldest_age',
+];
+const OPERATIONAL_GAUGE_AGE_NAMES = new Set([
+  'cso.refund.executions.oldest_age',
+  'cso.refund.provider_events.oldest_age',
+  'cso.human_operations.decision_outbox.oldest_age',
+]);
 const propagator = new W3CTraceContextPropagator();
 const traceparentGetter = {
   get(carrier, key) {
@@ -89,6 +114,20 @@ function outcomeFor(statusCode) {
   return 'success';
 }
 
+function operationalGaugeAttributes(observation) {
+  if (!observation || typeof observation !== 'object' || !Number.isFinite(observation.value) || observation.value < 0) {
+    return undefined;
+  }
+  if (observation.name === 'cso.refund.executions.current') {
+    return REFUND_EXECUTION_CURRENT_OUTCOMES.has(observation.outcome) ? { outcome: observation.outcome } : undefined;
+  }
+  if (observation.name === 'cso.refund.executions.oldest_age') {
+    return REFUND_EXECUTION_OLDEST_AGE_OUTCOMES.has(observation.outcome) ? { outcome: observation.outcome } : undefined;
+  }
+  if (OPERATIONAL_GAUGE_NAMES.includes(observation.name) && observation.outcome === undefined) return {};
+  return undefined;
+}
+
 function boundedShutdown(promises, timeoutMilliseconds) {
   return Promise.race([
     Promise.allSettled(promises).then(() => undefined),
@@ -113,6 +152,7 @@ function disabledHandle(diagnostic) {
     async withActivity(_input, activity) {
       return activity();
     },
+    recordOperationalGauge(_observation) {},
     async shutdown() {
       if (stopped) return;
       stopped = true;
@@ -181,6 +221,8 @@ export function initializeTelemetry(options) {
       'outcome',
       'http.response.status_code',
     ]);
+    const operationalGaugeOutcomeAttributes = createAllowListAttributesProcessor(['outcome']);
+    const noOperationalGaugeAttributes = createAllowListAttributesProcessor([]);
     const meterProvider = new MeterProvider({
       resource,
       readers: [metricReader],
@@ -201,6 +243,27 @@ export function initializeTelemetry(options) {
             },
           },
         },
+        {
+          instrumentName: 'cso.refund.executions.current',
+          attributesProcessors: [operationalGaugeOutcomeAttributes],
+          aggregationCardinalityLimit: 6,
+        },
+        {
+          instrumentName: 'cso.refund.executions.oldest_age',
+          attributesProcessors: [operationalGaugeOutcomeAttributes],
+          aggregationCardinalityLimit: 4,
+        },
+        ...[
+          'cso.telemetry.heartbeat',
+          'cso.refund.provider_events.pending',
+          'cso.refund.provider_events.oldest_age',
+          'cso.human_operations.decision_outbox.pending',
+          'cso.human_operations.decision_outbox.oldest_age',
+        ].map((instrumentName) => ({
+          instrumentName,
+          attributesProcessors: [noOperationalGaugeAttributes],
+          aggregationCardinalityLimit: 2,
+        })),
       ],
     });
     const loggerProvider = new LoggerProvider({
@@ -215,6 +278,13 @@ export function initializeTelemetry(options) {
     const logger = loggerProvider.getLogger('@cso/observability-node');
     const completed = meter.createCounter('cso.operation.completed');
     const duration = meter.createHistogram('cso.operation.duration', { unit: 's' });
+    const operationalGauges = new Map(
+      OPERATIONAL_GAUGE_NAMES.map((name) => [
+        name,
+        meter.createGauge(name, OPERATIONAL_GAUGE_AGE_NAMES.has(name) ? { unit: 's' } : undefined),
+      ]),
+    );
+    meter.createGauge('cso.telemetry.heartbeat').record(1);
     let stopped = false;
 
     singleton = {
@@ -329,6 +399,11 @@ export function initializeTelemetry(options) {
             span.end();
           }
         });
+      },
+      recordOperationalGauge(observation) {
+        const attributes = operationalGaugeAttributes(observation);
+        if (attributes === undefined) return;
+        operationalGauges.get(observation.name)?.record(observation.value, attributes);
       },
       async shutdown() {
         if (stopped) return;

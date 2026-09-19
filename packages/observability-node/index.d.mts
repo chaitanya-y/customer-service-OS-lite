@@ -27,6 +27,22 @@ export type ActivityInstrumentation = {
   ): Promise<T>;
 };
 
+export type OperationalGaugeObservation =
+  | Readonly<{
+    name: 'cso.refund.executions.current';
+    value: number;
+    outcome: 'IN_PROGRESS' | 'SUBMITTED' | 'SUCCEEDED' | 'FAILED' | 'PENDING_RECONCILIATION';
+  }>
+  | Readonly<{
+    name: 'cso.refund.executions.oldest_age';
+    value: number;
+    outcome: 'IN_PROGRESS' | 'SUBMITTED' | 'PENDING_RECONCILIATION';
+  }>
+  | Readonly<{ name: 'cso.refund.provider_events.pending'; value: number }>
+  | Readonly<{ name: 'cso.refund.provider_events.oldest_age'; value: number }>
+  | Readonly<{ name: 'cso.human_operations.decision_outbox.pending'; value: number }>
+  | Readonly<{ name: 'cso.human_operations.decision_outbox.oldest_age'; value: number }>;
+
 export type RequestInstrumentation = {
   readonly enabled: boolean;
   startServerRequest(
@@ -41,6 +57,7 @@ export type RequestInstrumentation = {
 };
 
 export type TelemetryHandle = RequestInstrumentation & ActivityInstrumentation & {
+  recordOperationalGauge(observation: OperationalGaugeObservation): void;
   shutdown(): Promise<void>;
 };
 

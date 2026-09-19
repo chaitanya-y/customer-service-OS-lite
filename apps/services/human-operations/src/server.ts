@@ -10,6 +10,7 @@ import { PrivateEvidenceStore } from './private-evidence-store.js';
 import { PostgresRefundEvidenceRepository } from './postgres-refund-evidence-repository.js';
 import { closeFastifyWithin, runWithin } from './observability.js';
 import { getTelemetry } from './telemetry-state.js';
+import { startDecisionOutboxObserver, type DecisionOutboxObserver } from './decision-outbox-observer.js';
 
 const telemetry = getTelemetry();
 
@@ -74,6 +75,7 @@ const app = buildApp({
 let isDispatchingOutbox = false;
 let outboxDispatchTimer: ReturnType<typeof setInterval> | undefined;
 let evidenceRecoveryTimer: ReturnType<typeof setInterval> | undefined;
+let decisionOutboxObserver: DecisionOutboxObserver | undefined;
 let recoveringEvidence = false;
 async function recoverStaleEvidence() {
   if (!evidenceRepository || recoveringEvidence) return;
@@ -99,6 +101,7 @@ async function dispatchPendingOutbox() {
 
 try {
   await app.listen({ host: process.env.HOST ?? '127.0.0.1', port: Number(process.env.PORT ?? 3003) });
+  decisionOutboxObserver = startDecisionOutboxObserver({ repository, telemetry, tenantId, environmentId });
   await dispatchPendingOutbox();
   await recoverStaleEvidence();
   if (evidenceRepository) {
@@ -115,6 +118,7 @@ try {
 async function shutdown() {
   if (outboxDispatchTimer) clearInterval(outboxDispatchTimer);
   if (evidenceRecoveryTimer) clearInterval(evidenceRecoveryTimer);
+  decisionOutboxObserver?.stop();
   try {
     await closeFastifyWithin(app);
     await runWithin(() => pool.end(), 1_000);

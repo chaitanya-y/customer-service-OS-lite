@@ -2,7 +2,7 @@
   "uid": "cso-foundation",
   "title": "CSO local operational observability",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "tags": ["cso", "local", "safe-signals"],
   "timezone": "browser",
   "refresh": "10s",
@@ -116,19 +116,50 @@
       "type": "text",
       "title": "Refund operations coverage",
       "gridPos": { "x": 0, "y": 43, "w": 24, "h": 4 },
-      "options": { "mode": "markdown", "content": "The refund-path panel counts emitted operation events, not distinct refunds. Activity attempts can retry and are trace-only today; inspect the Tempo query for activity timing and outcomes. Durable audit and reconciliation remain the authoritative source for completed refunds." }
+      "options": { "mode": "markdown", "content": "The refund execution and backlog panels are authoritative periodic snapshots of durable PostgreSQL state. Temporal activity attempts can retry, remain trace-only and are not distinct refunds. Metrics are diagnostic views; durable audit records remain the authorization and money-movement authority." }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Authoritative refund executions",
+      "gridPos": { "x": 0, "y": 47, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (outcome) (cso_refund_executions_current{service_name=\"integration-gateway\"})", "legendFormat": "{{outcome}}" }]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Refund and provider backlog age",
+      "gridPos": { "x": 8, "y": 47, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "cso_refund_executions_oldest_age_seconds{service_name=\"integration-gateway\"}", "legendFormat": "refund {{outcome}}" },
+        { "refId": "B", "expr": "cso_refund_provider_events_oldest_age_seconds{service_name=\"integration-gateway\"}", "legendFormat": "provider event" }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Pending durable outbox records",
+      "gridPos": { "x": 16, "y": 47, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "cso_refund_provider_events_pending{service_name=\"integration-gateway\"}", "legendFormat": "provider events" },
+        { "refId": "B", "expr": "cso_human_operations_decision_outbox_pending{service_name=\"human-operations\"}", "legendFormat": "human decisions" }
+      ]
     },
     {
       "id": 15,
       "type": "row",
       "title": "Telemetry health",
-      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 1 }
+      "gridPos": { "x": 0, "y": 55, "w": 24, "h": 1 }
     },
     {
       "id": 16,
       "type": "timeseries",
       "title": "Emitted operation samples by service",
-      "gridPos": { "x": 0, "y": 48, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 56, "w": 8, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [{ "refId": "A", "expr": "sum by (service_name) (increase(cso_operation_completed_total[15m]))", "legendFormat": "{{service_name}}" }]
     },
@@ -136,8 +167,24 @@
       "id": 17,
       "type": "text",
       "title": "Telemetry health limits",
-      "gridPos": { "x": 12, "y": 48, "w": 12, "h": 8 },
-      "options": { "mode": "markdown", "content": "This local slice emits no collector/exporter health metric and has no independent traffic baseline. No absence alert is configured because no traffic cannot distinguish an idle service from broken telemetry. Use the sample panel with known synthetic traffic when verifying the local pipeline." }
+      "gridPos": { "x": 16, "y": 56, "w": 8, "h": 8 },
+      "options": { "mode": "markdown", "content": "Heartbeat series distinguish an idle enabled service from missing telemetry. Missing-service alerts require a previously observed heartbeat. Collector internal metrics expose enqueue and send failures. These local alerts do not notify an external destination and do not replace durable audit." }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Service telemetry heartbeat",
+      "gridPos": { "x": 8, "y": 56, "w": 4, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "max by (service_name) (cso_telemetry_heartbeat)", "legendFormat": "{{service_name}}" }]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Collector export failures",
+      "gridPos": { "x": 12, "y": 56, "w": 4, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "(sum(rate(otelcol_exporter_send_failed_spans_total[5m])) or vector(0)) + (sum(rate(otelcol_exporter_send_failed_metric_points_total[5m])) or vector(0)) + (sum(rate(otelcol_exporter_send_failed_log_records_total[5m])) or vector(0)) + (sum(rate(otelcol_exporter_enqueue_failed_spans_total[5m])) or vector(0)) + (sum(rate(otelcol_exporter_enqueue_failed_metric_points_total[5m])) or vector(0)) + (sum(rate(otelcol_exporter_enqueue_failed_log_records_total[5m])) or vector(0))", "legendFormat": "failed signals/s" }]
     }
   ]
 }

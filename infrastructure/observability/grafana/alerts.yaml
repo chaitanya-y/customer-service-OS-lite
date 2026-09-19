@@ -10,17 +10,22 @@
         {
           "uid": "cso-model-safety-rate",
           "title": "Model guard or failure event rate",
-          "condition": "B",
+          "condition": "C",
           "for": "10m",
-          "noDataState": "NoData",
+          "noDataState": "OK",
           "execErrState": "Error",
           "data": [
             {
               "refId": "A",
               "queryType": "",
-              "relativeTimeRange": { "from": 900, "to": 0 },
+              "relativeTimeRange": {
+                "from": 900,
+                "to": 0
+              },
               "datasourceUid": "prometheus",
               "model": {
+                "instant": true,
+                "range": false,
                 "expr": "(sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\",outcome=~\"model_error|guard_rejected\"}[15m])) / sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\"}[15m]))) > 0.20 and sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)\"}[15m])) >= 20",
                 "refId": "A"
               }
@@ -28,34 +33,118 @@
             {
               "refId": "B",
               "queryType": "",
-              "relativeTimeRange": { "from": 0, "to": 0 },
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
               "datasourceUid": "__expr__",
               "model": {
-                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
                 "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
                 "type": "threshold",
-                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
-                "refId": "B"
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
               }
             }
           ],
-          "annotations": { "summary": "Model guard-rejection or failure events exceed 20% after at least 20 model-operation events in 15 minutes.", "runbook": "Inspect the local Model and RAG dashboard and Tempo traces; model telemetry never includes prompts or answers." },
-          "labels": { "severity": "warning", "owner": "agent-runtime", "scope": "local", "signal": "operation_outcome" }
+          "annotations": {
+            "summary": "Model guard-rejection or failure events exceed 20% after at least 20 model-operation events in 15 minutes.",
+            "runbook": "Inspect the local Model and RAG dashboard and Tempo traces; model telemetry never includes prompts or answers."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "agent-runtime",
+            "scope": "local",
+            "signal": "operation_outcome"
+          }
         },
         {
           "uid": "cso-rag-server-error-rate",
           "title": "RAG server error rate",
-          "condition": "B",
+          "condition": "C",
           "for": "10m",
-          "noDataState": "NoData",
+          "noDataState": "OK",
           "execErrState": "Error",
           "data": [
             {
               "refId": "A",
               "queryType": "",
-              "relativeTimeRange": { "from": 1200, "to": 0 },
+              "relativeTimeRange": {
+                "from": 1200,
+                "to": 0
+              },
               "datasourceUid": "prometheus",
               "model": {
+                "instant": true,
+                "range": false,
                 "expr": "(sum(increase(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\",outcome=\"server_error\"}[20m])) / sum(increase(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[20m]))) > 0.10 and sum(increase(cso_operation_completed_total{service_name=\"knowledge-rag\",operation=~\"rag[.].*\"}[20m])) >= 30",
                 "refId": "A"
               }
@@ -63,34 +152,118 @@
             {
               "refId": "B",
               "queryType": "",
-              "relativeTimeRange": { "from": 0, "to": 0 },
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
               "datasourceUid": "__expr__",
               "model": {
-                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
                 "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
                 "type": "threshold",
-                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
-                "refId": "B"
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
               }
             }
           ],
-          "annotations": { "summary": "RAG server-error events exceed 10% after at least 30 emitted RAG operation events in 20 minutes.", "runbook": "Inspect the local Model and RAG dashboard and the bounded RAG operation labels." },
-          "labels": { "severity": "warning", "owner": "knowledge-rag", "scope": "local", "signal": "operation_outcome" }
+          "annotations": {
+            "summary": "RAG server-error events exceed 10% after at least 30 emitted RAG operation events in 20 minutes.",
+            "runbook": "Inspect the local Model and RAG dashboard and the bounded RAG operation labels."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "knowledge-rag",
+            "scope": "local",
+            "signal": "operation_outcome"
+          }
         },
         {
           "uid": "cso-refund-fallback-event-rate",
           "title": "Refund-path fallback event rate",
-          "condition": "B",
+          "condition": "C",
           "for": "10m",
-          "noDataState": "NoData",
+          "noDataState": "OK",
           "execErrState": "Error",
           "data": [
             {
               "refId": "A",
               "queryType": "",
-              "relativeTimeRange": { "from": 1800, "to": 0 },
+              "relativeTimeRange": {
+                "from": 1800,
+                "to": 0
+              },
               "datasourceUid": "prometheus",
               "model": {
+                "instant": true,
+                "range": false,
                 "expr": "(sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=\"answer.fallback\"}[30m])) / sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)|answer[.]fallback\"}[30m]))) > 0.25 and sum(increase(cso_operation_completed_total{service_name=\"agent-runtime\",operation=~\"model[.]refund_(answer|intent)|answer[.]fallback\"}[30m])) >= 20",
                 "refId": "A"
               }
@@ -98,34 +271,118 @@
             {
               "refId": "B",
               "queryType": "",
-              "relativeTimeRange": { "from": 0, "to": 0 },
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
               "datasourceUid": "__expr__",
               "model": {
-                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
                 "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
                 "type": "threshold",
-                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
-                "refId": "B"
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
               }
             }
           ],
-          "annotations": { "summary": "Refund-path fallback operation events exceed 25% after at least 20 events in 30 minutes; this is not a refund count.", "runbook": "Inspect the refund-operations dashboard; Temporal activity attempts are trace-only and are not distinct refunds." },
-          "labels": { "severity": "warning", "owner": "agent-runtime", "scope": "local", "signal": "operation_event" }
+          "annotations": {
+            "summary": "Refund-path fallback operation events exceed 25% after at least 20 events in 30 minutes; this is not a refund count.",
+            "runbook": "Inspect the refund-operations dashboard; Temporal activity attempts are trace-only and are not distinct refunds."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "agent-runtime",
+            "scope": "local",
+            "signal": "operation_event"
+          }
         },
         {
           "uid": "cso-platform-server-error-rate",
           "title": "Platform server error rate",
-          "condition": "B",
+          "condition": "C",
           "for": "10m",
-          "noDataState": "NoData",
+          "noDataState": "OK",
           "execErrState": "Error",
           "data": [
             {
               "refId": "A",
               "queryType": "",
-              "relativeTimeRange": { "from": 900, "to": 0 },
+              "relativeTimeRange": {
+                "from": 900,
+                "to": 0
+              },
               "datasourceUid": "prometheus",
               "model": {
+                "instant": true,
+                "range": false,
                 "expr": "(sum by (service_name) (increase(cso_operation_completed_total{outcome=\"server_error\"}[15m])) / sum by (service_name) (increase(cso_operation_completed_total[15m]))) > 0.10 and sum by (service_name) (increase(cso_operation_completed_total[15m])) >= 50",
                 "refId": "A"
               }
@@ -133,19 +390,931 @@
             {
               "refId": "B",
               "queryType": "",
-              "relativeTimeRange": { "from": 0, "to": 0 },
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
               "datasourceUid": "__expr__",
               "model": {
-                "datasource": { "type": "__expr__", "uid": "__expr__" },
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
                 "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
                 "type": "threshold",
-                "conditions": [{ "type": "query", "evaluator": { "type": "gt", "params": [0] }, "operator": { "type": "and" }, "query": { "params": ["A"] }, "reducer": { "type": "last", "params": [] } }],
-                "refId": "B"
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
               }
             }
           ],
-          "annotations": { "summary": "A service has server-error operation events above 10% after at least 50 emitted operation events in 15 minutes.", "runbook": "Inspect the Platform observability dashboard. This evaluates emitted operation results, not collector/exporter availability." },
-          "labels": { "severity": "warning", "owner": "platform", "scope": "local", "signal": "operation_outcome" }
+          "annotations": {
+            "summary": "A service has server-error operation events above 10% after at least 50 emitted operation events in 15 minutes.",
+            "runbook": "Inspect the Platform observability dashboard. This evaluates emitted operation results, not collector/exporter availability."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "platform",
+            "scope": "local",
+            "signal": "operation_outcome"
+          }
+        },
+        {
+          "uid": "cso-stale-reconciliation",
+          "title": "Pending reconciliation is stale",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 1800,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "max(cso_refund_executions_oldest_age_seconds{service_name=\"integration-gateway\",outcome=\"PENDING_RECONCILIATION\"}) > 900",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "A durable refund execution has remained pending reconciliation for more than 15 minutes.",
+            "runbook": "Inspect the refund operations dashboard, the execution audit, and provider reconciliation dependency traces. Do not retry a refund manually from telemetry alone."
+          },
+          "labels": {
+            "severity": "critical",
+            "owner": "integration-gateway",
+            "scope": "local",
+            "signal": "business_backlog"
+          }
+        },
+        {
+          "uid": "cso-stale-provider-outbox",
+          "title": "Provider refund-event delivery is stale",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 1200,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "max(cso_refund_provider_events_oldest_age_seconds{service_name=\"integration-gateway\"}) > 300",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "A provider refund outcome has waited more than five minutes for durable workflow delivery.",
+            "runbook": "Inspect the provider event outbox, Temporal connectivity, and Gateway logs. The provider event remains durable while delivery retries."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "integration-gateway",
+            "scope": "local",
+            "signal": "business_backlog"
+          }
+        },
+        {
+          "uid": "cso-stale-human-outbox",
+          "title": "Human decision delivery is stale",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 1200,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "max(cso_human_operations_decision_outbox_oldest_age_seconds{service_name=\"human-operations\"}) > 300",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "A staff decision has waited more than five minutes for durable workflow delivery.",
+            "runbook": "Inspect Human Operations outbox delivery, Temporal connectivity and safe dependency traces. Do not repeat the staff decision."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "human-operations",
+            "scope": "local",
+            "signal": "business_backlog"
+          }
+        },
+        {
+          "uid": "cso-collector-export-failure",
+          "title": "Collector export is failing",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 900,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "((sum(increase(otelcol_exporter_send_failed_spans_total[15m])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_metric_points_total[15m])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_log_records_total[15m])) or vector(0)) + (sum(increase(otelcol_exporter_enqueue_failed_spans_total[15m])) or vector(0)) + (sum(increase(otelcol_exporter_enqueue_failed_metric_points_total[15m])) or vector(0)) + (sum(increase(otelcol_exporter_enqueue_failed_log_records_total[15m])) or vector(0))) > 0",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "The local Collector failed to enqueue or send one or more telemetry signals during the last 15 minutes.",
+            "runbook": "Inspect Collector logs, exporter queues and local backend health. Application work remains authoritative even when telemetry is unavailable."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "platform",
+            "scope": "local",
+            "signal": "collector_export"
+          }
+        },
+        {
+          "uid": "cso-collector-telemetry-missing",
+          "title": "Collector telemetry disappeared",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 3900,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "absent_over_time(otelcol_process_uptime_seconds_total[5m]) and on() (max_over_time(otelcol_process_uptime_seconds_total[1h] offset 5m) >= 0)",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "Collector internal telemetry was previously present but has been absent for five minutes.",
+            "runbook": "Check the Collector process and its internal OTLP metric endpoint before trusting dashboard gaps."
+          },
+          "labels": {
+            "severity": "critical",
+            "owner": "platform",
+            "scope": "local",
+            "signal": "telemetry_missing"
+          }
+        },
+        {
+          "uid": "cso-gateway-telemetry-missing",
+          "title": "Integration Gateway telemetry disappeared",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 3900,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "absent_over_time(cso_telemetry_heartbeat{service_name=\"integration-gateway\"}[5m]) and on() (max_over_time(cso_telemetry_heartbeat{service_name=\"integration-gateway\"}[1h] offset 5m) == 1)",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "Integration Gateway telemetry was previously present but has been absent for five minutes.",
+            "runbook": "Check the service process, telemetry configuration and Collector reachability before trusting dashboard gaps."
+          },
+          "labels": {
+            "severity": "warning",
+            "owner": "integration-gateway",
+            "scope": "local",
+            "signal": "telemetry_missing"
+          }
+        },
+        {
+          "uid": "cso-worker-telemetry-missing",
+          "title": "Workflow Worker telemetry disappeared",
+          "condition": "C",
+          "for": "10m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 3900,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "instant": true,
+                "range": false,
+                "expr": "absent_over_time(cso_telemetry_heartbeat{service_name=\"workflow-workers\"}[5m]) and on() (max_over_time(cso_telemetry_heartbeat{service_name=\"workflow-workers\"}[1h] offset 5m) == 1)",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "type": "reduce",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": []
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "reducer": "last",
+                "refId": "B",
+                "settings": {
+                  "mode": "dropNN"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ],
+                "refId": "C"
+              }
+            }
+          ],
+          "annotations": {
+            "summary": "Workflow Worker telemetry was previously present but has been absent for five minutes.",
+            "runbook": "Check the worker process, task queue connectivity, telemetry configuration and Collector reachability."
+          },
+          "labels": {
+            "severity": "critical",
+            "owner": "workflow-workers",
+            "scope": "local",
+            "signal": "telemetry_missing"
+          }
         }
       ]
     }

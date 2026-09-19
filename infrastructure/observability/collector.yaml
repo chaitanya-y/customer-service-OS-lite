@@ -80,6 +80,17 @@ exporters:
 
 service:
   extensions: [health_check]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - periodic:
+            interval: 10000
+            exporter:
+              otlp:
+                protocol: http/protobuf
+                endpoint: http://127.0.0.1:9090/api/v1/otlp/v1/metrics
+                timeout: 2000
   pipelines:
     traces:
       receivers: [otlp]
