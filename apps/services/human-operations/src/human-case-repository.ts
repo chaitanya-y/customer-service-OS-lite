@@ -50,6 +50,11 @@ export type ReassignHumanCaseInput = Readonly<{
   idempotencyKey: string;
 }>;
 
+export type PendingDecisionOutboxSnapshot = Readonly<{
+  pendingCount: number;
+  oldestPendingAgeSeconds: number;
+}>;
+
 export interface HumanCaseRepository {
   open(input: OpenHumanCaseInput): Promise<HumanCase>;
   close(input: CloseHumanCaseInput): Promise<HumanCase>;
@@ -60,6 +65,7 @@ export interface HumanCaseRepository {
   reassign(input: ReassignHumanCaseInput): Promise<HumanCase>;
   decide(input: DecideHumanCaseInput): Promise<Readonly<{ case: HumanCase; outboxEvent: HumanDecisionOutboxEvent }>>;
   listPendingOutbox(input: Readonly<{ tenantId: string; environmentId: string; limit: number }>): Promise<readonly HumanDecisionOutboxEvent[]>;
+  getPendingDecisionOutboxSnapshot(input: Readonly<{ tenantId: string; environmentId: string }>): Promise<PendingDecisionOutboxSnapshot>;
   isOutboxPending(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<boolean>;
   markOutboxDelivered(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<void>;
 }
@@ -205,6 +211,17 @@ export class InMemoryHumanCaseRepository implements HumanCaseRepository {
       .filter((event) => event.tenantId === input.tenantId && event.environmentId === input.environmentId)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .slice(0, input.limit);
+  }
+
+  async getPendingDecisionOutboxSnapshot(input: Readonly<{ tenantId: string; environmentId: string }>): Promise<PendingDecisionOutboxSnapshot> {
+    const pending = [...this.#outbox.values()]
+      .filter((event) => event.tenantId === input.tenantId && event.environmentId === input.environmentId);
+    if (pending.length === 0) return { pendingCount: 0, oldestPendingAgeSeconds: 0 };
+    const oldestCreatedAt = Math.min(...pending.map((event) => Date.parse(event.createdAt)));
+    return {
+      pendingCount: pending.length,
+      oldestPendingAgeSeconds: Math.max(0, (this.now().getTime() - oldestCreatedAt) / 1_000),
+    };
   }
 
   #requireCase(caseId: string, tenantId: string, environmentId: string): HumanCase {

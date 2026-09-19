@@ -6,6 +6,7 @@ import { createHmacContextAssertionVerifier } from './trusted-context.js';
 import { createVendureCommerceProvider } from './vendure-client.js';
 import { createHmacWorkflowAccessAssertionVerifier } from './workflow-access.js';
 import { PostgresRefundExecutionRepository } from './refund-execution-repository.js';
+import { createRefundOperationsObserver } from './refund-operations-observer.js';
 import { createHmacProviderRefundEventVerifier } from './provider-refund-event-routes.js';
 import { createTemporalProviderRefundOutcomeSignaler } from './temporal-provider-refund-events.js';
 import type { TelemetryHandle } from '@cso/observability-node';
@@ -16,6 +17,7 @@ export async function startServer({ telemetry }: { telemetry: TelemetryHandle })
   const pool = new Pool({ connectionString: config.DATABASE_URL });
   let temporalConnection: Connection | undefined;
   let providerEventDispatchInterval: NodeJS.Timeout | undefined;
+  let refundOperationsObserver: ReturnType<typeof createRefundOperationsObserver> | undefined;
   let app: ReturnType<typeof buildApp> | undefined;
   let stopping = false;
 
@@ -23,6 +25,7 @@ export async function startServer({ telemetry }: { telemetry: TelemetryHandle })
     if (stopping) return;
     stopping = true;
     if (providerEventDispatchInterval) clearInterval(providerEventDispatchInterval);
+    refundOperationsObserver?.stop();
     await runWithin(() => app?.close(), 2_000, () => app?.server.closeAllConnections?.());
     await runWithin(() => temporalConnection?.close(), 2_000);
     await runWithin(() => pool.end(), 2_000);
@@ -30,6 +33,10 @@ export async function startServer({ telemetry }: { telemetry: TelemetryHandle })
 
   try {
     const refundExecutionRepository = new PostgresRefundExecutionRepository(pool);
+    refundOperationsObserver = createRefundOperationsObserver({
+      repository: refundExecutionRepository,
+      telemetry,
+    });
     const commerceProvider = createVendureCommerceProvider({
       adminApiUrl: config.VENDURE_ADMIN_API_URL,
       apiKey: config.VENDURE_API_KEY,
@@ -92,6 +99,7 @@ export async function startServer({ telemetry }: { telemetry: TelemetryHandle })
     };
 
     await app.listen({ host: config.HOST, port: config.PORT });
+    refundOperationsObserver.start();
     providerEventDispatchInterval = setInterval(() => { void dispatchPendingProviderEvents(); }, 5_000);
     return { app, close };
   } catch (error) {

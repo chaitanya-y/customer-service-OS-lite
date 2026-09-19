@@ -15,6 +15,7 @@ import {
   type DecideHumanCaseInput,
   type HumanCaseRepository,
   type OpenHumanCaseInput,
+  type PendingDecisionOutboxSnapshot,
   type ReassignHumanCaseInput,
 } from './human-case-repository.js';
 
@@ -62,6 +63,11 @@ type OutboxRow = QueryResultRow & {
 type IdempotencyRow = QueryResultRow & {
   request_fingerprint: string;
   outbox_event_id: string | null;
+};
+
+type PendingDecisionOutboxSnapshotRow = QueryResultRow & {
+  pending_count: string | number;
+  oldest_pending_age_seconds: string | number;
 };
 
 type Scope = Readonly<{ tenantId: string; environmentId: string }>;
@@ -267,6 +273,25 @@ export class PostgresHumanCaseRepository implements HumanCaseRepository {
     });
   }
 
+  async getPendingDecisionOutboxSnapshot(input: Readonly<{ tenantId: string; environmentId: string }>): Promise<PendingDecisionOutboxSnapshot> {
+    return this.inTransaction(input, async (client) => {
+      const result = await client.query<PendingDecisionOutboxSnapshotRow>(
+        `SELECT
+           COUNT(*) AS pending_count,
+           COALESCE(
+             GREATEST(EXTRACT(EPOCH FROM statement_timestamp() - MIN(created_at)), 0),
+             0
+           )::double precision AS oldest_pending_age_seconds
+         FROM human_operations.decision_outbox
+         WHERE status = 'PENDING'
+           AND tenant_id = security.current_tenant_id()
+           AND environment_id = security.current_environment_id()`,
+      );
+      const row = requiredRow(result.rows[0], 'Pending decision outbox aggregate disappeared');
+      return toPendingDecisionOutboxSnapshot(row);
+    });
+  }
+
   async markOutboxDelivered(input: Readonly<{ eventId: string; tenantId: string; environmentId: string }>): Promise<void> {
     await this.inTransaction(input, async (client) => {
       await client.query(
@@ -383,4 +408,22 @@ function requiredRow<T>(row: T | undefined, message: string): T {
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+export function toPendingDecisionOutboxSnapshot(row: PendingDecisionOutboxSnapshotRow): PendingDecisionOutboxSnapshot {
+  const pendingCount = toSafeNonNegativeInteger(row.pending_count);
+  const oldestPendingAgeSeconds = toNonNegativeFiniteNumber(row.oldest_pending_age_seconds);
+  return { pendingCount, oldestPendingAgeSeconds };
+}
+
+function toSafeNonNegativeInteger(value: string | number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (Number.isSafeInteger(parsed) && parsed >= 0) return parsed;
+  throw new Error('INVALID_PENDING_DECISION_OUTBOX_SNAPSHOT');
+}
+
+function toNonNegativeFiniteNumber(value: string | number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  throw new Error('INVALID_PENDING_DECISION_OUTBOX_SNAPSHOT');
 }

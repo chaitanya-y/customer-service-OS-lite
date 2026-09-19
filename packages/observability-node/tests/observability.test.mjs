@@ -23,6 +23,124 @@ function makeExporters() {
   };
 }
 
+function exportedMetrics(exporter) {
+  return exporter.getMetrics()
+    .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
+    .flatMap((scopeMetrics) => scopeMetrics.metrics)
+    .map((metric) => ({
+      name: metric.descriptor.name,
+      points: metric.dataPoints.map((point) => ({
+        value: point.value,
+        attributes: point.attributes,
+      })),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function operationalGaugeUnits(exporter) {
+  return exporter.getMetrics()
+    .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
+    .flatMap((scopeMetrics) => scopeMetrics.metrics)
+    .filter((metric) => metric.descriptor.name.startsWith('cso.') && metric.descriptor.name !== 'cso.operation.completed' && metric.descriptor.name !== 'cso.operation.duration')
+    .map((metric) => ({ name: metric.descriptor.name, unit: metric.descriptor.unit }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+test('operational gauges export only the closed names, values, and outcome dimensions', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.current', value: 11, outcome: 'IN_PROGRESS' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.current', value: 12, outcome: 'SUBMITTED' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.current', value: 13, outcome: 'SUCCEEDED' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.current', value: 14, outcome: 'FAILED' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.current', value: 15, outcome: 'PENDING_RECONCILIATION' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.oldest_age', value: 21, outcome: 'IN_PROGRESS' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.oldest_age', value: 22, outcome: 'SUBMITTED' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.oldest_age', value: 23, outcome: 'PENDING_RECONCILIATION' });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.provider_events.pending', value: 31 });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.provider_events.oldest_age', value: 32 });
+  telemetry.recordOperationalGauge({ name: 'cso.human_operations.decision_outbox.pending', value: 41 });
+  telemetry.recordOperationalGauge({ name: 'cso.human_operations.decision_outbox.oldest_age', value: 42 });
+  await exporters.options.metricReader.forceFlush();
+
+  assert.deepEqual(exportedMetrics(exporters.metrics), [
+    { name: 'cso.human_operations.decision_outbox.oldest_age', points: [{ value: 42, attributes: {} }] },
+    { name: 'cso.human_operations.decision_outbox.pending', points: [{ value: 41, attributes: {} }] },
+    {
+      name: 'cso.refund.executions.current',
+      points: [
+        { value: 11, attributes: { outcome: 'IN_PROGRESS' } },
+        { value: 12, attributes: { outcome: 'SUBMITTED' } },
+        { value: 13, attributes: { outcome: 'SUCCEEDED' } },
+        { value: 14, attributes: { outcome: 'FAILED' } },
+        { value: 15, attributes: { outcome: 'PENDING_RECONCILIATION' } },
+      ],
+    },
+    {
+      name: 'cso.refund.executions.oldest_age',
+      points: [
+        { value: 21, attributes: { outcome: 'IN_PROGRESS' } },
+        { value: 22, attributes: { outcome: 'SUBMITTED' } },
+        { value: 23, attributes: { outcome: 'PENDING_RECONCILIATION' } },
+      ],
+    },
+    { name: 'cso.refund.provider_events.oldest_age', points: [{ value: 32, attributes: {} }] },
+    { name: 'cso.refund.provider_events.pending', points: [{ value: 31, attributes: {} }] },
+    { name: 'cso.telemetry.heartbeat', points: [{ value: 1, attributes: {} }] },
+  ]);
+  assert.deepEqual(operationalGaugeUnits(exporters.metrics), [
+    { name: 'cso.human_operations.decision_outbox.oldest_age', unit: 's' },
+    { name: 'cso.human_operations.decision_outbox.pending', unit: '' },
+    { name: 'cso.refund.executions.current', unit: '' },
+    { name: 'cso.refund.executions.oldest_age', unit: 's' },
+    { name: 'cso.refund.provider_events.oldest_age', unit: 's' },
+    { name: 'cso.refund.provider_events.pending', unit: '' },
+    { name: 'cso.telemetry.heartbeat', unit: '' },
+  ]);
+});
+
+test('operational gauges ignore invalid observations and canary identifiers', async (context) => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({
+    serviceName: 'integration-gateway',
+    environment: 'test',
+    enabled: true,
+    ...exporters.options,
+  });
+  context.after(() => telemetry.shutdown());
+
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.unknown', value: 1 });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.provider_events.pending', value: Number.NaN });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.provider_events.pending', value: Infinity });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.provider_events.pending', value: -1 });
+  telemetry.recordOperationalGauge({ name: 'cso.refund.executions.current', value: 2, outcome: 'CANARY-customer-identifier' });
+  await exporters.options.metricReader.forceFlush();
+
+  const metrics = exportedMetrics(exporters.metrics);
+  assert.deepEqual(metrics, [
+    { name: 'cso.telemetry.heartbeat', points: [{ value: 1, attributes: {} }] },
+  ]);
+  assert.equal(JSON.stringify(metrics).includes('CANARY'), false);
+});
+
+test('disabled telemetry ignores operational gauges', async () => {
+  const exporters = makeExporters();
+  const telemetry = initializeTelemetry({ serviceName: 'integration-gateway', enabled: false, ...exporters.options });
+
+  telemetry.recordOperationalGauge({ name: 'cso.refund.provider_events.pending', value: 1 });
+  await exporters.options.metricReader.forceFlush();
+  await telemetry.shutdown();
+
+  assert.deepEqual(exportedMetrics(exporters.metrics), []);
+});
+
 test('disabled initialization is idempotent and does not export', async () => {
   const exporters = makeExporters();
   const first = initializeTelemetry({ serviceName: 'edge-api', enabled: false, ...exporters.options });

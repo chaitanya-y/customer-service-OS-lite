@@ -1,6 +1,67 @@
 # Verification Status
 
-Last updated: 2026-09-17
+Last updated: 2026-09-19
+
+## Authoritative refund observability checkpoint
+
+The current uncommitted `dev` working tree adds database-derived refund outcome,
+reconciliation age, provider-event outbox and Human Operations decision-outbox
+gauges. It also adds bounded service heartbeats, Collector internal telemetry,
+five operational alert categories and matching local dashboard panels. Temporal
+activity spans remain trace-only because activity retries are not distinct
+refunds.
+
+Fresh integrated checks:
+
+| Check | Result |
+| --- | --- |
+| Shared Node telemetry | 14 passed |
+| Integration Gateway | 61 passed; typecheck and build passed |
+| Human Operations | 32 passed; 5 PostgreSQL tests skipped because `HUMAN_OPERATIONS_TEST_DATABASE_URL` was unset; typecheck passed |
+| Workflow Workers | 77 passed; typecheck passed |
+| Dashboard, alert and Collector static configuration | 5 passed; observability Compose configuration passed |
+| Pinned Collector configuration | Validated with the exact `grafana/otel-lgtm:0.32.1` image |
+| Repository diff | `git diff --check` passed before documentation updates |
+
+Human Operations has no package `build` script; its TypeScript typecheck is the
+available compile-time gate.
+
+The owner then approved the local rollout on 2026-09-19. Both migration 004 files
+were applied successfully and their schema rows, columns and indexes were
+verified. Integration Gateway and Human Operations were restarted with Node 24;
+Workflow Workers were restarted with Node 22.21.0 because the documented Apple
+Silicon Temporal failure reproduced on Node 24. The pinned local observability
+container was recreated without deleting its volume.
+
+Initial Prometheus evidence showed Gateway execution totals of four `SUCCEEDED`,
+one `PENDING_RECONCILIATION` and zero for the other active/result states. The
+oldest pending-reconciliation record was about 2.5 million seconds old. Both
+durable outboxes were empty; Gateway, Human Operations and Worker heartbeats
+were present; Collector uptime was present; and the Collector failure expression
+was zero. Grafana loaded all expected panels and all eleven rules. After fixing
+the Collector OTLP metrics path and the alert query -> reduce -> threshold
+contract, every rule evaluated without an execution error.
+
+The subsequent owner-approved audit found that the firing record was a legacy
+local orphan. It had no provider refund ID/event or Human Operations case; no
+matching USD 27.79 refund existed in Vendure; and its workflow was absent from
+the current ephemeral Temporal development server. The later USD 0.00 Vendure
+refund on that order was independently labeled `diagnostic-only`. A guarded
+local transaction changed only that orphan from `PENDING_RECONCILIATION` to
+`FAILED` and inserted a `LOCAL_OPERATOR` audit event. No provider or workflow
+endpoint was called. Metrics updated to four `SUCCEEDED`, one `FAILED` and zero
+`PENDING_RECONCILIATION`, and the stale alert became inactive.
+
+The recovery check also exposed that comparison queries returning no series on
+a healthy result could leave a previously firing instance unresolved. All local
+rules now map no data to `OK`; the three missing-telemetry rules retain their
+previous-presence guards. A focused regression test, JSON parsing, Compose
+validation and `git diff --check` passed after this correction.
+
+No paid call, provider refund execution/retry/settlement, token or secret change,
+AWS resource, notification destination or Git operation occurred during this
+rollout. The only refund-state mutation was the exact audited local orphan
+correction authorized by the project owner.
 
 ## Local observability and evaluation readiness checkpoint
 

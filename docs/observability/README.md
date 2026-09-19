@@ -1,14 +1,95 @@
 # Local observability foundation
 
-Latest update: the dependency batch adds Knowledge/RAG, Integration Gateway and
-Agent Runtime client propagation. It is committed and pushed on `dev` as
-`8f976be` but is not yet merged to `main`. Read
-[dependency tracing](DEPENDENCY_TRACING.md) for the scope, code walkthrough and
-synthetic test. The first-batch evidence below remains historical. The owner
-approved local opt-in for all four services on 2026-09-17; this is still not a
-production deployment.
+Latest update: an uncommitted `dev`-branch batch adds authoritative refund and
+durable-outbox gauges, telemetry heartbeats, Collector self-monitoring, local
+Grafana panels and non-notifying alerts. The migrations and local runtime were
+verified on 2026-09-19; this remains a local rollout and has not been deployed to
+AWS. Read
+[dependency tracing](DEPENDENCY_TRACING.md) for the earlier cross-service trace
+scope. Historical evidence below remains dated evidence, not the latest Git
+state.
 
 Owner approved 2026-09-16. This is the first batch, not full production monitoring.
+
+## Live local rollout, September 19
+
+Both new PostgreSQL migrations were applied successfully to the local database:
+the Gateway execution status timestamp/index and the Human Operations pending
+outbox observation index are present. Integration Gateway and Human Operations
+run on Node 24. The live Temporal Worker uses Node 22.21.0 because the documented
+Apple Silicon Temporal runtime issue still occurs on Node 24; this is a runtime
+constraint, not an observability workaround.
+
+The local dashboard is live on port 3300 and the OTLP HTTP receiver is on 4318.
+The initial durable snapshot contained four `SUCCEEDED` executions, one
+`PENDING_RECONCILIATION` execution and no active `IN_PROGRESS`, `SUBMITTED` or
+`FAILED` execution. Provider-event and Human Operations decision outboxes were
+empty. Gateway, Human Operations and Workflow Worker heartbeats were present.
+The existing pending-reconciliation record was about 2.5 million seconds old;
+the critical local rule correctly reported it.
+
+An owner-approved read-only audit proved that record was a legacy local orphan:
+it had no provider refund ID or provider event, no matching USD 27.79 Vendure
+refund, no Human Operations case and no workflow in the current ephemeral
+Temporal development server. The only Vendure refund on that order was a later,
+unrelated USD 0.00 `diagnostic-only` record. One guarded local transaction moved
+the orphan to `FAILED` and inserted a `LOCAL_OPERATOR` audit event with the
+reason and scope. It did not call Vendure or Temporal. The authoritative gauges
+then showed four `SUCCEEDED`, one `FAILED` and zero
+`PENDING_RECONCILIATION`; the stale alert returned to inactive.
+
+Collector internal telemetry uses the complete Prometheus OTLP metrics path
+`/api/v1/otlp/v1/metrics`. Collector uptime is present and the bounded exporter
+failure expression evaluates to zero. Every Grafana rule uses an explicit
+Prometheus query -> `last` reduction -> threshold chain. All eleven rules were
+evaluated live without execution errors. The three deliberate
+missing-telemetry rules still return a positive series when previously observed
+telemetry actually disappears. All local rules map a healthy empty comparison
+result to `OK`, so an earlier firing instance can recover normally.
+
+This work changed no token, signing secret or provider credential, made no paid
+model call, created no provider refund and configured no notification
+destination. The only refund-state change was the explicitly approved audited
+local correction described above.
+
+## Authoritative refund operations batch, September 17
+
+Integration Gateway and Human Operations now observe durable PostgreSQL state
+every 30 seconds when telemetry is enabled. These gauges answer business
+questions that request counters and Temporal activity attempts cannot answer:
+
+- current refund executions by `IN_PROGRESS`, `SUBMITTED`, `SUCCEEDED`,
+  `FAILED`, or `PENDING_RECONCILIATION`;
+- the age in seconds of the oldest active execution for each active status;
+- pending provider-event deliveries and their oldest age;
+- pending Human Operations decision deliveries and their oldest age.
+
+The observers are non-overlapping, stop with their owning service, and emit only
+bounded outcome labels. They never include a tenant, customer, order, case,
+workflow, provider-refund or staff identifier. Repository queries remain the
+source of truth; an exporter outage cannot change refund state.
+
+The exact OpenTelemetry instrument names are:
+
+```text
+cso.refund.executions.current
+cso.refund.executions.oldest_age
+cso.refund.provider_events.pending
+cso.refund.provider_events.oldest_age
+cso.human_operations.decision_outbox.pending
+cso.human_operations.decision_outbox.oldest_age
+cso.telemetry.heartbeat
+```
+
+Prometheus converts dots to underscores and adds `_seconds` to the three age
+gauges. The two database migrations add the status/outbox indexes required for
+these bounded aggregate queries. They are applied locally; run the normal
+service migration procedures before expecting the PostgreSQL-backed gauges in
+another environment.
+
+Temporal activity spans intentionally remain attempt-level trace evidence. An
+activity may retry, so it must not be counted as a distinct refund. Durable
+Gateway execution rows are the authoritative source for refund outcome counts.
 
 ## Current readiness batch, September 17
 
@@ -103,24 +184,29 @@ views:
 4. **Telemetry health**: operation samples by service and the local coverage
    boundary.
 
-The dashboard uses only the current emitted Prometheus series:
-`cso_operation_completed_total`, `cso_operation_duration_seconds_bucket`, and
-`cso_model_tokens_total`. The refund-path panel and fallback alert count
+The dashboard keeps the existing operation series and adds authoritative
+`cso_refund_executions_current`, `cso_refund_executions_oldest_age_seconds`,
+provider-event backlog, Human Operations outbox backlog, service heartbeat and
+Collector exporter-failure series. The refund-path event panel still counts
 operation events, **not distinct refunds**. Temporal activity attempts can retry,
 so their TraceQL panel is deliberately not treated as a business counter.
 
-Grafana provisions four local rules: model guard/failure event rate, RAG
-server-error rate, refund-path fallback event rate, and platform server-error
-rate. Each evaluates a 15- to 30-minute sample window, requires at least
-20, 30 or 50 emitted events, and remains true for 10 minutes before firing.
-They have bounded owner/severity/scope labels and no contact point, notification
-policy, webhook, cloud destination or other delivery configuration. They are
-local diagnostic rules, not an escalation path.
+Grafana provisions the four existing rate rules plus seven operational rules:
+stale reconciliation, stale provider-event delivery, stale human-decision
+delivery, Collector export failure, and missing Collector, Gateway or Worker
+telemetry. Missing-telemetry rules only activate after a process previously
+emitted its safe health signal, avoiding a false alert for a process that has
+never run. A healthy missing-telemetry query returns no series and is explicitly
+treated as `OK`. All rules use a separate reduce expression before their
+threshold and have bounded
+owner/severity/scope labels and no contact point, notification policy, webhook,
+cloud destination or other delivery configuration. They are local diagnostic
+rules, not an escalation path.
 
-There is no collector/exporter health metric or independent traffic baseline in
-this slice. Accordingly, no absence alert is configured: a service with no
-traffic cannot be distinguished from a service with broken telemetry. Inspect
-the telemetry-health panel while sending known synthetic traffic instead.
+The Collector now exports its own internal metrics to the local Prometheus OTLP
+endpoint. The telemetry-health view shows application heartbeats and Collector
+enqueue/export failures. This proves local signal continuity; it is not a
+production synthetic check or an AWS availability guarantee.
 
 ## Safe test with no paid calls
 
@@ -231,11 +317,14 @@ starting or stopping services.
 
 ## Remaining batches
 
-Not implemented here: durable distinct-refund, outbox-age and reconciliation-age
-metrics; Temporal activity metrics; collector/exporter health metrics; production
-sampling, retention, access controls, notification routing, CloudWatch/AWS/CDK
-deployment; and production SLOs. LangSmith export and an official Tau run remain
-separate, explicitly approved evaluation work.
+Still not implemented here: Temporal-derived business metrics beyond trace-only
+activity attempts; finalized production SLO thresholds; real notification
+routing; production sampling, retention and access-control enforcement;
+CloudWatch/AWS/CDK export and dashboards; and production load, failure and
+recovery validation. The migrations are applied locally but still require the
+normal deployment-time migration procedure in every other environment.
+LangSmith export and an official Tau run remain separate, explicitly approved
+evaluation work.
 Operational telemetry is not a replacement for durable business audit records.
 
 The [approved design](../superpowers/specs/2026-09-16-observability-design.md)
