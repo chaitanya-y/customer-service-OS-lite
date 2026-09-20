@@ -1,6 +1,6 @@
 # Customer Service OS Lite: Project Context and Contributor Handoff
 
-Last updated: 2026-09-17
+Last updated: 2026-09-20
 Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
 Active implementation branch: `dev`
 
@@ -19,11 +19,13 @@ Read it before changing code. It records:
 
 No credentials or `.env` values belong in this file or in Git.
 
-Current checkpoint: the local observability foundation is included in pushed
-`main` merge `cc36be6`. The dependency-tracing extension is committed and
-pushed on `dev` at `8f976be`, but is not merged to `main`. Its focused scope
-passed 469 tests and a safe synthetic Agent-to-RAG/Gateway trace produced 14
-linked spans. See [Verification Status](VERIFICATION_STATUS.md) for exact scope;
+Current checkpoint: the authoritative refund observability batch is committed
+on `dev` as `082beee` and merged to `main` as `c75dd51`. The implemented local
+slice now includes dependency tracing, model/RAG signals, short Workflow Worker
+activity spans, Conversation Runtime and Human Operations request telemetry,
+authoritative refund/outbox gauges, service heartbeats, Collector health, four
+Grafana views and eleven non-notifying local alerts. See
+[Verification Status](VERIFICATION_STATUS.md) for exact checks and limitations;
 this is not a paid-model, OpenSearch-performance, provider-performance or refund
 execution result.
 
@@ -714,13 +716,18 @@ migration to gain autonomous timeout behavior. See `VERIFICATION_STATUS.md`.
 ### Local observability foundation
 
 The approved local OpenTelemetry slice is implemented for Edge API, Agent
-Runtime, Knowledge/RAG and Integration Gateway. It propagates one W3C trace
-context across the current HTTP/MCP boundaries and records:
+Runtime, Knowledge/RAG, Integration Gateway, Conversation Runtime, Human
+Operations and short Workflow Worker activity boundaries. It propagates one W3C
+trace context across current HTTP/MCP boundaries and records:
 
 - Edge and service request spans;
 - Agent Runtime RAG and MCP client spans;
 - RAG embedding, vector search, keyword search, fusion and reranking phases;
 - Gateway MCP/HTTP handling and read-only Vendure order-lookup timing;
+- bounded model intent, answer, guard, fallback and provider-reported token
+  telemetry;
+- authoritative PostgreSQL refund execution and durable outbox gauges;
+- service heartbeats and Collector health/export-failure signals;
 - bounded operation counters, duration histograms and safe correlated completion
   logs.
 
@@ -730,19 +737,18 @@ answers, retrieved content, tokens, order references, request bodies and secrets
 Trace context never replaces signed tenant assertions or workflow capabilities,
 and operational telemetry never replaces the durable business audit.
 
-The current implementation does not yet cover Temporal activities, Human
-Operations, Conversation Runtime/browser BFFs, model token/cost/fallback data,
-refund business SLIs/alerts, production sampling/retention/access controls,
-CloudWatch or AWS/CDK export. See `observability/README.md` and
+The current implementation does not yet cover browser BFF telemetry, model price
+and cost attribution, workflow-level Temporal business metrics, finalized
+production SLOs, notification routing, production sampling/retention/access
+controls, CloudWatch or AWS/CDK export. See `observability/README.md` and
 `observability/DEPENDENCY_TRACING.md`.
 
 ## 8. Current Git state
 
-As recorded on September 17, `dev`/`origin/dev` point to `8f976be` and
-`main`/`origin/main` point to merge `cc36be6`. The dependency observability
-batch is therefore on `dev` only. Local untracked `.superpowers/` artifacts
-were preserved and excluded. This is a dated snapshot: always inspect Git before
-changing or publishing new work.
+As recorded on September 20, the implementation checkpoint is `082beee` on
+`dev`/`origin/dev` and merge `c75dd51` on `main`/`origin/main`. Local untracked
+`.superpowers/` artifacts were preserved and excluded. This is a dated snapshot:
+always inspect Git before changing or publishing new work.
 
 The repository workflow is:
 
@@ -1393,9 +1399,10 @@ parts remain:
   implemented and tested, but old idle waits do not gain a timer retroactively;
 - live model evaluation and release gating for the refund specialist;
 - Kafka topics, event schemas, consumers, and outbox delivery;
-- Temporal, Human Operations, Conversation Runtime/browser BFF, model usage and
-  refund-business observability; production sampling, retention, access controls,
-  dashboards, alerts and CloudWatch/AWS export also remain;
+- browser BFF telemetry, model pricing/cost attribution and workflow-level
+  Temporal business metrics; finalized production SLOs, notification routing,
+  production sampling, retention, access controls, CloudWatch/AWS export and
+  production load/failure validation also remain;
 - human calibration, LangSmith experiments, public Tau execution and full-workflow
   evaluation gates after the completed v3 campaign and failed v4 policy-answer
   trial; versioned datasets and deterministic intake/tool/policy/safety graders
@@ -1415,13 +1422,14 @@ parts remain:
 ## 16. Recommended next sequence
 
 The positive local refund slice is verified, the imperfect v3/v4 evaluation
-baseline is frozen, and the first two local observability batches are implemented.
-The current sequence is:
+baseline is frozen, and the expanded local observability foundation is
+implemented and verified. The current sequence is:
 
-1. Add model timing, token/cost/fallback telemetry and Temporal workflow/activity
-   spans without recording prompts, answers or customer data.
-2. Instrument Human Operations and Conversation Runtime, then define bounded
-   refund business metrics, dashboards, alerts and local recovery checks.
+1. Calibrate production SLOs and notification routing, then define sampling,
+   retention, access-control and CloudWatch/AWS export policies without changing
+   refund authorization.
+2. Add production load, failure and recovery validation for telemetry and the
+   durable refund/outbox signals.
 3. Resume human evaluation calibration, LangSmith export and external Tau only
    after notifying the owner and obtaining any required data/export approval.
    Keep public benchmark results separate from internal refund cases.

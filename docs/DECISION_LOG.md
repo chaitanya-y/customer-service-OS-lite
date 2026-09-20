@@ -1,6 +1,6 @@
 # Architecture Decision Log
 
-Last updated: 2026-09-17
+Last updated: 2026-09-20
 
 This is a compact status index. Detailed rationale belongs in ADRs and the current
 architecture document.
@@ -23,7 +23,7 @@ architecture document.
 | Local authentication adapters | Temporary and implemented | Customer/staff CLI tokens default to seven days (604800 seconds); internal assertions remain short lived. Replace local login with Cognito/OIDC in production |
 | Centralized Model Gateway | Accepted future design | Not implemented; Agent Runtime calls configured models directly today |
 | Kafka/MSK event backbone | Accepted future design | Not implemented; transactional outboxes and direct local delivery create the migration point |
-| OpenTelemetry and CloudWatch | Accepted; local foundation implemented | Opt-in local traces, bounded metrics and safe correlated logs cover Edge, Agent Runtime, Knowledge/RAG phases, Gateway and read-only Vendure lookup. Temporal, Human Operations, Conversation Runtime/browser BFFs, model usage, business alerts, CloudWatch and AWS export remain future work |
+| OpenTelemetry and CloudWatch | Accepted; expanded local foundation implemented | Opt-in local traces, bounded metrics and safe correlated logs cover Edge, Agent Runtime, Knowledge/RAG phases, Gateway, Conversation Runtime, Human Operations and short Workflow Worker activities. PostgreSQL-derived refund/outbox gauges, service heartbeats, Collector health, Grafana views and eleven non-notifying local alerts are implemented. Browser BFF telemetry, model cost attribution, workflow-level Temporal business metrics, production SLOs/routing, CloudWatch and AWS export remain future work |
 | First AWS target | Accepted future direction | Single-region ECS Fargate first; do not claim EKS or multi-region implementation |
 | Voice channel | Planned boundary only | Reuse identity, conversation, agent, RAG, workflow, policy, and Human Operations; no voice code yet |
 

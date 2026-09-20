@@ -38,7 +38,7 @@ earlier September 5 proof and the later automated wording-safeguard checks.
 | Admin Console | Visual foundation only |
 | PostgreSQL Human Operations cases, audit history, idempotency, and decision outbox | Implemented locally |
 | Centralized Model Gateway for routing, budgets, fallback, and provider policy | Planned; Agent Runtime currently calls configured models directly |
-| OpenTelemetry and local Grafana | Edge API, Agent Runtime, RAG phases and Gateway order lookup; [scope and runbook](docs/observability/README.md) |
+| OpenTelemetry and local Grafana | Implemented across the service slice with RAG/model phases, Workflow activity traces, authoritative refund/outbox gauges, heartbeats, Collector health, dashboards and eleven local non-notifying alerts; [scope and runbook](docs/observability/README.md) |
 | Cognito, Kafka, and AWS deployment | Planned |
 
 The running Human Operations service uses PostgreSQL. Case state, audit events,
@@ -46,13 +46,14 @@ idempotency records, and pending decisions survive service restarts. Its in-memo
 repository remains only as a test and dependency-injection adapter. Production
 deployment, backup, high availability, and Kafka delivery are still future work.
 
-September 17 code checkpoint: the local observability foundation is on `main`
-at `cc36be6`. The dependency-tracing extension is committed and pushed on `dev`
-at `8f976be`; it has not been merged to `main`. The latest focused observability
-scope passed 469 tests and a safe synthetic trace crossed Agent Runtime,
-Knowledge/RAG, and Integration Gateway with 14 linked spans. This was not a paid
-model call or refund execution. See [the verification record](docs/VERIFICATION_STATUS.md)
-for exact scope and limitations.
+September 19 observability checkpoint: the authoritative refund observability
+batch is committed on `dev` as `082beee` and merged to `main` as `c75dd51`.
+Fresh verification passed 14 shared telemetry tests, 61 Integration Gateway
+tests, 32 Human Operations tests with five optional database tests skipped, and
+77 Workflow Worker tests, plus typechecks, builds and dashboard/Collector
+configuration checks. This was not a paid model call or refund execution. See
+[the verification record](docs/VERIFICATION_STATUS.md) for exact scope and
+limitations.
 
 ## The governed refund boundary
 
@@ -116,8 +117,8 @@ cd ../knowledge-rag && uv run ruff check . && uv run pytest
 - [Current HLD and LLD](docs/architecture/KLEEM_AI_ARCHITECTURE_V1_1.md), the
   authoritative architecture amendment over the preserved original PDF.
 - [Final combined HLD and LLD PDF](docs/reference/architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture.pdf),
-  the September 3 architecture snapshot and complete version 1.0 baseline appendix;
-  current verification updates are in Markdown.
+  the September 20 current architecture edition and complete version 1.0
+  baseline appendix; detailed operational evidence remains in Markdown.
 - [Reference document manifest](docs/reference/README.md), precedence, page counts,
   checksums, and the included product PDFs.
 - [Local authentication and secrets](docs/LOCAL_AUTH_AND_SECRETS.md), a careful
