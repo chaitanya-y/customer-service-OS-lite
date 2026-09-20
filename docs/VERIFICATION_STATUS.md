@@ -1,10 +1,11 @@
 # Verification Status
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 ## Authoritative refund observability checkpoint
 
-The current uncommitted `dev` working tree adds database-derived refund outcome,
+The authoritative refund observability batch is committed on `dev` as `082beee`
+and merged to `main` as `c75dd51`. It adds database-derived refund outcome,
 reconciliation age, provider-event outbox and Human Operations decision-outbox
 gauges. It also adds bounded service heartbeats, Collector internal telemetry,
 five operational alert categories and matching local dashboard panels. Temporal
@@ -65,21 +66,21 @@ correction authorized by the project owner.
 
 ## Local observability and evaluation readiness checkpoint
 
-The September 17 local readiness batch adds model/guard telemetry, short
+At the September 17 checkpoint, the local readiness batch added model/guard telemetry, short
 Temporal activity spans, Human Operations and Conversation Runtime opt-in
 request telemetry, four Grafana views, local non-notifying alert configuration,
 repository-owned dependency startup helpers, and offline LangSmith/Tau
 preparation. It does not change refund authorization, create a refund, export
 evaluation data, or run a public benchmark.
 
-The Grafana dashboard has platform, model/RAG, refund-operations and
+At that checkpoint, the Grafana dashboard had platform, model/RAG, refund-operations and
 telemetry-health views. Its refund panel counts emitted operation events, not
 distinct refunds. Temporal activity data is available only through a Tempo
 TraceQL panel because the Worker emits activity spans, not a metric. The local
-rules have bounded labels and 15- to 30-minute minimum-traffic windows, but no
-contact point, cloud destination or notification policy. No absence alert is
-configured because there is no independent traffic baseline or
-collector/exporter-health metric.
+rules had bounded labels and 15- to 30-minute minimum-traffic windows, but no
+contact point, cloud destination or notification policy. The later authoritative
+refund observability checkpoint above added guarded missing-telemetry rules and
+Collector health without changing notification routing.
 
 | Check | Result |
 | --- | --- |

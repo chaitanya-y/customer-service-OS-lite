@@ -1,8 +1,9 @@
 # Local observability foundation
 
-Latest update: an uncommitted `dev`-branch batch adds authoritative refund and
-durable-outbox gauges, telemetry heartbeats, Collector self-monitoring, local
-Grafana panels and non-notifying alerts. The migrations and local runtime were
+Latest update: the authoritative refund observability batch is committed on
+`dev` as `082beee` and merged to `main` as `c75dd51`. It adds durable refund and
+outbox gauges, telemetry heartbeats, Collector self-monitoring, local Grafana
+panels and eleven non-notifying alerts. The migrations and local runtime were
 verified on 2026-09-19; this remains a local rollout and has not been deployed to
 AWS. Read
 [dependency tracing](DEPENDENCY_TRACING.md) for the earlier cross-service trace
@@ -310,19 +311,27 @@ starting or stopping services.
    attaches the shared runtime to the ASGI app and lifecycle.
 5. `packages/python-observability/cso_observability/bootstrap.py` owns Python
    initialization, the ASGI boundary and safe completion/export behavior.
-6. `infrastructure/observability/collector.yaml` filters before local storage;
+6. Integration Gateway's `refund-operations-observer.ts` and repository snapshot
+   query publish authoritative execution/outbox gauges; Human Operations uses the
+   equivalent `decision-outbox-observer.ts` and repository snapshot query.
+7. Workflow Worker activity wrappers emit short attempt-level spans, while
+   service heartbeat helpers prove bounded local signal continuity.
+8. `infrastructure/observability/collector.yaml` filters before local storage;
    `grafana/foundation.json` defines the initial dashboard.
-7. `tools/observability/smoke.py` proves the cross-language contract through real
+9. The provisioned alert YAML defines eleven local diagnostic rules with no
+   notification destination.
+10. `tools/observability/smoke.py` proves the cross-language contract through real
    HTTP and examines the emitted telemetry, not only mocked function calls.
 
 ## Remaining batches
 
-Still not implemented here: Temporal-derived business metrics beyond trace-only
-activity attempts; finalized production SLO thresholds; real notification
-routing; production sampling, retention and access-control enforcement;
-CloudWatch/AWS/CDK export and dashboards; and production load, failure and
-recovery validation. The migrations are applied locally but still require the
-normal deployment-time migration procedure in every other environment.
+Still not implemented here: workflow-level Temporal business metrics beyond
+trace-only activity attempts; finalized production SLO thresholds; real
+notification routing; production sampling, retention and access-control
+enforcement; CloudWatch/AWS/CDK export and dashboards; and production load,
+failure and recovery validation. The migrations are applied locally but still
+require the normal deployment-time migration procedure in every other
+environment.
 LangSmith export and an official Tau run remain separate, explicitly approved
 evaluation work.
 Operational telemetry is not a replacement for durable business audit records.

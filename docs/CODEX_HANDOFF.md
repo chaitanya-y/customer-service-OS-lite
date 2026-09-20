@@ -1,52 +1,38 @@
 # Codex Handoff
 
-Last updated: 2026-09-17
+Last updated: 2026-09-20
 
-Latest local work: the second observability batch extends opt-in tracing to
-Knowledge/RAG phases and Gateway read-only Vendure order lookup. Agent Runtime
-propagates trace context through its real RAG and MCP clients independently of
-signed authorization. Two Sol medium implementation workers completed separate
-slices; scoped independent review passed after two error-path fixes.
-See [the dependency tracing guide](observability/DEPENDENCY_TRACING.md) for files,
-functions, examples, safe synthetic commands and remaining rollout boundaries.
-Foundation dev commit `4a5cc58` and main merge `cc36be6` are already pushed.
-The second batch is committed and pushed on `dev` as `8f976be`, but is not
-merged to `main`. The approved local rollout is complete:
-the telemetry container was recreated with its volume preserved; the new RAG
-panel is visible; Edge, Agent Runtime, Knowledge/RAG and Gateway run with opt-in
-settings in ignored local `.env` files; and all four health checks pass. A final
-safe synthetic run stored 14 linked spans and all three signal types. No paid
-model call, refund, signing-secret change or login-token change occurred.
-RAGAS outcomes are unchanged; LangSmith/Tau remain deferred. Historical Git
-checkpoints below are not the current worktree status.
+Current checkpoint: authoritative refund observability is committed on `dev` as
+`082beee` and merged to `main` as `c75dd51`. The local implementation includes
+Edge, Agent Runtime, Knowledge/RAG and Gateway dependency tracing; bounded
+model/guard/token signals; short Workflow Worker activity spans; Conversation
+Runtime and Human Operations request telemetry; PostgreSQL-derived refund and
+outbox gauges; service heartbeats; Collector health; four Grafana views; and
+eleven non-notifying local alerts. Temporal activity spans remain attempt-level
+trace evidence, while Gateway execution rows are the authoritative refund-count
+source.
 
-Current uncommitted readiness work extends local telemetry to model/guard
-outcomes, short Workflow Worker activity spans, Human Operations and Conversation
-Runtime. It also adds four Grafana views, non-notifying local alert rules,
-repository-owned PostgreSQL/observability startup helpers, and offline
-LangSmith/Tau preparation. These are not a production rollout: Temporal
-activities are trace-only, refund-path operation events are not distinct refunds,
-there is no collector/exporter health metric, and alert rules have no notification
-destination. No LangSmith export, official Tau run, paid/model/provider call,
-refund, service lifecycle action or Git mutation occurred in this batch.
+The local rollout applied both migration 004 files, verified their indexes,
+loaded the pinned Collector configuration and evaluated all eleven alert rules.
+An owner-authorized, read-only audit identified one legacy reconciliation orphan;
+one guarded local transaction moved only that record to `FAILED` and added its
+audit event. It did not call Vendure or Temporal and created no refund. No paid
+model call, token renewal, signing-secret change, AWS resource or notification
+destination was introduced by this batch.
 
-Fresh evidence is recorded at the top of
-[Verification Status](VERIFICATION_STATUS.md): Python observability 16, Agent
-Runtime 203, shared Node telemetry 11, Workflow activity 2 plus 44 local
-non-network workflow tests, Human Operations 23, Conversation Runtime 26,
-dependency helper 5, dashboard configuration 4, and shared contracts 92.
-Database integrations remain skipped without their URLs. The Temporal
-`TestWorkflowEnvironment` integration suite is not freshly verified because it
-can need the external test-server artifact. The Evaluation Runner full suite has
-275 passes with Ruff clean, and the focused Tau suite has 5 passes; this
-verifies the offline Tau boundary without an official Tau run.
+Fresh evidence at the top of [Verification Status](VERIFICATION_STATUS.md)
+records: shared Node telemetry 14; Integration Gateway 61 plus typecheck/build;
+Human Operations 32 plus typecheck with five optional PostgreSQL tests skipped;
+Workflow Workers 77 plus typecheck; dashboard, alert and Collector configuration
+5; and the exact pinned Collector configuration validation. Earlier dependency
+smokes produced safe linked traces without reaching a model or refund boundary.
 
-Git checkpoint: `dev` and `origin/dev` are at `8f976be`; `main` and
-`origin/main` are at `cc36be6`. Verification for the dependency observability
-scope recorded 469 passing tests plus a final safe 14-span synthetic trace. See
-[Verification Status](VERIFICATION_STATUS.md) for exact scope and warnings.
-This documentation follow-up does not authorize another commit, push or paid run.
-Older dated paragraphs below describe their checkpoint, not current Git state.
+Still pending for production observability: browser BFF telemetry, model price
+and cost attribution, workflow-level Temporal business metrics, calibrated
+production SLOs, notification routing, production sampling/retention/access
+controls, CloudWatch/AWS export and load/failure/recovery validation. LangSmith
+export and an official Tau run also remain pending evaluation work. Historical
+dated paragraphs below are evidence for their checkpoint, not current Git state.
 
 Latest evaluation checkpoint: two approved Sol workers completed one live v4
 large-refund trial and independent preparation for the remaining v3 owner review.
@@ -477,30 +463,25 @@ These are one local-machine sample, not performance SLOs:
 The Agent Runtime consumed about 19–21 seconds of each turn. It contains two
 configured model calls, customer-safe RAG retrieval, and proposal construction.
 This sample predates the implemented local OpenTelemetry slice. Current traces
-separate RAG and Gateway dependency phases, but model-call timing/token/cost and
-Temporal activity timing are still absent. Do not infer a per-model latency
-breakdown from this table.
+separate RAG/Gateway phases, bounded model and guard outcomes, provider-reported
+tokens when available, and short Workflow Worker activity spans. They do not yet
+provide calibrated per-model latency/cost attribution or production SLO evidence.
+Do not infer either from this table.
 
 ## Recommended next work
 
-Local login update on September 11: the customer token default/maximum and staff
-CLI default/maximum are now seven days (604800 seconds). The owner authorized
-renewal of both configured tokens with the same identities, staff role, and
-signing secrets. They expire September 18, 2026, at approximately 3:30 PM
-America/Chicago. The staff `.env` override is now
-`LOCAL_HUMAN_ACCESS_TTL_SECONDS=604800`; the effective customer token remains in
-the Customer Portal `.env.local`, and the staff token in Operations Console
-`.env`. Both web apps were restarted. Internal assertions and browser cookie
-behavior are unchanged. Treat the earlier September 5 48-hour renewal as history,
-not the current lifetime. Always recheck expiry instead of relying on this date.
+Local customer and staff login token tooling now uses a seven-day default and
+maximum (604800 seconds). Previously issued tokens may already be expired; always
+inspect their `exp` claim and regenerate them with the existing identities and
+signing secrets when needed. The effective customer token belongs only in the
+Customer Portal `.env.local`; the staff token belongs only in the Operations
+Console `.env`. Internal service assertions remain short lived and automatic.
 See `LOCAL_AUTH_AND_SECRETS.md` for the development-only security tradeoff.
 
-1. Add durable distinct-refund, outbox-age and reconciliation-age metrics before
-   treating refund operations as a business dashboard. Activity attempts remain
-   non-authoritative, and Temporal has trace-only telemetry today.
-2. Add collector/exporter health metrics, production sampling/retention/access
-   controls, notification routing and CloudWatch/AWS export through a separately
-   approved deployment design.
+1. Calibrate production SLOs and notification routing, then define production
+   sampling, retention, access control and CloudWatch/AWS export.
+2. Run production-shaped load, telemetry-loss, exporter-failure and recovery
+   validation without weakening the durable refund audit.
 3. Resume human evaluation calibration, an actual LangSmith export and an
    official Tau run only with owner knowledge and required export/external-run
    approval. Keep adapted Tau cases non-comparable and do not repeat the v3/v4

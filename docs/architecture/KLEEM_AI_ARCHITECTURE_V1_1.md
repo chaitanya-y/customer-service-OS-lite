@@ -1,8 +1,8 @@
 # Kleem AI Combined HLD and LLD Architecture
 
 Version: 1.1 current architecture edition
-Date: 2026-09-03
-Implementation and verification status updated: 2026-09-17
+Date: 2026-09-20
+Implementation and verification status updated: 2026-09-20
 Status: Authoritative for the implemented repository and accepted near-term plan
 
 ## Document authority
@@ -16,9 +16,10 @@ this document and the ADR take precedence. The old PDF remains valuable for
 product intent, non-functional requirements, domain decomposition, and detailed
 future-state analysis.
 
-The final combined PDF contains the September 3 snapshot of this amendment and
-the complete version 1.0 baseline appendix. Later verification updates are here
-and in `docs/VERIFICATION_STATUS.md`; that PDF snapshot is unchanged.
+The final combined PDF was regenerated on September 20 from this amendment and
+the complete version 1.0 baseline appendix. Later operational evidence belongs in
+`docs/VERIFICATION_STATUS.md`; architecture changes belong here before another
+PDF is published.
 
 ## Executive summary
 
@@ -43,7 +44,7 @@ boundaries and safety controls without claiming production scale or reliability.
 | Initial AWS platform | EKS and multi-region target | First deployment is intentionally single-region ECS Fargate; EKS/multi-region are later scale choices, not current implementation |
 | Human Operations persistence | Earlier local slice was in memory | Running Human Operations service uses PostgreSQL with RLS, transactions, audit, idempotency, and durable decision outbox |
 | Model access | Central routing appears in future-state architecture | Central Model Gateway remains planned; Agent Runtime calls configured models directly today |
-| Observability | OpenTelemetry and CloudWatch appear as future-state capabilities | An opt-in local OpenTelemetry slice is implemented for Edge, Agent Runtime, Knowledge/RAG phases, Gateway and read-only Vendure lookup; production CloudWatch, remaining services, model usage and business alerting remain planned |
+| Observability | OpenTelemetry and CloudWatch appear as future-state capabilities | Opt-in local OpenTelemetry now covers Edge, Agent Runtime, Knowledge/RAG phases, Gateway, Conversation Runtime, Human Operations and short Workflow Worker activity spans. PostgreSQL-derived refund/outbox gauges, service heartbeats, Collector health, Grafana dashboards and eleven non-notifying local alerts are implemented; production SLOs, notification routing, CloudWatch/AWS export and production validation remain planned |
 | Delivery sequence | Broad platform build-out | Complete and harden the refund walking skeleton before expanding journeys |
 
 ## Architecture principles
@@ -105,7 +106,8 @@ The implemented local observability path is deliberately orthogonal to
 authorization and business state:
 
 ```text
-Edge / Agent Runtime / Knowledge-RAG / Integration Gateway
+Edge / Conversation Runtime / Agent Runtime / Knowledge-RAG
+Workflow Workers / Human Operations / Integration Gateway
   -> OTLP HTTP Collector
     -> Tempo traces / Prometheus metrics / Loki logs
       -> Grafana 3300
@@ -129,7 +131,7 @@ workflow capabilities and durable audit records remain the authority.
 | Integration Gateway | Node.js, TypeScript, Fastify, PostgreSQL | Vendure adapter, MCP server, authorization, idempotency, refund write, provider events, and audit evidence |
 | Human Operations | Node.js, TypeScript, Fastify, PostgreSQL | Durable cases, staff authorization, claim/reassign, decisions, audit, and Temporal outbox delivery |
 | Evaluation Runner, within Control and Knowledge | Python, RAGAS adapters | Versioned datasets, deterministic and semantic graders, repeated trials, usage reports, and compatible baseline comparison; separate from online runtime |
-| Local Observability | OpenTelemetry, Grafana LGTM | Opt-in traces, bounded metrics and safe correlated logs for Edge, Agent Runtime, Knowledge/RAG and Gateway; development evidence only |
+| Local Observability | OpenTelemetry, Grafana LGTM | Opt-in traces, bounded metrics and safe correlated logs across the implemented service slice, plus authoritative refund/outbox gauges, service heartbeats, Collector health, dashboards and eleven local non-notifying alerts; development evidence only |
 
 ## Governed refund sequence
 
@@ -336,15 +338,26 @@ The implemented opt-in local observability slice provides:
 - Knowledge/RAG phase spans for embedding, vector search, keyword search, fusion
   and reranking;
 - Integration Gateway HTTP/MCP spans and a read-only Vendure order-lookup span;
+- Human Operations and Conversation Runtime request telemetry;
+- short Workflow Worker activity spans that remain attempt-level trace evidence;
+- bounded model intent, answer, guard, fallback and provider-reported token
+  telemetry when the provider supplies usage;
+- authoritative PostgreSQL snapshots for refund execution outcomes, active-state
+  age, provider-event backlog and Human Operations decision-outbox backlog;
+- service heartbeats and Collector uptime/export-failure telemetry;
 - bounded operation metrics and fixed correlated completion logs;
+- four local Grafana dashboard views and eleven non-notifying diagnostic alerts;
 - local Tempo, Prometheus, Loki and Grafana storage on loopback.
 
-The signals exclude raw prompts, answers, retrieved chunks, tokens, order IDs,
-request bodies and secrets. Provider trace propagation to Vendure is disabled.
-Temporal activities, Human Operations, Conversation Runtime/browser BFFs, model
-token/cost/fallback telemetry, refund business SLIs/alerts, production sampling,
+The signals exclude raw prompts, answers, retrieved chunks, order IDs, request
+bodies and secrets. Provider trace propagation to Vendure is disabled. Token
+metrics contain bounded numeric usage only, never token contents. Browser BFF
+telemetry, model pricing/cost attribution, workflow-level Temporal business
+metrics, finalized production SLOs, notification routing, production sampling,
 retention/access controls, CloudWatch and AWS/CDK export remain pending. Durable
-business audit records are separate from operational telemetry.
+business audit records are separate from operational telemetry. Temporal activity
+spans can retry and therefore are never counted as distinct refunds; Integration
+Gateway execution rows remain the authoritative refund-outcome source.
 
 Dataset v3 completed its authorized five-case, three-repetition campaign: 15
 attempts, five scored answers, ten production-guard rejections and no case that
@@ -389,7 +402,9 @@ Implemented and substantially exercised locally:
 - signed provider outcome, processing, and reconciliation;
 - customer and operations browser projections.
 - opt-in local OpenTelemetry correlation across Edge, Agent Runtime,
-  Knowledge/RAG phases and Gateway read-only commerce lookup, with Grafana LGTM.
+  Knowledge/RAG, Conversation Runtime, Human Operations, Gateway and short
+  Workflow Worker activities, with PostgreSQL-derived refund/outbox gauges,
+  service heartbeats, Collector health, Grafana LGTM and eleven local alerts.
 - private normalized photo intake, PostgreSQL evidence metadata, exact-revision
   assigned-staff review, and a Temporal gate under immutable policy release v2.
   Evidence acceptance is separate from monetary approval. Existing v1 requests
@@ -415,8 +430,11 @@ Still pending:
   retention approval and recovery operations;
 - centralized Model Gateway;
 - Kafka/MSK event delivery;
-- remaining service, Temporal, model and business instrumentation plus production
-  CloudWatch/AWS export, sampling, retention, dashboards and alerts;
+- browser BFF telemetry, model pricing/cost attribution and workflow-level
+  Temporal business metrics;
+- finalized production SLOs, notification routing, production sampling,
+  retention/access controls, CloudWatch/AWS export and production load/failure
+  validation;
 - production Cognito identity and AWS infrastructure;
 - Admin Control Plane release workflows;
 - real-phone voice implementation.

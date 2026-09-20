@@ -1,6 +1,6 @@
 # Reference Document Manifest
 
-Last updated: 2026-09-14
+Last updated: 2026-09-20
 
 ## Precedence
 
@@ -16,23 +16,26 @@ any deliberate architecture change.
 ## Architecture files
 
 - `architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture.pdf` is the final
-  version 1.1 combined PDF generated on September 3. It begins with that amendment
-  snapshot and includes the
-  complete original document as a baseline appendix. Pages: 192. SHA-256:
-  `06ce49530ee0df1feed291bca8ebb57e7b840c288a6a95e46ba0f8fffaee2cbf`.
+  version 1.1 combined PDF regenerated on September 20. Its 10-page current
+  amendment records the implemented architecture and observability state, followed
+  by the complete original document as an immutable baseline appendix. Pages: 193.
+  SHA-256:
+  `62a9601ccc7648198e8e1d260226649103ec56e520b3a1f412012c72d84d78ce`.
 - `architecture/Kleem_AI_Combined_HLD_and_LLD_Architecture_v1.0_baseline.pdf` is an
   immutable copy of the original 183-page architecture document. SHA-256:
   `dc336b4b3994736d4dc3f07bef0c649866ce5d98096f78f73c2ffb547fec1b71`.
 - `../architecture/KLEEM_AI_ARCHITECTURE_V1_1.md` is the searchable authoritative
   source for current decisions.
 
-The PDF bytes and checksums above are unchanged. Later refund/photo verification,
-the separate Evaluation Runner, current RAGAS status and the September 14 Git/test
-checkpoint are recorded in [Verification Status](../VERIFICATION_STATUS.md),
-[the handoff](../CODEX_HANDOFF.md) and
-[the evaluation strategy](../evaluation/EVALUATION_STRATEGY.md), not the older
-PDF snapshot. Share those Markdown files alongside the PDFs when handing off
-work. This documentation update did not regenerate or revalidate PDF rendering.
+The September 20 amendment includes the current component boundaries, durable
+Human Operations persistence, planned Model Gateway status, implemented local
+observability boundary and remaining production gaps. Detailed test evidence,
+RAGAS results and dated operational checks remain in
+[Verification Status](../VERIFICATION_STATUS.md), [the handoff](../CODEX_HANDOFF.md)
+and [the evaluation strategy](../evaluation/EVALUATION_STRATEGY.md). Share those
+Markdown files alongside the PDF when handing off work. The combined PDF was
+rendered and visually checked at the amendment and appendix boundary; the baseline
+checksum remains unchanged.
 
 ## Product files
 
