@@ -1,6 +1,6 @@
 # Evaluation entrypoint
 
-This directory is the durable index for Customer Service OS Lite evaluation.
+This directory is the durable index for Customer Service Agent Platform evaluation.
 Start here, then use the linked reports for exact artifacts and limitations.
 
 ## Current checkpoint — 2026-09-15

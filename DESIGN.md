@@ -1,4 +1,4 @@
-# Customer Service OS Lite Design System
+# Customer Service Agent Platform Design System
 
 ## Purpose
 

@@ -1,4 +1,4 @@
-# Kleem AI Combined HLD and LLD Architecture
+# Customer Service Agent Platform Combined HLD and LLD Architecture
 
 Version: 1.1 current architecture edition
 Date: 2026-09-20
@@ -7,8 +7,8 @@ Status: Authoritative for the implemented repository and accepted near-term plan
 
 ## Document authority
 
-This document is the current architecture amendment for Customer Service OS Lite,
-also referred to as the Kleem AI customer agent platform. It must be read before
+This document is the current architecture amendment for Customer Service Agent
+Platform. It must be read before
 the preserved version 1.0 combined HLD/LLD PDF.
 
 If this document or an accepted ADR conflicts with a page in the version 1.0 PDF,

@@ -121,7 +121,7 @@ customer and Human Operations staff. Internal assertions are short lived and
 generated automatically. Read `docs/LOCAL_AUTH_AND_SECRETS.md` before diagnosing
 authentication or changing an environment variable.
 
-Local customer and staff CLI login tokens now default to seven days (604800
+Local customer and staff CLI login tokens now default to 30 days (2592000
 seconds), not 48 hours. Do not extend the automatic internal assertions or infer
 the same lifetime for production authentication. Renew local tokens only with
 owner authorization; keep their values out of logs and Git.

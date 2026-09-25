@@ -176,7 +176,7 @@ agents without approval for the current batch.
 
 ## Repository state at this handoff
 
-- Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
+- Repository: <https://github.com/chaitanya-y/customer-service-agent-platform>
 - Development branch: `dev`
 - Stable integration branch: `main`
 - Commit `e5fbe50` (`Preserve customer context across refund chat turns`) contains
@@ -195,7 +195,7 @@ agents without approval for the current batch.
 
 ## What the project is
 
-Customer Service OS Lite is a production-shaped learning platform for creating,
+Customer Service Agent Platform is a production-shaped learning platform for creating,
 governing, operating, and eventually deploying customer support agents. The first
 walking skeleton is a complex refund journey rather than a collection of demos.
 
@@ -470,8 +470,8 @@ Do not infer either from this table.
 
 ## Recommended next work
 
-Local customer and staff login token tooling now uses a seven-day default and
-maximum (604800 seconds). Previously issued tokens may already be expired; always
+Local customer and staff login token tooling now uses a 30-day default and
+maximum (2592000 seconds). Previously issued tokens may already be expired; always
 inspect their `exp` claim and regenerate them with the existing identities and
 signing secrets when needed. The effective customer token belongs only in the
 Customer Portal `.env.local`; the staff token belongs only in the Operations

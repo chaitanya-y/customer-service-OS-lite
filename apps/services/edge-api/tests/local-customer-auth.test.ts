@@ -46,7 +46,7 @@ test('verifies a valid local customer access token', async () => {
   assert.deepEqual(await createVerifier()(await createToken()), TEST_IDENTITY);
 });
 
-test('issues local customer tokens valid until the seven-day expiry boundary', async () => {
+test('issues local customer tokens valid until the thirty-day expiry boundary', async () => {
   const token = await signLocalCustomerAccessToken({
     secret: TEST_SECRET,
     issuer: 'local-auth',
@@ -54,23 +54,23 @@ test('issues local customer tokens valid until the seven-day expiry boundary', a
     identity: TEST_IDENTITY,
     now: () => TEST_NOW,
   });
-  const justBeforeExpiry = new Date(TEST_NOW.getTime() + 604_799_000);
+  const justBeforeExpiry = new Date(TEST_NOW.getTime() + 2_591_999_000);
 
   assert.deepEqual(
     await createVerifier(justBeforeExpiry)(token),
     TEST_IDENTITY,
   );
   await assert.rejects(
-    () => createVerifier(new Date(TEST_NOW.getTime() + 604_800_000))(token),
+    () => createVerifier(new Date(TEST_NOW.getTime() + 2_592_000_000))(token),
     CustomerAuthenticationError,
   );
 });
 
-test('refuses to issue a local customer token longer than seven days', async () => {
-  await assert.rejects(() => createToken({}, 604_801), /lifetime must be between/);
+test('refuses to issue a local customer token longer than thirty days', async () => {
+  await assert.rejects(() => createToken({}, 2_592_001), /lifetime must be between/);
 });
 
-test('rejects correctly signed customer tokens longer than seven days', async () => {
+test('rejects correctly signed customer tokens longer than thirty days', async () => {
   const issuedAt = Math.floor(TEST_NOW.getTime() / 1_000);
   const token = await new SignJWT({
     tenantId: TEST_IDENTITY.tenantId,
@@ -82,7 +82,7 @@ test('rejects correctly signed customer tokens longer than seven days', async ()
     .setAudience('edge-api')
     .setSubject(TEST_IDENTITY.principalId)
     .setIssuedAt(issuedAt)
-    .setExpirationTime(issuedAt + 604_801)
+    .setExpirationTime(issuedAt + 2_592_001)
     .sign(new TextEncoder().encode(TEST_SECRET));
 
   await assert.rejects(() => createVerifier()(token), CustomerAuthenticationError);

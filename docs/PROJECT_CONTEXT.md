@@ -1,7 +1,7 @@
-# Customer Service OS Lite: Project Context and Contributor Handoff
+# Customer Service Agent Platform: Project Context and Contributor Handoff
 
 Last updated: 2026-09-20
-Repository: <https://github.com/chaitanya-y/customer-service-OS-lite>
+Repository: <https://github.com/chaitanya-y/customer-service-agent-platform>
 Active implementation branch: `dev`
 
 ## 1. Why this file exists
@@ -55,10 +55,10 @@ versions and proposed next steps are not the current checkpoint. The positive
 photo-gated refund test is complete; a fresh paid browser answer-wording check
 remains pending separately.
 
-Local login tokens now default to seven days (604800 seconds), as requested on
-September 11. Both configured customer and staff tokens were renewed with the
+Local login tokens now default to 30 days (2592000 seconds), as requested on
+September 21. Both configured customer and staff tokens were renewed with the
 same identities/role and signing secrets; both web apps were restarted. The staff
-CLI `.env` TTL override was updated to 604800. This does not extend internal
+CLI `.env` TTL override was updated to 2592000. This does not extend internal
 service assertions or establish a production token policy. Read
 `LOCAL_AUTH_AND_SECRETS.md` before renewal; check expiry at runtime rather than
 assuming a previously recorded token is still valid.
@@ -151,7 +151,7 @@ reproduced offline before choosing a behavioral fix.
 
 ## 2. Product goal
 
-Customer Service OS Lite is a resume-quality, production-shaped customer-service
+Customer Service Agent Platform is a production-shaped customer-service
 platform. The learning goal is to build one complex customer journey end to end,
 understand every major concept, test it locally, and then deploy a single-region
 version to AWS.
@@ -755,7 +755,7 @@ The repository workflow is:
 - implementation branch: `dev`
 - release branch: `main`
 - remote: `origin`
-- remote URL: `https://github.com/chaitanya-y/customer-service-OS-lite.git`
+- remote URL: `https://github.com/chaitanya-y/customer-service-agent-platform.git`
 - branch workflow: implement and test on `dev`, then merge verified changes to
   `main`;
 - `dev` is the implementation branch. Build and test a change here before moving
@@ -791,8 +791,8 @@ The Agent Runtime currently constrains Python to `>=3.12,<3.13`.
 ## 10. Clone and install
 
 ```bash
-git clone https://github.com/chaitanya-y/customer-service-OS-lite.git
-cd customer-service-OS-lite
+git clone https://github.com/chaitanya-y/customer-service-agent-platform.git
+cd customer-service-agent-platform
 git switch dev
 ```
 
@@ -1123,7 +1123,7 @@ Expected URLs:
 - health: `http://127.0.0.1:3000/health`
 - customer refund intake: `POST http://127.0.0.1:3000/v1/refunds/intake`
 
-Generate a local customer access token, valid for at most seven days:
+Generate a local customer access token, valid for at most 30 days:
 
 ```bash
 pnpm local:token

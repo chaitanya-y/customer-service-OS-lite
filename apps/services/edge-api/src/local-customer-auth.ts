@@ -35,7 +35,7 @@ const localCustomerClaimsSchema = z
   })
   .strict();
 
-const MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+const MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
 type LocalCustomerIdentityVerifierOptions = {
   secret: string;
@@ -135,7 +135,7 @@ export async function signLocalCustomerAccessToken({
     lifetimeSeconds > MAX_LOCAL_CUSTOMER_TOKEN_LIFETIME_SECONDS
   ) {
     throw new Error(
-      'Local customer token lifetime must be between 1 and 604800 seconds',
+      'Local customer token lifetime must be between 1 and 2592000 seconds',
     );
   }
 

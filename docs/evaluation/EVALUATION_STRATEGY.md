@@ -6,7 +6,7 @@ Last updated: 2026-09-17
 
 ## Purpose
 
-This document defines how Customer Service OS Lite will evaluate retrieval,
+This document defines how Customer Service Agent Platform will evaluate retrieval,
 generated answers, agent behavior, governance, and end-to-end customer-service
 outcomes. Evaluation is a release boundary, not a collection of prompt tests.
 

@@ -21,7 +21,7 @@ function generateCliToken(ttl?: string): string {
   }).trim();
 }
 
-test('local staff CLI defaults to seven days and preserves the staff identity', async () => {
+test('local staff CLI defaults to thirty days and preserves the staff identity', async () => {
   const assertion = generateCliToken();
   const access = await createHumanAssertionVerifier({
     secret: 'a-local-human-access-secret-that-is-long-enough',
@@ -33,13 +33,13 @@ test('local staff CLI defaults to seven days and preserves the staff identity', 
 
   assert.equal(access.staffId, 'local-refund-supervisor');
   assert.equal(access.role, 'REFUND_SUPERVISOR');
-  assert.equal(access.exp! - access.iat!, 604_800);
+  assert.equal(access.exp! - access.iat!, 2_592_000);
 });
 
-test('local staff CLI accepts seven days and refuses a longer configured lifetime', () => {
-  const claims = decodeJwt(generateCliToken('604800'));
-  assert.equal(claims.exp! - claims.iat!, 604_800);
-  assert.throws(() => generateCliToken('604801'), /LOCAL_HUMAN_ACCESS_TTL_SECONDS/);
+test('local staff CLI accepts thirty days and refuses a longer configured lifetime', () => {
+  const claims = decodeJwt(generateCliToken('2592000'));
+  assert.equal(claims.exp! - claims.iat!, 2_592_000);
+  assert.throws(() => generateCliToken('2592001'), /LOCAL_HUMAN_ACCESS_TTL_SECONDS/);
 });
 
 test('creates an assertion accepted by Human Operations', async () => {

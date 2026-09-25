@@ -1,6 +1,23 @@
 # Verification Status
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
+
+## Thirty-day local login token checkpoint
+
+The owner authorized extending only the two manually generated local-development
+login tokens from seven days to 30 days (2592000 seconds). Edge now issues and
+verifies customer tokens at that limit, and the Human Operations CLI defaults to
+and caps staff tokens at the same value. Internal audience-specific service
+assertions remain short lived and production authentication is unchanged.
+
+Test-first verification reproduced failures against the former seven-day limits,
+then passed eight Edge customer-token tests and three Human Operations staff-token
+tests after the bounded change. Both typechecks passed. New customer and staff
+tokens were generated with the existing identities, roles and signing secrets;
+their values were written only to ignored local environment files and were not
+printed. Customer Portal and Operations Console were restarted to load them. The
+complete local service/dependency health matrix then returned healthy/readable
+results, and the Temporal worker reached `RUNNING`.
 
 ## Authoritative refund observability checkpoint
 

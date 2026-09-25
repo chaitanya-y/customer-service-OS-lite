@@ -257,6 +257,48 @@ The later approved rollout recreated only the observability container while
 preserving its named volume. Browser verification showed the new RAG phase p95
 panel and all four service series.
 
+## Alert acceptance test
+
+The repository now owns an executable acceptance suite for all eleven local
+Grafana alerts. It reads the real PromQL from `grafana/alerts.yaml`; it does not
+maintain a second approximation of the alert expressions.
+
+Run the offline contract check first:
+
+```sh
+apps/services/agent-runtime/.venv/bin/python tools/observability/acceptance.py --check
+```
+
+This verifies that every expected alert still has one scenario and three phase
+assertions: healthy, firing after the configured ten-minute hold, and recovered.
+It does not start Docker or write telemetry.
+
+With Docker and the local observability backend available, run the complete safe
+acceptance proof:
+
+```sh
+apps/services/agent-runtime/.venv/bin/python tools/observability/acceptance.py --run
+```
+
+The runner uses `promtool` from the exact digest-pinned `grafana/otel-lgtm`
+image. The disposable container has no network, a read-only root filesystem, a
+read-only fixture mount, dropped capabilities and no-new-privileges. Promtool
+evaluates each real alert independently against synthetic time series. The
+runner then invokes the existing dependency smoke and forwards only synthetic
+signals to the loopback Collector.
+
+This test never uses application tokens or secrets, calls OpenAI, Vendure or a
+payment provider, writes business data, creates a refund, or stops/restarts an
+application service. The full acceptance run on September 20, 2026 passed 11
+alert scenarios and 33 phase assertions. Its dependency smoke produced one
+14-span cross-service trace in 65 ms with traces, metrics and logs, and with all
+sensitive canaries absent. That timing is a synthetic local measurement, not a
+production SLO.
+
+The behavior tests are in `tools/observability/test_acceptance.py`. If an alert
+is added or its hold/query changes, the suite deliberately fails until a safe
+healthy/firing/recovery scenario is reviewed and added.
+
 ## Local service opt-in
 
 Telemetry defaults to off. Examples are in each service's `.env.example`. The
@@ -320,7 +362,9 @@ starting or stopping services.
    `grafana/foundation.json` defines the initial dashboard.
 9. The provisioned alert YAML defines eleven local diagnostic rules with no
    notification destination.
-10. `tools/observability/smoke.py` proves the cross-language contract through real
+10. `tools/observability/acceptance.py` evaluates those real queries through
+    healthy, firing and recovery phases in an isolated Prometheus rule test.
+11. `tools/observability/smoke.py` proves the cross-language contract through real
    HTTP and examines the emitted telemetry, not only mocked function calls.
 
 ## Remaining batches
